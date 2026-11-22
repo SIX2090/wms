@@ -6,8 +6,14 @@
 <div class="page-header">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-3">
         <div>
-            <h2 class="mb-1"><i class="bi bi-graph-up"></i> {{ title }}</h2>
+            <h2 class="mb-1"><i class="bi bi-graph-up"></i> <span id="reportHeading">{{ title }}</span></h2>
+            {% if report_type == 'subcontract' %}
+            <div class="text-muted">按委外订单的仓库和日期查询，只累计已完成的发料和收货。</div>
+            {% elif report_type == 'check' %}
+            <div class="text-muted">同一物料的卡板全部盘齐后显示净差异，账面数量只列一次。</div>
+            {% else %}
             <div class="text-muted">按当前筛选条件查看、导出和打印报表。</div>
+            {% endif %}
         </div>
         <div class="d-flex flex-wrap align-items-center gap-2" id="reportToolbar" role="toolbar" aria-label="报表工具栏">
             <button class="btn btn-outline-primary" type="button" id="toggleFilterBtn" aria-expanded="true" aria-controls="filterPanel">
@@ -176,9 +182,9 @@
 
             {% if filters_config.customer %}
             <div class="col-md-3">
-                <label for="customer" class="form-label">客户 / 部门</label>
+                <label for="customer" class="form-label">{{ '客户' if report_type == 'in_detail' else '客户 / 部门' }}</label>
                 {# 选中回填名称（后端按名称文本模糊匹配）；也允许直接手输部门名 #}
-                <input id="customer" name="customer" type="text" class="form-control" placeholder="客户名称或领用部门" autocomplete="off" data-ks="customer" data-ks-put="name">
+                <input id="customer" name="customer" type="text" class="form-control" placeholder="{{ '客户编码或名称' if report_type == 'in_detail' else '客户名称或领用部门' }}" autocomplete="off" data-ks="customer" data-ks-put="name">
             </div>
             {% endif %}
 
@@ -198,6 +204,7 @@
                     {# BUG-2026-09-23-002：采购订单执行统计表的单据状态还有 partial/closed，
                        后端筛选本就支持（PurchaseOrder.status == filters['status']），
                        补齐选项才能按「部分入库/已关闭」过滤；仅该报表追加，避免污染入出库/盘点报表 #}
+                    {% if report_type == 'subcontract' %}<option value="processing">加工中</option>{% endif %}
                     {% if report_type == 'purchase_order_execution' %}
                     <option value="partial">部分入库</option>
                     <option value="closed">已关闭</option>
@@ -328,7 +335,7 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if report_type in ('material_movement', 'warehouse_monthly', 'in_detail', 'out_detail') %}
+{% if report_type in ('material_movement', 'warehouse_monthly', 'in_detail', 'out_detail', 'inventory') %}
 <script src="{{ url_for('static', filename='js/material-movement-report.js') }}?v={{ STATIC_VERSION }}"></script>
 {% endif %}
 {% if report_type == 'warehouse_monthly' %}
@@ -541,6 +548,7 @@ printBtn.addEventListener('click', async () => {
             }
             if (page === 1) {
                 columns = result.columns || columns;
+                printContext.title = result.title;
                 printContext.summary = result.summary || {};
                 printContext.summaryLabels = Object.assign({}, summaryLabels, result.summary_labels || {});
                 printContext.summaryTypes = Object.assign({}, summaryTypes, result.summary_types || {});
@@ -591,10 +599,11 @@ function renderPrintArea(columns, rows, truncated, printContext) {
     const metaParts = printContext.metaParts;
     const summaryText = Object.keys(printContext.summaryLabels).map(key => {
         const label = printContext.summaryLabels[key] || key;
-        const value = Array.isArray(printContext.summary.unit_totals) && (key === 'quantity' || (key !== 'count' && !['in_detail', 'out_detail'].includes(reportType)))
+        const value = Array.isArray(printContext.summary.unit_totals) && (key === 'quantity' || (key !== 'count' && ['material_movement', 'warehouse_monthly'].includes(reportType)))
             ? window.WMSMaterialMovement.formatUnitTotal(printContext.summary, key)
-            : formatValue(printContext.summary[key] || 0, printContext.summaryTypes[key]);
-        return `${label} ${value}`;
+            : (printContext.summary[key + '_text'] || formatValue(printContext.summary[key], printContext.summaryTypes[key]));
+        const pending = key === 'amount' && printContext.summary.uncounted_groups;
+        return `${label} ${value}${pending ? '（' + pending + ' 组物料待盘齐）' : ''}`;
     }).join('　|　');
     const now = new Date();
     const printedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
@@ -609,7 +618,7 @@ function renderPrintArea(columns, rows, truncated, printContext) {
     }).join('');
     el.innerHTML = `
         <div class="print-header">
-            <h3>${escapeHtml(reportTitle)}</h3>
+            <h3>${escapeHtml(printContext.title || reportTitle)}</h3>
             <div class="print-meta">打印时间：${escapeHtml(printedAt)}　|　共 ${rows.length.toLocaleString('zh-CN')} 条${truncated ? '（超过打印上限，仅前 ' + MAX_PRINT_ROWS.toLocaleString('zh-CN') + ' 条，完整数据请导出 Excel）' : ''}</div>
             ${metaParts.length ? `<div class="print-meta">筛选条件：${escapeHtml(metaParts.join('；'))}</div>` : ''}
             ${summaryText ? `<div class="print-summary">筛选结果汇总${truncated ? '（含未打印行）' : ''}：${escapeHtml(summaryText)}</div>` : ''}
@@ -706,8 +715,10 @@ function renderSummary(summary) {
     document.getElementById('summaryCount').textContent = formatValue(summary.count || 0, summaryTypes.count);
     document.getElementById('summaryQuantity').textContent = Array.isArray(summary.unit_totals)
         ? window.WMSMaterialMovement.formatUnitTotal(summary, 'quantity')
-        : formatValue(summary.quantity || 0, summaryTypes.quantity);
-    document.getElementById('summaryAmount').textContent = formatValue(summary.amount || 0, summaryTypes.amount);
+        : (summary.quantity_text || formatValue(summary.quantity || 0, summaryTypes.quantity));
+    const amount = summary.amount_text || formatValue(summary.amount, summaryTypes.amount);
+    document.getElementById('summaryAmount').textContent = summary.uncounted_groups
+        ? amount + '（' + summary.uncounted_groups + ' 组物料待盘齐）' : amount;
 }
 
 function renderTable(columns, rows) {
@@ -968,6 +979,10 @@ async function loadData() {
         if (requestId !== reportRequestId) return;
         if (!response.ok || result.status !== 'success') {
             throw new Error(result.msg || '报表查询失败');
+        }
+        if (result.title) {
+            const heading = document.getElementById('reportHeading');
+            if (heading) heading.textContent = result.title;
         }
         renderSummary(result.summary || {});
         renderTable(result.columns || [], result.data || []);

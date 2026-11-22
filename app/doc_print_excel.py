@@ -920,6 +920,10 @@ def _report_print_quantity(rows):
 
 def _dynamic_report_template(report_type, template):
     target = report_target_code(report_type)
+    if report_type in ('check', 'summary', 'requisition', 'subcontract'):
+        return template.excel_template_path in {
+            f'/static/uploads/print_templates/builtin_{target}_{suffix}.xlsx'
+            for suffix in ('default', 'pallet_v2', 'units_v3')}
     if report_type in ('in_detail', 'out_detail'):
         prefix = f'/static/uploads/print_templates/builtin_{target}_'
         return template.excel_template_path in {prefix + suffix + '.xlsx' for suffix in
@@ -970,6 +974,8 @@ def _report_builtin_abspath(static_folder, report_type, title, columns):
     if report_type in ('in_detail', 'out_detail'):
         variant = 'price' if any(col['field'] == 'price' for col in columns) else 'quantity'
         filename = f'builtin_{target}_detail_v2_{variant}.xlsx'
+    elif report_type in ('check', 'summary', 'requisition', 'subcontract'):
+        filename = f'builtin_{target}_units_v3.xlsx'
     path = os.path.join(abs_dir, filename)
     if not os.path.exists(path):
         content = generate_report_builtin_template(title, columns)
@@ -1015,9 +1021,14 @@ def render_report_excel_print(report_type, title, columns, rows,
                                               static_folder)
             if candidate and os.path.exists(candidate):
                 path = candidate
-    if path is None:
-        path = _report_builtin_abspath(static_folder, report_type, title,
-                                       columns)
+    using_builtin = path is None
+    if using_builtin:
+        from app import _get_report_definition
+        base_title = (_get_report_definition(report_type) or {}).get('title') or title
+        base_columns = columns
+        if report_type in ('requisition', 'subcontract'):
+            base_columns = [dict(col, title=col['title'].split('（')[0]) for col in columns]
+        path = _report_builtin_abspath(static_folder, report_type, base_title, base_columns)
     if not path:
         return None
     order = SimpleNamespace(
@@ -1025,6 +1036,12 @@ def render_report_excel_print(report_type, title, columns, rows,
         total_amount=sum(float(row.get('amount') or 0) for row in rows)
         if any(col['field'] == 'amount' for col in columns) else '')
     wb = load_workbook(path)
+    if using_builtin and report_type in ('in_detail', 'out_detail') and title:
+        wb.active['A1'] = title
+        wb.active.title = title[:31]
+    if using_builtin and report_type in ('requisition', 'subcontract'):
+        for cell, column in zip(wb.active[2], columns):
+            cell.value = column['title']
     total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail') else None
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),

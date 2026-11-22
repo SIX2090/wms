@@ -121,6 +121,34 @@ class TestBug20260907017:
             db.session.add(ProductionRequisitionItem(
                 requisition_id=req.id, material_id=material_id, quantity=qty))
 
+    def test_order_quantity_units(self):
+        with app_module.app.app_context():
+            meter = Unit(code='METER', name='米')
+            db.session.add(meter)
+            db.session.flush()
+            ProductionRequisitionItem.query.filter_by(material_id=self.m2_id).update({'unit_id': meter.id})
+            db.session.commit()
+            data = app_module._sql_paged_requisition_report(_filters(**self.a_kw))
+            row = next(r for r in data[1] if r['req_no'] == 'REQ-1')
+            assert '米' in row['quantity'] and '个' in row['quantity']
+            assert data[2]['quantity'] is None and '米' in data[2]['quantity_text']
+
+        from io import BytesIO
+        from openpyxl import load_workbook
+        client = app_module.app.test_client()
+        with client.session_transaction() as session:
+            session['_user_id'] = str(self.user_id)
+            session['_fresh'] = True
+        scope = {'warehouse_id': self.wh_a_id}
+        for endpoint, args in [('/report/api/requisition', dict(scope, export='excel')),
+                               ('/report/requisition/print_excel', scope)]:
+            result = client.get(endpoint, query_string=args)
+            assert result.status_code == 200
+            cells = list(load_workbook(BytesIO(result.data)).active.values)
+            assert any('REQ-1' in row and '10 个 / 5 米' in row for row in cells)
+        preview = client.get('/report/requisition/print_preview', query_string=scope)
+        assert preview.status_code == 200 and '10 个 / 5 米' in preview.get_data(as_text=True)
+
     def test_T1_default_sort_and_pagination(self):
         """默认日期倒序：REQ-2(09-03) → REQ-4/REQ-3(09-02, ID 倒序) → REQ-1(09-01)。"""
         with app_module.app.app_context():

@@ -542,6 +542,7 @@
 {% endblock %}
 
 {% block content %}
+{% if g and g.inventory_alert_scope_error %}<div class="alert alert-warning" role="alert">{{ g.inventory_alert_scope_error }}</div>{% endif %}
 <div class="dashboard-shell">
     <section class="mobile-scan-launch" aria-label="手机扫码入口">
         <div class="mobile-scan-launch-title">

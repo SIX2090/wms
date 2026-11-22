@@ -140,3 +140,26 @@ def test_actual_history_lifecycle(case):
         api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'), mode='stream', scenario='success', history_case=case)),
         capture_output=True, text=True, encoding='utf-8', timeout=25)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_dashboard_separates_quantity_units(dashboard_rows):
+    a, _ = dashboard_rows
+    unit = wms.Unit(code='METER', name='米')
+    material = wms.Material(code='ROLL', name='卷材', unit=unit, stock=0)
+    wms.db.session.add(material)
+    order = wms.InOrder.query.filter_by(order_no='QA19-0').one()
+    wms.db.session.add(wms.InOrderItem(in_order=order, material=material, quantity=2, price=0, amount=0))
+    ok, error = apply_stock_delta(material, 2, transaction_type='in', reference_type='qa22_seed', warehouse=a)
+    assert ok, error
+    wms.db.session.commit()
+    stats, charts = wms.build_report_dashboard_context(a)
+    assert stats['total_stock'] is None and '2 米' in stats['stock_by_unit']
+    assert charts['trend']['by_unit']['米']['in_qty'][-1] == 2
+    assert charts['trend']['by_unit']['未设单位']['out_qty'][-1] == 3
+    assert charts['trend']['in_qty'] == []
+    assert charts['top_stock']['by_unit']['米'] == {'labels': ['ROLL'], 'values': [2]}
+
+
+def test_format_quantities():
+    from services.report_quantity_units import format_quantities
+    assert format_quantities({'米': 2.0001, '件': -10.0}) == '-10 件 / 2.0001 米'

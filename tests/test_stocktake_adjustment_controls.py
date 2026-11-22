@@ -116,14 +116,25 @@ def test_stocktake_adjustment_history(scene):
 
 @pytest.mark.parametrize('rows, quantity, variance', [
     ([{'actual_stock': 40}, {'actual_stock': 70}], 110, 10),
-    ([{'actual_stock': 40}, {'area': 'Rack B', 'actual_stock': None}], 40, -60),
+    ([{'actual_stock': 40}, {'area': 'Rack B', 'actual_stock': None}], 40, None),
 ])
 def test_stocktake_report_totals(scene, rows, quantity, variance):
     client, _, wh, material = scene
     check = _count(client, wh, material, rows)
     report = w._sql_paged_check_report(defaultdict(str, warehouse=wh.name, warehouse_id=wh.id))
-    assert report[2] == {'count': 2, 'quantity': quantity, 'amount': abs(variance)}
-    assert f' | 100.0 | {float(quantity)} | {float(variance)} |' in w._ai_stage4_stocktake_variance_report()
+    assert [v for v in (row['system_stock'] for row in report[1]) if v is not None] == [100]
+    assert sorted(row['actual_stock'] for row in report[1] if row['actual_stock'] is not None) == sorted(
+        row['actual_stock'] for row in rows if row['actual_stock'] is not None)
+    unit = material.unit.name if material.unit else '未设单位'
+    if variance is None:
+        assert report[2] == {'count': 2, 'quantity': quantity, 'amount': None, 'uncounted_groups': 1, 'quantity_text': f'{quantity} {unit}'}
+        assert all(row['difference'] is None for row in report[1])
+        assert '1 组物料尚未盘齐' in w._ai_stage4_stocktake_variance_report()
+    else:
+        assert report[2] == {'count': 2, 'quantity': quantity, 'amount': abs(variance),
+                             'quantity_text': f'{quantity} {unit}', 'amount_text': f'{abs(variance)} {unit}'}
+        assert [row['difference'] for row in report[1] if row['difference'] is not None] == [variance]
+        assert f' | 100.0 | {float(quantity)} | {float(variance)} |' in w._ai_stage4_stocktake_variance_report()
     download = client.get(f'/check/{check}/export')
     cells = list(load_workbook(BytesIO(download.data), read_only=True).active.values)
     assert [row[cells[0].index('实际库存')] for row in cells[1:]] == [row['actual_stock'] for row in rows]

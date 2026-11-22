@@ -247,7 +247,7 @@ class TestBug20260907015:
             assert sum_b['quantity'] == 777.0, f"B 仓数量应为 777，实际 {sum_b['quantity']}"
 
             _, rows_none, sum_none = app_module._build_inventory_report(_filters())
-            assert rows_none == [] and sum_none == {'count': 0, 'quantity': 0, 'amount': 0}
+            assert rows_none == [] and sum_none == {'count': 0, 'quantity': 0, 'amount': 0, 'unit_totals': []}
 
     # ------------------------------------------------------------------ T6
     def test_T6_api_inventory_still_works(self):

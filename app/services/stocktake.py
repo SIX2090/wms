@@ -63,12 +63,12 @@ def stocktake_report_totals(base):
     per_material = base.with_entities(
         db.func.min(item.id).label('first_id'),
         db.func.sum(db.case((has_actual, db.func.round(item.actual_stock, 2)), else_=0)).label('actual'),
-        db.func.max(db.case((has_actual, 1), else_=0)).label('counted'),
+        db.func.min(db.case((has_actual, 1), else_=0)).label('counted'),
     ).group_by(item.inventory_check_id, item.material_id).subquery()
     book = db.func.round(first.system_stock, 2)
     actual = per_material.c.actual
-    net = db.case((per_material.c.counted == 1, db.func.round(actual - book, 2)), else_=0)
-    return db.session.query(first.id.label('first_id'), book.label('book'),
+    net = db.case((per_material.c.counted == 1, db.func.round(actual - book, 2)))
+    return db.session.query(first.id.label('first_id'), first.material_id.label('material_id'), book.label('book'),
                             actual.label('actual'), net.label('net')).select_from(
         per_material).join(first, first.id == per_material.c.first_id)
 

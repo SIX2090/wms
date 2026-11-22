@@ -98,7 +98,8 @@ def _assert_rows(data, expected):
     assert data['total'] == len(expected)
     assert data['summary'] == {'count': len(expected),
                                'quantity': sum(expected.values()),
-                               'amount': 2 * sum(expected.values())}
+                               'amount': 2 * sum(expected.values()),
+                               'unit_totals': [{'unit': '件', 'quantity': sum(expected.values())}] if expected else []}
 
 
 def _xlsx_codes(response):
@@ -194,3 +195,16 @@ def test_analysis_preserves_explicit_master_list_for_shortage_warnings(inventory
     assert rows['NEVER'] == 0
     assert rows['SHARED'] == 7
     assert data['summary']['quantity'] == 73
+
+
+def test_inventory_summary_keeps_incompatible_units_separate(inventory_scope):
+    case = inventory_scope
+    with m.app.app_context():
+        meter = m.Unit(code='METER', name='米')
+        m.Material.query.filter_by(code='A').one().unit = meter
+        m.db.session.commit()
+    summary = case['client'].get('/report/api/inventory', query_string={
+        'warehouse_id': case['a'], 'page_size': 1}).get_json()['summary']
+    assert summary['quantity'] is None
+    assert {v['unit']: v['quantity'] for v in summary['unit_totals']} == {
+        '米': case['expected_a']['A'], '件': sum(case['expected_a'].values()) - case['expected_a']['A']}

@@ -7968,6 +7968,15 @@ def _material_alert_status_values(material, stock=None):
     alert_status = _alert_status_for(stock, min_stock, material.reorder_point)
     return stock, min_stock, safety_stock, alert_status
 
+def _alert_filter_warehouse(raw_id):
+    if raw_id is None or str(raw_id).strip() in ('', '0'):
+        return None
+    warehouse, error = resolve_request_warehouse({'warehouse_id': raw_id}, allow_default=False)
+    if error:
+        g.inventory_alert_scope_error = f'{error}。库存预警现按全部仓库统计。'
+    return warehouse
+
+
 # ==================== Dashboard ====================
 
 @app.route('/')
@@ -7977,13 +7986,11 @@ def index():
     # BUG-2026-09-18-005：首页「库存预警物料」计数新增可选仓库维度，对齐手机端首页
     # 与电脑端 /alert。默认 0 = 全部仓库（全局 _material_low_stock_filter，保持原总览）；
     # 选定仓库后按 get_warehouse_stock_quantities 仓库级判定（缺记录物料按 0，不回退全局）。
-    alert_warehouse_id = request.args.get('alert_warehouse_id', type=int) or 0
     alert_warehouse = None
+    alert_warehouse_id = 0
     if inventory_alert_enabled():
-        if alert_warehouse_id:
-            alert_warehouse = db.session.get(Warehouse, alert_warehouse_id)
-            if not alert_warehouse:
-                alert_warehouse_id = 0
+        alert_warehouse = _alert_filter_warehouse(request.args.get('alert_warehouse_id'))
+        alert_warehouse_id = alert_warehouse.id if alert_warehouse else 0
         if alert_warehouse:
             alert_quantities = get_warehouse_stock_quantities(alert_warehouse)
             low_stock = sum(
@@ -11517,8 +11524,10 @@ def _ai_stage4_stocktake_variance_report(days=90, limit=12):
         joinedload(InventoryCheckItem.material),
         joinedload(InventoryCheckItem.inventory_check),
     ).order_by(func.abs(totals.c.net).desc()).limit(limit).all()
+    pending = db.session.query(totals).filter(totals.c.net.is_(None)).count()
+    pending_note = f'另有 {pending} 组物料尚未盘齐，差异待盘齐后计算。' if pending else ''
     if not rows:
-        return f'最近{days}天没有盘点差异记录。'
+        return f'最近{days}天没有已确认的盘点差异。{pending_note}' if pending else f'最近{days}天没有盘点差异记录。'
     lines = [f'**盘点差异分析（最近{days}天）**']
     lines.append('| 盘点单 | 物料 | 系统数 | 实盘数 | 差异 | 原因 |')
     lines.append('|---|---|---:|---:|---:|---|')
@@ -11529,6 +11538,8 @@ def _ai_stage4_stocktake_variance_report(days=90, limit=12):
             f'| {check.check_no if check else "-"} | {material.code if material else item.material_id} {material.name if material else ""} | '
             f'{book} | {actual} | {net} | {item.reason or "-"} |'
         )
+    if pending_note:
+        lines.append(pending_note)
     return '\n'.join(lines)
 
 def _ai_stage4_deep_analysis_response(message, context=None, force=False):
@@ -28559,7 +28570,7 @@ REPORT_DEFINITIONS = {
             'date': True,
             'material': True,
             'supplier': True,
-            'customer': False,
+            'customer': True,
             'status': True,
         },
     },
@@ -28715,8 +28726,7 @@ REPORT_DEFINITIONS = {
         },
         'summary_types': {
             'count': 'number',
-            'beginning_quantity': 'text', 'in_quantity': 'text',
-            'out_quantity': 'text', 'ending_quantity': 'text',
+            'quantity': 'number', 'amount': 'money',
         },
         'filters': {
             'date': True,
@@ -28880,8 +28890,11 @@ REPORT_REFERENCE_LINKS = {
     'requisition': {'model': ProductionRequisition, 'number': 'req_no', 'endpoint': 'requisition_detail'},
 }
 
-def _get_report_definition(report_type):
-    return REPORT_DEFINITIONS.get(report_type)
+def _get_report_definition(report_type, business_type=None):
+    definition = REPORT_DEFINITIONS.get(report_type)
+    if (report_type, business_type) in (('in_detail', '其他入库'), ('out_detail', '其他出库')):
+        return dict(definition, title=f'{business_type}明细报表')
+    return definition
 
 def _shift_month_start(month_start, offset):
     month_index = month_start.month - 1 + offset
@@ -28899,7 +28912,7 @@ def build_report_dashboard_context(warehouse):
     warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
     stocked_material_ids = [
         material_id for material_id, quantity in warehouse_stock_map.items()
-        if _safe_float(quantity) > 0
+        if _safe_float(quantity) != 0
     ]
     today = date.today()
     month_start = today.replace(day=1)
@@ -28969,8 +28982,13 @@ def build_report_dashboard_context(warehouse):
     in_count_mom = _calc_mom_rate(int(month_in_count), int(last_month_in_count))
     out_count_mom = _calc_mom_rate(int(month_out_count), int(last_month_out_count))
 
-    material_rows = Material.query.filter(Material.id.in_(stocked_material_ids)).all() if stocked_material_ids else []
-    total_stock = sum(_safe_float(warehouse_stock_map.get(material.id)) for material in material_rows)
+    from services.report_quantity_units import format_quantities
+    material_rows = Material.query.options(joinedload(Material.unit)).filter(Material.id.in_(stocked_material_ids)).all() if stocked_material_ids else []
+    by_unit = {}
+    for material in material_rows:
+        unit = material.unit.name if material.unit else '未设单位'
+        by_unit[unit] = by_unit.get(unit, 0) + _safe_float(warehouse_stock_map[material.id])
+    total_stock = next(iter(by_unit.values()), 0) if len(by_unit) <= 1 else None
     material_count = len(material_rows)
     stock_value = sum(
         _safe_float(warehouse_stock_map.get(material.id)) * _safe_float(material.price)
@@ -28982,7 +29000,8 @@ def build_report_dashboard_context(warehouse):
         'month_out_amount': float(month_out_amount),
         'month_in_count': int(month_in_count),
         'month_out_count': int(month_out_count),
-        'total_stock': float(total_stock),
+        'total_stock': total_stock,
+        'stock_by_unit': format_quantities(by_unit),
         'material_count': int(material_count),
         'stock_value': float(stock_value),
         'last_month_in_amount': float(last_month_in_amount),
@@ -28996,36 +29015,21 @@ def build_report_dashboard_context(warehouse):
     }
 
     trend_start = today - timedelta(days=9)
-    in_trend_rows = db.session.query(
-        InOrder.date,
-        func.coalesce(func.sum(InOrderItem.quantity), 0)
-    ).join(InOrderItem, InOrderItem.in_order_id == InOrder.id).filter(
-        InOrder.status == 'completed',
-        InOrder.date >= trend_start,
-        InOrder.date <= today,
-        _wh_cond,
-    ).group_by(InOrder.date).all()
-    out_trend_rows = db.session.query(
-        OutOrder.date,
-        func.coalesce(func.sum(OutOrderItem.quantity), 0)
-    ).join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id).filter(
-        OutOrder.status == 'completed', ordinary_issue,
-        OutOrder.date >= trend_start,
-        OutOrder.date <= today,
-        _wh_cond_out,
-    ).group_by(OutOrder.date).all()
-    in_trend_map = {row[0]: float(row[1] or 0) for row in in_trend_rows}
-    out_trend_map = {row[0]: float(row[1] or 0) for row in out_trend_rows}
-
-    trend_labels = []
-    trend_in_qty = []
-    trend_out_qty = []
-    for offset in range(10):
-        current_day = trend_start + timedelta(days=offset)
-        trend_labels.append(current_day.strftime('%m-%d'))
-        trend_in_qty.append(in_trend_map.get(current_day, 0))
-        trend_out_qty.append(out_trend_map.get(current_day, 0))
-
+    trend_days = [trend_start + timedelta(days=offset) for offset in range(10)]
+    trend_labels = [day.strftime('%m-%d') for day in trend_days]
+    trend_by_unit = {}
+    for order, item, foreign_key, scope, key in (
+        (InOrder, InOrderItem, InOrderItem.in_order_id, _wh_cond, 'in_qty'),
+        (OutOrder, OutOrderItem, OutOrderItem.out_order_id, db.and_(_wh_cond_out, ordinary_issue), 'out_qty'),
+    ):
+        rows = db.session.query(order.date, Unit.name, func.sum(item.quantity)).select_from(order).join(
+            item, foreign_key == order.id).join(Material, item.material_id == Material.id).outerjoin(
+            Unit, Unit.id == Material.unit_id).filter(order.status == 'completed', scope,
+            order.date.between(trend_start, today)).group_by(order.date, Unit.name).all()
+        for day, unit, quantity in rows:
+            series = trend_by_unit.setdefault(unit or '未设单位', {'in_qty': [0] * 10, 'out_qty': [0] * 10})
+            series[key][(day - trend_start).days] = float(quantity or 0)
+    single_series = next(iter(trend_by_unit.values())) if len(trend_by_unit) == 1 else {}
     category_rows = db.session.query(
         MaterialCategory.name,
         func.count(Material.id)
@@ -29045,13 +29049,14 @@ def build_report_dashboard_context(warehouse):
         category_labels.append('Uncategorized')
         category_values.append(int(uncategorized_count))
 
-    top_stock_rows = sorted(
-        material_rows,
-        key=lambda material: (_safe_float(warehouse_stock_map.get(material.id)), material.id),
-        reverse=True,
-    )[:10]
-    top_stock_labels = [m.code or m.name or f'Material-{m.id}' for m in top_stock_rows]
-    top_stock_values = [_safe_float(warehouse_stock_map.get(m.id)) for m in top_stock_rows]
+    top_by_unit = {}
+    for material in sorted(material_rows, key=lambda m: (warehouse_stock_map[m.id], m.id), reverse=True):
+        unit = material.unit.name if material.unit else '未设单位'
+        series = top_by_unit.setdefault(unit, {'labels': [], 'values': []})
+        if len(series['labels']) < 10:
+            series['labels'].append(material.code or material.name or str(material.id))
+            series['values'].append(_safe_float(warehouse_stock_map[material.id]))
+    first_top = top_by_unit[min(top_by_unit)] if top_by_unit else {'labels': [], 'values': []}
 
     monthly_start = _shift_month_start(month_start, -5)
     in_amount_rows = db.session.query(InOrder.date, InOrder.total_amount).filter(
@@ -29088,16 +29093,16 @@ def build_report_dashboard_context(warehouse):
     chart_data = {
         'trend': {
             'labels': trend_labels,
-            'in_qty': trend_in_qty,
-            'out_qty': trend_out_qty,
+            'in_qty': single_series.get('in_qty', []),
+            'out_qty': single_series.get('out_qty', []),
+            'by_unit': dict(sorted(trend_by_unit.items())),
         },
         'category': {
             'labels': category_labels,
             'values': category_values,
         },
         'top_stock': {
-            'labels': top_stock_labels,
-            'values': top_stock_values,
+            **first_top, 'by_unit': dict(sorted(top_by_unit.items())),
         },
         'monthly_amount': {
             'labels': monthly_labels,
@@ -29584,6 +29589,7 @@ def _out_detail_columns():
 def _summary_columns():
     return [
         {'field': 'date', 'title': '日期'},
+        {'field': 'unit', 'title': '单位'},
         {'field': 'in_count', 'title': '入库明细行数'},
         {'field': 'in_quantity', 'title': '入库数量'},
         {'field': 'in_amount', 'title': '入库金额', 'type': 'money'},
@@ -29602,6 +29608,7 @@ def _check_columns():
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},
         {'field': 'unit', 'title': '单位'},
+        {'field': 'area', 'title': '卡板 / 区域'},
         {'field': 'system_stock', 'title': '系统库存'},
         {'field': 'actual_stock', 'title': '实盘库存'},
         {'field': 'difference', 'title': '差异数量'},
@@ -30078,6 +30085,10 @@ def _filtered_in_detail_query(filters):
     supplier_clause = _supplier_filter_clause(filters.get('supplier'))
     if supplier_clause is not None:
         query = query.filter(supplier_clause)
+    customer = (filters.get('customer') or '').strip()
+    if customer:
+        query = query.filter(db.or_(Customer.name.icontains(customer, autoescape=True),
+                                    Customer.code.icontains(customer, autoescape=True)))
     if filters['status']:
         query = query.filter(InOrder.status == filters['status'])
     material_clause = _material_filter_clause(filters.get('material_code'))
@@ -30121,9 +30132,9 @@ def _out_detail_row(item):
     material = item.material
     if material is None:
         return None
-    # 客户/部门展示：部门名优先，回退单据客户文本、用途。
     department_name = order.department.name if order.department else ''
-    customer_text = department_name or order.customer or order.purpose or ''
+    customer_text = (order.customer or '') if order.business_type in OUT_NON_REQUISITION_BUSINESS_TYPES else (
+        department_name or order.customer or order.purpose or '')
     return {
         'date': order.date.isoformat() if order.date else '',
         'order_no': order.order_no or '',
@@ -30146,6 +30157,13 @@ def _out_detail_row(item):
         'remark': order.remark or '',
         'item_remark': item.remark or '',
     }
+
+
+def _out_detail_party_expression():
+    return case((OutOrder.business_type.in_(OUT_NON_REQUISITION_BUSINESS_TYPES),
+                 func.coalesce(OutOrder.customer, '')),
+                else_=func.coalesce(func.nullif(Department.name, ''), func.nullif(OutOrder.customer, ''),
+                                    OutOrder.purpose, ''))
 
 
 def _filtered_out_detail_query(filters):
@@ -30209,12 +30227,7 @@ def _filtered_out_detail_query(filters):
     # 导致按客户名称筛选永远无结果。
     customer_keyword = (filters.get('customer') or '').strip()
     if customer_keyword:
-        like = f'%{customer_keyword}%'
-        query = query.filter(db.or_(
-            Department.name.ilike(like),
-            OutOrder.customer.ilike(like),
-            OutOrder.purpose.ilike(like),
-        ))
+        query = query.filter(_out_detail_party_expression().icontains(customer_keyword, autoescape=True))
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
@@ -30246,7 +30259,7 @@ def _collect_out_detail_rows(filters):
             rows.append(row)
     return rows
 
-def _check_row(item):
+def _check_row(item, book, difference):
     """盘点明细行映射（_collect_check_rows 与 SQL 分页 builder 共用，防两份映射漂移）。"""
     check_order = item.inventory_check
     material = item.material
@@ -30260,9 +30273,10 @@ def _check_row(item):
         'material_name': material.name or '',
         'spec': material.spec or '',
         'unit': material.unit.name if material.unit else '',
-        'system_stock': _safe_float(item.system_stock),
+        'area': item.area or '',
+        'system_stock': book,
         'actual_stock': _safe_float(item.actual_stock) if item.has_actual_count else None,
-        'difference': _safe_float(item.difference) if item.has_actual_count else None,
+        'difference': difference,
         'status': check_order.status or '',
         'operator': check_order.operator.username if check_order.operator else '',
         'reason': item.reason or '',
@@ -30293,28 +30307,7 @@ def _filtered_check_query(filters):
 
 
 def _collect_check_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return []
-    query = _filtered_check_query(filters).options(
-        joinedload(InventoryCheckItem.inventory_check).joinedload(InventoryCheck.operator),
-        joinedload(InventoryCheckItem.material).joinedload(Material.unit)
-    ).order_by(
-        InventoryCheck.date.desc(),
-        InventoryCheck.check_no.desc(),
-        InventoryCheckItem.id.desc()
-    )
-
-    # BUG-2026-08-30-003：明细超限不再静默截断，先计数告警再取数
-    # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
-    items = _report_check_row_limit(query, REPORT_ROW_LIMIT, '盘点明细').all()
-
-    rows = []
-    for item in items:
-        row = _check_row(item)
-        if row is not None:
-            rows.append(row)
-    return rows
+    return _sql_paged_check_report(dict(filters, export='excel', sort_field=''))[1]
 
 def _warehouse_document_match_clause(column, warehouse=None,
                                      warehouse_name=None, warehouse_code=None):
@@ -31341,9 +31334,14 @@ def _build_purchase_price_analysis_report(filters):
 
 def _build_inventory_report(filters):
     rows = _collect_inventory_rows(filters)
+    quantities = {}
+    for row in rows:
+        unit = row['unit'] or '未设单位'
+        quantities[unit] = quantities.get(unit, 0) + row['stock']
     summary = {
         'count': len(rows),
-        'quantity': sum(row['stock'] for row in rows),
+        'quantity': next(iter(quantities.values()), 0) if len(quantities) <= 1 else None,
+        'unit_totals': [{'unit': unit, 'quantity': qty} for unit, qty in sorted(quantities.items())],
         'amount': sum(row['stock_value'] for row in rows),
     }
     return _inventory_columns(), rows, summary
@@ -31357,49 +31355,8 @@ def _build_out_detail_report(filters):
     return columns, rows, summary
 
 def _build_summary_report(filters):
-    daily = {}
-    for row in _collect_in_detail_rows(filters):
-        bucket = daily.setdefault(row['date'], {
-            'date': row['date'],
-            'in_count': 0,
-            'in_quantity': 0.0,
-            'in_amount': 0.0,
-            'out_count': 0,
-            'out_quantity': 0.0,
-            'out_amount': 0.0,
-        })
-        bucket['in_count'] += 1
-        bucket['in_quantity'] += _safe_float(row['quantity'])
-        bucket['in_amount'] += _safe_float(row['amount'])
-
-    supplier_active = filters.get('supplier_id') or filters.get('supplier')
-    out_filters = filters if not supplier_active else {**filters, 'supplier_id': 0, 'supplier': ''}
-    for row in ([] if supplier_active else _collect_out_detail_rows(out_filters)):
-        bucket = daily.setdefault(row['date'], {
-            'date': row['date'],
-            'in_count': 0,
-            'in_quantity': 0.0,
-            'in_amount': 0.0,
-            'out_count': 0,
-            'out_quantity': 0.0,
-            'out_amount': 0.0,
-        })
-        bucket['out_count'] += 1
-        bucket['out_quantity'] += _safe_float(row['quantity'])
-        bucket['out_amount'] += _safe_float(row['amount'])
-
-    rows = []
-    for bucket in daily.values():
-        bucket['net_quantity'] = bucket['in_quantity'] - bucket['out_quantity']
-        bucket['net_amount'] = bucket['in_amount'] - bucket['out_amount']
-        rows.append(bucket)
-
-    summary = {
-        'count': len(rows),
-        'quantity': sum(row['in_quantity'] + row['out_quantity'] for row in rows),
-        'amount': sum(row['in_amount'] + row['out_amount'] for row in rows),
-    }
-    return _summary_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_summary_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 def _build_check_report(filters):
     columns, rows, summary, _ = _sql_paged_check_report(dict(filters, export='excel'))
@@ -31559,82 +31516,8 @@ def _subcontract_columns():
     ]
 
 def _build_subcontract_report(filters):
-    """构建委外加工报表"""
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return _subcontract_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
-    query = SubcontractOrder.query.options(
-        joinedload(SubcontractOrder.supplier),
-        selectinload(SubcontractOrder.items).joinedload(SubcontractItem.material),
-        selectinload(SubcontractOrder.issue_orders).selectinload(SubcontractIssue.items).joinedload(SubcontractIssueItem.material),
-        selectinload(SubcontractOrder.receive_orders).selectinload(SubcontractReceive.items).joinedload(SubcontractReceiveItem.material),
-    )
-    if filters.get('start_date'):
-        query = query.filter(SubcontractOrder.date >= filters['start_date'])
-    if filters.get('end_date'):
-        query = query.filter(SubcontractOrder.date <= filters['end_date'])
-    if filters.get('supplier_id'):
-        query = query.filter(SubcontractOrder.supplier_id == filters['supplier_id'])
-    supplier_clause = _supplier_filter_clause(filters.get('supplier'))
-    if supplier_clause is not None:
-        query = query.join(Supplier, SubcontractOrder.supplier_id == Supplier.id).filter(supplier_clause)
-    if filters.get('status'):
-        query = query.filter(SubcontractOrder.status == filters['status'])
-    # 委外报表按仓库过滤；名称/编号任一匹配（与入库明细同口径）
-    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
-    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
-    warehouse_clause = _document_warehouse_scope(SubcontractOrder, filters)
-    if warehouse_clause is not None:
-        query = query.filter(warehouse_clause)
-    
-    orders = query.order_by(SubcontractOrder.date.desc()).all()
-    rows = []
-    total_issue = 0
-    total_receive = 0
-    material_keyword = filters.get('material_code') or ''
-    
-    for order in orders:
-        order_items = [
-            item for item in (order.items or [])
-            if _material_matches(item.material, material_keyword)
-        ]
-        issue_items = [
-            item
-            for issue in (order.issue_orders or [])
-            for item in (issue.items or [])
-            if _material_matches(item.material, material_keyword)
-        ]
-        receive_items = [
-            item
-            for receive in (order.receive_orders or []) if receive.status == 'completed'
-            for item in (receive.items or [])
-            if _material_matches(item.material, material_keyword)
-        ]
-        if material_keyword and not order_items and not issue_items and not receive_items:
-            continue
-
-        issue_qty = sum(_safe_float(item.quantity) for item in issue_items) if order.issue_orders else 0
-        receive_qty = sum(_safe_float(item.quantity) for item in receive_items) if order.receive_orders else 0
-        total_issue += issue_qty
-        total_receive += receive_qty
-        
-        rows.append({
-            'order_no': order.order_no,
-            'order_url': _report_detail_url('subcontract_detail', order.id),
-            'date': order.date.strftime('%Y-%m-%d') if order.date else '',
-            'supplier': order.supplier.name if order.supplier else '',
-            'status': STATUS_LABELS.get(order.status, order.status),
-            'issue_qty': issue_qty,
-            'receive_qty': receive_qty,
-            'remark': order.remark or '',
-        })
-    
-    summary = {
-        'count': len(rows),
-        'quantity': total_issue,
-        'amount': total_receive,
-    }
-    return _subcontract_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_subcontract_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 def _requisition_columns():
     return [
@@ -31649,64 +31532,8 @@ def _requisition_columns():
     ]
 
 def _build_requisition_report(filters):
-    """构建工单领料报表"""
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return _requisition_columns(), [], {'count': 0, 'quantity': 0, 'amount': 0}
-    query = ProductionRequisition.query.options(
-        joinedload(ProductionRequisition.bom),
-        joinedload(ProductionRequisition.operator),
-        selectinload(ProductionRequisition.items).joinedload(ProductionRequisitionItem.material),
-    )
-    # BUG-2026-08-05-008：模型已补 warehouse 列，按仓库实际过滤；名称/编号任一匹配
-    # R6 收口（2026-09-25）：改走唯一判据 document_warehouse_filter，
-    # 消除报表链路三种互斥仓库判据并存（见 services/warehouse_scope.py）。
-    warehouse_clause = _document_warehouse_scope(ProductionRequisition, filters)
-    if warehouse_clause is not None:
-        query = query.filter(warehouse_clause)
-    if filters.get('start_date'):
-        query = query.filter(ProductionRequisition.date >= filters['start_date'])
-    if filters.get('end_date'):
-        query = query.filter(ProductionRequisition.date <= filters['end_date'])
-    if filters.get('status'):
-        query = query.filter(ProductionRequisition.status == filters['status'])
-    
-    requisitions = query.order_by(ProductionRequisition.date.desc()).all()
-    rows = []
-    total_qty = 0
-    total_amount = 0
-    material_keyword = filters.get('material_code') or ''
-    
-    for req in requisitions:
-        matched_items = [
-            item for item in (req.items or [])
-            if _material_matches(item.material, material_keyword)
-        ]
-        if material_keyword and not matched_items:
-            continue
-        req_qty = sum(_safe_float(item.quantity) for item in matched_items)
-        req_amount = sum((_safe_float(item.quantity) * _safe_float(item.material.price)) for item in matched_items if item.material)
-        total_qty += req_qty
-        total_amount += req_amount
-        
-        rows.append({
-            'req_no': req.req_no,
-            'order_url': _report_detail_url('requisition_detail', req.id),
-            'date': req.date.strftime('%Y-%m-%d') if req.date else '',
-            'bom_no': req.bom.bom_no if req.bom else '',
-            'status': STATUS_LABELS.get(req.status, req.status),
-            'quantity': req_qty,
-            'amount': round(req_amount, 2),
-            'operator': req.operator.username if req.operator else '',
-            'remark': req.remark or '',
-        })
-    
-    summary = {
-        'count': len(rows),
-        'quantity': total_qty,
-        'amount': round(total_amount, 2),
-    }
-    return _requisition_columns(), rows, summary
+    columns, rows, summary, _ = _sql_paged_requisition_report(dict(filters, export='excel'))
+    return columns, rows, summary
 
 from services.material_movement_report import (DEFINITION as _MATERIAL_MOVEMENT_DEFINITION,
                                                _build_material_movement_report,
@@ -31768,7 +31595,7 @@ _OUT_DETAIL_SORT_MAP = {
     'order_no': OutOrder.order_no,
     # BUG-2026-09-22-013：业务类型列可排序，与 _IN_DETAIL_SORT_MAP 对齐
     'business_type': OutOrder.business_type,
-    'customer': func.coalesce(func.nullif(Department.name, ''), func.nullif(OutOrder.customer, ''), OutOrder.purpose, ''),
+    'customer': _out_detail_party_expression(),
     'material_code': Material.code,
     'material_name': Material.name,
     'spec': Material.spec,
@@ -31915,17 +31742,30 @@ def _sql_paged_check_report(filters):
     base = _filtered_check_query(filters)
     total = base.count()
     per_material = stocktake_report_totals(base).subquery()
-    agg = db.session.query(
-        func.coalesce(func.sum(per_material.c.actual), 0),
-        func.coalesce(func.sum(func.abs(per_material.c.net)), 0),
-    ).select_from(per_material).one()
+    from services.report_quantity_units import format_quantities
+    groups = db.session.query(Unit.name, func.sum(per_material.c.actual), func.sum(func.abs(per_material.c.net)),
+        func.count(per_material.c.first_id) - func.count(per_material.c.net)).select_from(per_material).join(
+        Material, Material.id == per_material.c.material_id).outerjoin(Unit, Unit.id == Material.unit_id).group_by(Unit.name).all()
+    counted = {unit or '未设单位': _safe_float(actual) for unit, actual, _, _ in groups}
+    variances = {unit or '未设单位': _safe_float(net) for unit, _, net, _ in groups if net is not None}
+    pending = sum(row[3] for row in groups)
     summary = {
         'count': total,
-        'quantity': _safe_float(agg[0]),
-        'amount': _safe_float(agg[1]),
+        'quantity': next(iter(counted.values()), 0) if len(counted) <= 1 else None,
+        'amount': next(iter(variances.values()), None if pending else 0) if len(variances) <= 1 else None,
     }
+    if counted:
+        summary['quantity_text'] = format_quantities(counted)
+    if variances:
+        summary['amount_text'] = format_quantities(variances)
+    if pending:
+        summary['uncounted_groups'] = pending
+    base = base.outerjoin(per_material, InventoryCheckItem.id == per_material.c.first_id).add_columns(
+        per_material.c.book, per_material.c.net)
+    sort_map = dict(_CHECK_SORT_MAP, area=InventoryCheckItem.area, system_stock=per_material.c.book,
+                    difference=per_material.c.net)
     query = _sql_order_by(
-        base, _CHECK_SORT_MAP,
+        base, sort_map,
         filters.get('sort_field'), filters.get('sort_order'),
         (InventoryCheck.date.desc(), InventoryCheck.check_no.desc(), InventoryCheckItem.id.desc()),
         InventoryCheckItem.id,
@@ -31940,8 +31780,8 @@ def _sql_paged_check_report(filters):
         page_size = max(int(filters.get('page_size') or 20), 1)
         items = query.offset((page - 1) * page_size).limit(page_size).all()
     rows = []
-    for item in items:
-        row = _check_row(item)
+    for item, book, difference in items:
+        row = _check_row(item, book, difference)
         if row is not None:
             rows.append(row)
     return columns, rows, summary, total
@@ -32007,12 +31847,6 @@ def _sql_paged_purchase_execution_report(filters):
     return columns, rows, summary, total
 
 
-_SUMMARY_BUCKET_FIELDS = (
-    'in_count', 'in_quantity', 'in_amount',
-    'out_count', 'out_quantity', 'out_amount',
-)
-
-
 def _summary_empty_bucket(date_key):
     """出入库汇总日期桶空壳（in/out 两侧合并用）。"""
     return {
@@ -32046,80 +31880,35 @@ def _sql_paged_summary_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
-    # 与原内存路径一致：选定供应商时出库侧不参与（领料单无供应商维度）。
-    # 此处保留该语义，不在本次下沉中引入行为漂移。
-    supplier_active = bool(filters.get('supplier_id') or filters.get('supplier'))
-    out_filters = {**filters, 'supplier_id': 0, 'supplier': ''} if supplier_active else filters
-
-    in_query = _filtered_in_detail_query(filters)
-    # 汇总：SQL 聚合筛选后全集（R2 汇总 = 明细全集），不受分页与截断影响
-    in_agg = in_query.with_entities(
-        func.count(InOrderItem.id),
-        func.coalesce(func.sum(InOrderItem.quantity), 0),
-        func.coalesce(func.sum(InOrderItem.amount), 0),
-    ).first()
-    in_qty = _safe_float(in_agg[1])
-    in_amt = _safe_float(in_agg[2])
-
-    out_qty = 0.0
-    out_amt = 0.0
-    in_buckets = {}
-    out_buckets = {}
-
-    if not supplier_active:
-        out_query = _filtered_out_detail_query(out_filters)
-        out_agg = out_query.with_entities(
-            func.count(OutOrderItem.id),
-            func.coalesce(func.sum(OutOrderItem.quantity), 0),
-            func.coalesce(func.sum(OutOrderItem.amount), 0),
-        ).first()
-        out_qty = _safe_float(out_agg[1])
-        out_amt = _safe_float(out_agg[2])
-        for row_date, count, quantity, amount in out_query.with_entities(
-                OutOrder.date,
-                func.count(OutOrderItem.id),
-                func.coalesce(func.sum(OutOrderItem.quantity), 0),
-                func.coalesce(func.sum(OutOrderItem.amount), 0),
-        ).group_by(OutOrder.date).all():
-            bucket = _summary_empty_bucket(row_date.isoformat() if row_date else '')
-            bucket['out_count'] = int(count or 0)
-            bucket['out_quantity'] = _safe_float(quantity)
-            bucket['out_amount'] = _safe_float(amount)
-            out_buckets[bucket['date']] = bucket
-
-    for row_date, count, quantity, amount in in_query.with_entities(
-            InOrder.date,
-            func.count(InOrderItem.id),
-            func.coalesce(func.sum(InOrderItem.quantity), 0),
-            func.coalesce(func.sum(InOrderItem.amount), 0),
-    ).group_by(InOrder.date).all():
-        bucket = _summary_empty_bucket(row_date.isoformat() if row_date else '')
-        bucket['in_count'] = int(count or 0)
-        bucket['in_quantity'] = _safe_float(quantity)
-        bucket['in_amount'] = _safe_float(amount)
-        in_buckets[bucket['date']] = bucket
-
-    # 合并两侧日期桶（并集：仅入库日与仅出库日都要出现）
+    from services.report_quantity_units import format_quantities
+    sources = [('in', _filtered_in_detail_query(filters), InOrder, InOrderItem)]
+    if not (filters.get('supplier_id') or filters.get('supplier')):
+        sources.append(('out', _filtered_out_detail_query(filters), OutOrder, OutOrderItem))
     buckets = {}
-    for source in (in_buckets, out_buckets):
-        for date_key, bucket in source.items():
-            target = buckets.setdefault(date_key, _summary_empty_bucket(date_key))
-            for field in _SUMMARY_BUCKET_FIELDS:
-                target[field] += bucket[field]
-
-    all_rows = []
-    for bucket in buckets.values():
-        bucket['net_quantity'] = bucket['in_quantity'] - bucket['out_quantity']
-        bucket['net_amount'] = bucket['in_amount'] - bucket['out_amount']
-        all_rows.append(bucket)
-
+    quantities = {}
+    for direction, query, order, item in sources:
+        grouped = query.with_entities(order.date, Unit.name, func.count(item.id),
+            func.sum(item.quantity), func.sum(item.amount)).group_by(order.date, Unit.name)
+        for day, unit_name, count, qty, amount in grouped:
+            day_key = day.isoformat() if day else ''
+            unit = unit_name or '未设单位'
+            row = buckets.setdefault((day_key, unit), dict(_summary_empty_bucket(day_key), unit=unit))
+            row[direction + '_count'] = count
+            row[direction + '_quantity'] = _safe_float(qty)
+            row[direction + '_amount'] = _safe_float(amount)
+            quantities[unit] = quantities.get(unit, 0) + _safe_float(qty)
+    all_rows = [buckets[key] for key in sorted(buckets)]
+    for row in all_rows:
+        row['net_quantity'] = row['in_quantity'] - row['out_quantity']
+        row['net_amount'] = row['in_amount'] - row['out_amount']
     total = len(all_rows)
-    # count = 日期数（REPORT_DEFINITIONS['summary'].summary_labels）
     summary = {
-        'count': total,
-        'quantity': in_qty + out_qty,
-        'amount': in_amt + out_amt,
+        'count': len({row['date'] for row in all_rows}),
+        'quantity': next(iter(quantities.values()), 0) if len(quantities) <= 1 else None,
+        'amount': sum(row['in_amount'] + row['out_amount'] for row in all_rows),
     }
+    if quantities:
+        summary['quantity_text'] = format_quantities(quantities)
 
     sort_field = (filters.get('sort_field') or '').strip()
     if sort_field:
@@ -32624,6 +32413,14 @@ def _sql_paged_purchase_price_analysis_report(filters):
     return columns, _paginate_rows(all_rows, page, page_size), summary, total
 
 
+def _quantity_report_page_ids(selected, filters, order):
+    if filters.get('sort_field') or filters.get('export') == 'excel':
+        return selected
+    page_size = max(int(filters.get('page_size') or 20), 1)
+    page = max(int(filters.get('page') or 1), 1)
+    return selected.order_by(order.date.desc(), order.id.desc()).offset((page - 1) * page_size).limit(page_size)
+
+
 def _sql_paged_requisition_report(filters):
     """工单领料报表 SQL 分页 builder（BUG-2026-09-07-017）。
 
@@ -32666,6 +32463,7 @@ def _sql_paged_requisition_report(filters):
     ).outerjoin(Material, ProductionRequisitionItem.material_id == Material.id)
     if kw_clause is not None:
         item_agg = item_agg.filter(kw_clause)
+    unit_source = item_agg
     item_agg = item_agg.group_by(ProductionRequisitionItem.requisition_id).subquery('req_agg')
 
     main = db.session.query(
@@ -32709,6 +32507,12 @@ def _sql_paged_requisition_report(filters):
         'amount': round(_safe_float(amt_total), 2),
     }
 
+    from services.report_quantity_units import order_quantity_units
+    selected_ids = main.with_entities(ProductionRequisition.id)
+    page_ids = _quantity_report_page_ids(selected_ids, filters, ProductionRequisition)
+    quantities = order_quantity_units(unit_source, ProductionRequisitionItem.requisition_id,
+        ProductionRequisitionItem, selected_ids, page_ids, columns, 'quantity', summary, 'quantity')
+
     def _to_row(item):
         req_id, req_no, req_date, status_raw, remark, quantity, amount, bom_no, operator = item
         return {
@@ -32717,7 +32521,7 @@ def _sql_paged_requisition_report(filters):
             'date': req_date.strftime('%Y-%m-%d') if req_date else '',
             'bom_no': bom_no or '',
             'status': STATUS_LABELS.get(status_raw, status_raw),
-            'quantity': quantity,
+            'quantity': quantities.get(req_id, '0') if quantities is not None else quantity,
             'amount': round(amount, 2),
             'operator': operator or '',
             'remark': remark or '',
@@ -32788,7 +32592,8 @@ def _sql_paged_subcontract_report(filters):
      .outerjoin(Material, SubcontractIssueItem.material_id == Material.id)
     if kw_clause is not None:
         issue_agg = issue_agg.filter(kw_clause)
-    issue_agg = issue_agg.group_by(SubcontractIssue.subcontract_order_id).subquery('sc_issue')
+    issue_source = issue_agg.filter(SubcontractIssue.status == 'completed')
+    issue_agg = issue_source.group_by(SubcontractIssue.subcontract_order_id).subquery('sc_issue')
 
     # 收货：SubcontractReceiveItem.receive_id -> SubcontractReceive.subcontract_order_id
     receive_agg = db.session.query(
@@ -32799,7 +32604,8 @@ def _sql_paged_subcontract_report(filters):
      .outerjoin(Material, SubcontractReceiveItem.material_id == Material.id)
     if kw_clause is not None:
         receive_agg = receive_agg.filter(kw_clause)
-    receive_agg = receive_agg.filter(SubcontractReceive.status == 'completed').group_by(SubcontractReceive.subcontract_order_id).subquery('sc_receive')
+    receive_source = receive_agg.filter(SubcontractReceive.status == 'completed')
+    receive_agg = receive_source.group_by(SubcontractReceive.subcontract_order_id).subquery('sc_receive')
 
     main = db.session.query(
         SubcontractOrder.id,
@@ -32849,6 +32655,14 @@ def _sql_paged_subcontract_report(filters):
         'amount': _safe_float(receive_total),
     }
 
+    from services.report_quantity_units import order_quantity_units
+    selected_ids = main.with_entities(SubcontractOrder.id)
+    page_ids = _quantity_report_page_ids(selected_ids, filters, SubcontractOrder)
+    issued = order_quantity_units(issue_source, SubcontractIssue.subcontract_order_id,
+        SubcontractIssueItem, selected_ids, page_ids, columns, 'issue_qty', summary, 'quantity')
+    received = order_quantity_units(receive_source, SubcontractReceive.subcontract_order_id,
+        SubcontractReceiveItem, selected_ids, page_ids, columns, 'receive_qty', summary, 'amount')
+
     def _to_row(item):
         order_id, order_no, order_date, status_raw, remark, supplier_name, \
             issue_qty, receive_qty = item
@@ -32858,8 +32672,8 @@ def _sql_paged_subcontract_report(filters):
             'date': order_date.strftime('%Y-%m-%d') if order_date else '',
             'supplier': supplier_name or '',
             'status': STATUS_LABELS.get(status_raw, status_raw),
-            'issue_qty': issue_qty,
-            'receive_qty': receive_qty,
+            'issue_qty': issued.get(order_id, '0') if issued is not None else issue_qty,
+            'receive_qty': received.get(order_id, '0') if received is not None else receive_qty,
             'remark': remark or '',
         }
 
@@ -32903,7 +32717,7 @@ SQL_PAGED_REPORT_BUILDERS = {
 
 def _build_report_payload(report_type, filters):
     builder = REPORT_BUILDERS.get(report_type)
-    definition = _get_report_definition(report_type)
+    definition = _get_report_definition(report_type, filters.get('business_type'))
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
 

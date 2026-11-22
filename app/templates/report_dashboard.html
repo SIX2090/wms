@@ -74,7 +74,7 @@
         <div class="card border-0 shadow-sm metric-card metric-stock">
             <div class="card-body">
                 <div class="metric-label">库存总量</div>
-                <div class="metric-value">{{ stats.total_stock|round(2) }}</div>
+                <div class="metric-value">{{ stats.stock_by_unit }}</div>
                 <div class="metric-sub">{{ stats.material_count }} 种物料</div>
             </div>
         </div>
@@ -112,6 +112,10 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white">
                 <h5 class="mb-0">近 10 天入库与领料数量</h5>
+                {% if chart_data.trend.by_unit %}<label for="trendUnit" class="mt-2">计量单位</label>
+                <select id="trendUnit" class="form-select form-select-sm w-auto d-inline-block">
+                    {% for unit in chart_data.trend.by_unit %}<option>{{ unit }}</option>{% endfor %}
+                </select>{% endif %}
             </div>
             <div class="card-body chart-shell">
                 <canvas id="trendChart"></canvas>
@@ -135,6 +139,10 @@
         <div class="card border-0 shadow-sm h-100">
             <div class="card-header bg-white">
                 <h5 class="mb-0">库存数量 Top 10</h5>
+                {% if chart_data.top_stock.by_unit %}<label for="topStockUnit" class="mt-2">计量单位</label>
+                <select id="topStockUnit" class="form-select form-select-sm w-auto d-inline-block">
+                    {% for unit in chart_data.top_stock.by_unit %}<option>{{ unit }}</option>{% endfor %}
+                </select>{% endif %}
             </div>
             <div class="card-body chart-shell">
                 <canvas id="topStockChart"></canvas>
@@ -205,14 +213,16 @@ const palette = {
     red: '#e03131',
 };
 
-new Chart(document.getElementById('trendChart'), {
+const trendUnit = document.getElementById('trendUnit');
+const initialSeries = trendData.by_unit?.[trendUnit?.value] || trendData;
+const trendChart = new Chart(document.getElementById('trendChart'), {
     type: 'line',
     data: {
         labels: trendData.labels,
         datasets: [
             {
                 label: '入库数量',
-                data: trendData.in_qty,
+                data: initialSeries.in_qty,
                 borderColor: palette.green,
                 backgroundColor: palette.greenSoft,
                 fill: true,
@@ -220,7 +230,7 @@ new Chart(document.getElementById('trendChart'), {
             },
             {
                 label: '领料数量',
-                data: trendData.out_qty,
+                data: initialSeries.out_qty,
                 borderColor: palette.blue,
                 backgroundColor: palette.blueSoft,
                 fill: true,
@@ -232,6 +242,13 @@ new Chart(document.getElementById('trendChart'), {
         responsive: true,
         maintainAspectRatio: false,
     },
+});
+
+trendUnit?.addEventListener('change', () => {
+    const series = trendData.by_unit[trendUnit.value];
+    trendChart.data.datasets[0].data = series.in_qty;
+    trendChart.data.datasets[1].data = series.out_qty;
+    trendChart.update();
 });
 
 new Chart(document.getElementById('categoryChart'), {
@@ -265,7 +282,7 @@ new Chart(document.getElementById('categoryChart'), {
     },
 });
 
-new Chart(document.getElementById('topStockChart'), {
+const topStockChart = new Chart(document.getElementById('topStockChart'), {
     type: 'bar',
     data: {
         labels: topStockData.labels,
@@ -286,6 +303,13 @@ new Chart(document.getElementById('topStockChart'), {
             legend: { display: false },
         },
     },
+});
+
+document.getElementById('topStockUnit')?.addEventListener('change', event => {
+    const series = topStockData.by_unit[event.target.value];
+    topStockChart.data.labels = series.labels;
+    topStockChart.data.datasets[0].data = series.values;
+    topStockChart.update();
 });
 
 new Chart(document.getElementById('amountChart'), {

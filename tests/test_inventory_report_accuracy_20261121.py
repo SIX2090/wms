@@ -259,3 +259,53 @@ def test_default_warehouse_must_be_submitted_by_caller(reports, kind):
             assert response.status_code == 400
             error = response.get_json()['msg'] if response.is_json else response.get_data(as_text=True)
             assert '请选择仓库' in error
+
+
+@pytest.mark.parametrize('kind,business', [('in_detail', '其他入库'), ('out_detail', '其他出库')])
+def test_other_document_customer_matches_screen_and_exports(reports, kind, business):
+    client, ids = reports
+    with m.app.app_context():
+        customer = m.Customer(code='C-203', name='客户甲')
+        dept = m.Department(code='D-1', name='旧部门')
+        m.db.session.add_all([customer, dept])
+        order = (m.InOrder if kind == 'in_detail' else m.OutOrder).query.filter_by(status='completed').one()
+        order.business_type = business
+        if kind == 'in_detail':
+            order.customer = customer
+        else:
+            order.customer = customer.name
+            order.department = dept
+        m.db.session.commit()
+    scope = {'warehouse_id': ids['warehouse_id'], 'business_type': business}
+    page = client.get('/report/view/' + kind, query_string=scope)
+    assert page.status_code == 200 and 'name="customer"' in page.get_data(as_text=True)
+    url = '/report/api/' + kind
+    for name in ('旧部门', '另一个客户', '%'):
+        assert client.get(url, query_string=dict(scope, customer=name)).get_json()['total'] == 0
+    assert f'{business}明细报表</span>' in page.get_data(as_text=True)
+    filtered = dict(scope, customer='C-203' if kind == 'in_detail' else '客户甲')
+    result = client.get(url, query_string=filtered).get_json()
+    assert result['title'] == f'{business}明细报表'
+    assert result['total'] > 0 and {r['customer'] for r in result['data']} == {'客户甲'}
+    for path, query in [(url, dict(filtered, export='excel')), ('/report/' + kind + '/print_excel', filtered)]:
+        resp = client.get(path, query_string=query)
+        assert resp.status_code == 200
+        sheet = load_workbook(BytesIO(resp.data)).active
+        assert any('客户甲' in row for row in sheet.values)
+        if path.endswith('/print_excel'):
+            assert sheet['A1'].value == f'{business}明细报表'
+    preview = client.get('/report/' + kind + '/print_preview', query_string=filtered)
+    assert preview.status_code == 200 and '客户甲' in preview.get_data(as_text=True)
+
+
+def test_daily_summary_separates_date_and_unit(reports):
+    client, ids = reports
+    args = {'warehouse_id': ids['warehouse_id']}
+    data = client.get('/report/api/summary', query_string=args).get_json()
+    assert data['summary']['quantity_text'] == '13 件 / 8 米'
+    assert data['summary']['count'] == 1 and data['total'] == 2
+    assert {row['unit']: row['net_quantity'] for row in data['data']} == {'件': 7, '米': 0}
+    resp = client.get('/report/api/summary', query_string=dict(args, export='excel'))
+    rows = list(load_workbook(BytesIO(resp.data)).active.values)
+    col = rows[0].index('单位')
+    assert {row[col] for row in rows[1:]} == {'件', '米'}

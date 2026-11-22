@@ -184,14 +184,14 @@ def register_report_routes(app):
 【核心指标】
 - 本月入库金额：{stats['month_in_amount']:.2f} 元，共 {stats['month_in_count']} 笔单据
 - 本月领料金额：{stats['month_out_amount']:.2f} 元，共 {stats['month_out_count']} 笔单据
-- 库存总量：{stats['total_stock']:.2f}，共 {stats['material_count']} 种物料
+- 库存总量：{stats['stock_by_unit']}，共 {stats['material_count']} 种物料
 - 库存金额：{stats['stock_value']:.2f} 元
 
 【环比分析】
 - 入库金额环比：{_format_rate(stats['in_amount_mom'])}（上月 {stats['last_month_in_amount']:.2f} 元）
 - 领料金额环比：{_format_rate(stats['out_amount_mom'])}（上月 {stats['last_month_out_amount']:.2f} 元）
 
-【趋势数据】近10天入库与普通领料数量趋势：{json.dumps(chart_data.get('trend', {}), ensure_ascii=False)[:500]}
+【趋势数据】近10天入库与普通领料数量趋势：{json.dumps(chart_data['trend'], ensure_ascii=False)}
 
 请生成4-6条有价值的业务洞察，包括：
 1. 环比分析（本月vs上月，增长/下降原因分析）
@@ -215,7 +215,7 @@ def register_report_routes(app):
                          get_default_warehouse, price_dimension_enabled)
         if report_type == 'summary' and request.args.get('summary_view') != 'daily':
             report_type = 'material_movement'
-        definition = _get_report_definition(report_type)
+        definition = _get_report_definition(report_type, request.args.get('business_type'))
         if definition is None:
             abort(404)
         # BUG-2026-10-17-014-F04（审计 §3.6）：价格维度关闭时资金类报表下线。
@@ -323,7 +323,7 @@ def register_report_routes(app):
         from app import (ReportFilterError, _build_report_filters, _collect_report_export_rows,
                          _get_report_definition, _serialize_excel_value, api_error, price_dimension_enabled)
         from doc_print_excel import render_report_excel_print, resolve_report_print_layout
-        definition = _get_report_definition(report_type)
+        definition = _get_report_definition(report_type, request.args.get('business_type'))
         if definition is None:
             return api_error('Unsupported report type', 400)
         try:
@@ -363,7 +363,7 @@ def register_report_routes(app):
         if result is None:
             return api_error('报表模板生成失败', 500)
         output, filename, template_path = result
-        _auto_register_report_template(app, report_type, definition['title'],
+        _auto_register_report_template(app, report_type, _get_report_definition(report_type)['title'],
                                        template_path)
         return send_file(
             output, download_name=filename, as_attachment=True,
@@ -379,7 +379,7 @@ def register_report_routes(app):
         from doc_print_excel import resolve_report_print_layout
         from services.report_print_preview import build_report_print_preview
 
-        definition = _get_report_definition(report_type)
+        definition = _get_report_definition(report_type, request.args.get('business_type'))
         title = definition['title'] if definition else '报表'
         context = dict(title=title, sheets=[], template_name='', total=0, error=None)
         try:

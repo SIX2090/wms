@@ -132,3 +132,10 @@ def test_invalid_warehouse_falls_back_to_global():
     html = _get(client, "/?alert_warehouse_id=99999")
     assert "按全部仓库全局判定" in html, "无效仓库 id 应回退全局口径"
     assert _alert_count(html) == 0, "回退全局后物料仍为 normal，预警数应为 0"
+
+
+def test_out_of_range_warehouse_shows_global_scope_warning():
+    client = _login_client()
+    _seed_scene()
+    html = _get(client, "/?alert_warehouse_id=99999999999999999999")
+    assert '库存预警现按全部仓库统计' in html

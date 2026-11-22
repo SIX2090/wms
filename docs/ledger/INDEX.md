@@ -947,6 +947,12 @@
 | BUG-2026-11-22-003 | bugs | entries-2026-11.md |
 | BUG-2026-11-22-004 | bugs | entries-2026-11.md |
 | BUG-2026-11-22-005 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-006 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-007 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-008 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-009 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-010 | bugs | entries-2026-11.md |
+| BUG-2026-11-22-011 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

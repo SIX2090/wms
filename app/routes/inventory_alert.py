@@ -127,6 +127,7 @@ def register_inventory_alert_routes(app):
             MaterialCategory,
             Supplier,
             Warehouse,
+            _alert_filter_warehouse,
             _material_alert_status_values,
             get_active_warehouses,
             get_warehouse_stock_quantities,
@@ -143,7 +144,8 @@ def register_inventory_alert_routes(app):
         # BUG-2026-09-18-004：新增可选仓库维度，对齐手机端仓库级口径。
         # 默认 0 = 全部仓库（全局 Material.stock，保持原有总览行为）；选定仓库后
         # 按 get_warehouse_stock_quantities 仓库级库存判定，与手机端 /api/mobile/alert/list 一致。
-        warehouse_id = request.args.get('warehouse_id', type=int) or 0
+        warehouse = _alert_filter_warehouse(request.args.get('warehouse_id'))
+        warehouse_id = warehouse.id if warehouse else 0
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
         if status_filter not in ('low', 'danger', 'normal', 'disabled'):
@@ -167,14 +169,7 @@ def register_inventory_alert_routes(app):
         materials = material_query.order_by(Material.code.asc(), Material.id.asc()).all()
 
         # BUG-2026-09-18-004：选定仓库时按该仓仓库级库存判定；无效仓库 id 回退全局。
-        warehouse = None
-        warehouse_quantities = None
-        if warehouse_id:
-            warehouse = db.session.get(Warehouse, warehouse_id)
-            if warehouse:
-                warehouse_quantities = get_warehouse_stock_quantities(warehouse)
-            else:
-                warehouse_id = 0
+        warehouse_quantities = get_warehouse_stock_quantities(warehouse) if warehouse else None
 
         low_stock = []
         danger_stock = []

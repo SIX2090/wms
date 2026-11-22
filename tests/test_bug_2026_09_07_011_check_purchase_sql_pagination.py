@@ -163,7 +163,7 @@ class TestBug20260907011:
                     _filters(**self.a_kw, page=page, page_size=10))
                 assert len(rows) == expect, f"page{page} 应 {expect} 行，实际 {len(rows)}"
                 assert total == 13, f"total 应为真实总数 13，实际 {total}"
-                seen.extend(r['check_no'] + str(r['system_stock']) + str(r['difference']) for r in rows)
+                seen.extend(r['check_no'] + str(r['actual_stock']) for r in rows)
             assert len(seen) == len(set(seen)), "分页之间不得重叠"
 
     def test_T2_check_summary_decoupled_and_warehouse_required(self):
@@ -184,15 +184,15 @@ class TestBug20260907011:
             assert summary == {'count': 0, 'quantity': 0, 'amount': 0}
 
     def test_T3_check_sort_in_sql(self):
-        """盘点：difference 降序首页首行为最大值 +6；total 不变。"""
+        """盘点：difference 降序首页首行为全物料净差异 +120；total 不变。"""
         with app_module.app.app_context():
             _, rows, _, total = app_module._sql_paged_check_report(
                 _filters(**self.a_kw, page=1, page_size=10,
                          sort_field='difference', sort_order='desc'))
             assert total == 13
             diffs = [r['difference'] for r in rows]
-            assert diffs[0] == 6.0, f"降序首行应为最大差异 6，实际 {diffs[0]}"
-            assert diffs == sorted(diffs, reverse=True), "当页必须按差异降序"
+            assert diffs[0] == 120.0, f"降序首行应为物料净差异 120，实际 {diffs[0]}"
+            assert diffs[1:] == [None] * 9, "其余卡板不可重复展示物料净差异"
 
     # ---------- 采购订单执行 ----------
     def test_T4_purchase_pagination_and_isolation(self):

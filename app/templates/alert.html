@@ -3,6 +3,7 @@
 {% block title %}库存预警{% endblock %}
 
 {% block content %}
+{% if g and g.inventory_alert_scope_error %}<div class="alert alert-warning" role="alert">{{ g.inventory_alert_scope_error }}</div>{% endif %}
 <div class="page-header">
     <h2><i class="bi bi-exclamation-triangle"></i> 库存预警</h2>
 </div>

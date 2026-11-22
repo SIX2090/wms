@@ -97,6 +97,11 @@ class TestBug20260907018:
             sc1 = self._add_sc("SC-1", D1, "仓库A", "active", [(m1.id, 10.0)], None)
             self._add_issue(sc1.id, "SI-1", [(m1.id, 4.0), (m2.id, 3.0)])
             self._add_receive(sc1.id, "SR-1", [(m1.id, 2.0), (m2.id, 1.0)])
+            # 草稿及反提交后的子单不得占用实际发料/收货数量。
+            self._add_issue(sc1.id, 'SI-DRAFT', [(m1.id, 100.0)])
+            self._add_receive(sc1.id, 'SR-DRAFT', [(m1.id, 90.0)])
+            SubcontractIssue.query.filter_by(issue_no='SI-DRAFT').one().status = 'pending'
+            SubcontractReceive.query.filter_by(receive_no='SR-DRAFT').one().status = 'pending'
             # SC-3（09-02）：仅收货 M001×6
             sc3 = self._add_sc("SC-3", D2, "仓库A", "active", [(m2.id, 8.0)], None)
             self._add_receive(sc3.id, "SR-3", [(m1.id, 6.0)])
@@ -143,6 +148,34 @@ class TestBug20260907018:
                 receive_id=rec.id, material_id=material_id, quantity=qty,
                 scrap_quantity=0.0, unit_id=self.unit_id, price=0.0, amount=0.0,
                 remark=None))
+
+    def test_order_quantity_units(self):
+        with app_module.app.app_context():
+            meter = Unit(code='METER', name='米')
+            db.session.add(meter)
+            db.session.flush()
+            SubcontractIssueItem.query.filter_by(material_id=self.m2_id).update({'unit_id': meter.id})
+            db.session.commit()
+            data = app_module._sql_paged_subcontract_report(_filters(**self.a_kw))
+            row = next(r for r in data[1] if r['order_no'] == 'SC-1')
+            assert row['issue_qty'] == '4 个 / 3 米'
+            assert data[2]['quantity_text'] == '4 个 / 3 米' and data[2]['amount'] == 9
+
+        from io import BytesIO
+        from openpyxl import load_workbook
+        client = app_module.app.test_client()
+        with client.session_transaction() as session:
+            session['_user_id'] = str(self.user_id)
+            session['_fresh'] = True
+        scope = {'warehouse_id': self.wh_a_id}
+        for endpoint, args in [('/report/api/subcontract', dict(scope, export='excel')),
+                               ('/report/subcontract/print_excel', scope)]:
+            result = client.get(endpoint, query_string=args)
+            assert result.status_code == 200
+            cells = list(load_workbook(BytesIO(result.data)).active.values)
+            assert any('SC-1' in row and '4 个 / 3 米' in row for row in cells)
+        preview = client.get('/report/subcontract/print_preview', query_string=scope)
+        assert preview.status_code == 200 and '4 个 / 3 米' in preview.get_data(as_text=True)
 
     def test_T1_default_sort_and_pagination(self):
         """默认日期倒序：SC-2(09-03) → SC-3(09-02) → SC-1(09-01)。"""
