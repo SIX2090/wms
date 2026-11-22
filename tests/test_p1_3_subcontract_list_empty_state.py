@@ -134,7 +134,7 @@ def test_t3_renders_empty_state_when_list_empty(env, name, var, text):
         def __getattr__(self, _):
             return ""
 
-    filled = frag_tpl.render(**{var: [_Row()]})
+    filled = frag_tpl.render(current_user={'role': 'production'}, **{var: [_Row()]})
     assert text not in filled, f"{name} 有数据时不应显示空态"
 
 

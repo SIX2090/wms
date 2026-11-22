@@ -9,7 +9,7 @@ StockTransaction 流水，从不写 LocationInventory。开启库位管理后委
 修复后要求：
 - SubcontractIssue / SubcontractReceive 模型含 location 列；
 - 开启库位管理时：快速发料/收货、完成发料/收货、反提交发料/收货
-  均同步写库位账（未填库位以仓库名占位）；
+  均同步写库位账；启用库位后，缺库位草稿须先补录再完成；
 - 开启库位管理时新增/快速发料缺库位直接拒绝；
 - 未开启库位管理时不写库位账（向后兼容）。
 """
@@ -184,8 +184,8 @@ def test_quick_receive_requires_location_when_enabled(client):
     assert "库位" in resp.get_json().get("msg", "")
 
 
-def test_legacy_receive_without_location_uses_warehouse_placeholder(client):
-    """历史单据（无 location 值）完成收货：以仓库名占位写库位账。"""
+def test_legacy_receive_requires_real_location_before_posting(client):
+    """旧草稿先补实际库位，收货和反提交均按原库位记账。"""
     order_id, _raw, fg, wh = _ids()
     _enable_location_mgmt(True)
     with app_module.app.app_context():
@@ -200,11 +200,15 @@ def test_legacy_receive_without_location_uses_warehouse_placeholder(client):
             quantity=3, scrap_quantity=0, unit_id=1, price=2, amount=6))
         db.session.commit()
         receive_id = receive.id
-    resp = client.post(f"/subcontract/receive/{receive_id}/complete")
-    assert resp.get_json().get("status") == "success", resp.get_json()
-    rows = _loc_rows(fg.id, wh.id, "主仓")
-    assert len(rows) == 1
-    assert abs((rows[0].quantity or 0) - 3) < 1e-6
+    base = f"/subcontract/receive/{receive_id}"
+    response = client.post(base + "/complete")
+    assert response.status_code == 400 and "库位" in response.json["msg"]
+    assert not _loc_rows(fg.id, wh.id, "主仓")
+    assert client.post(base + "/complete", json={"location":"主仓-B2"}).json["status"] == "success"
+    assert _loc_rows(fg.id, wh.id, "主仓-B2")[0].quantity == 3
+    assert client.post(base + "/revert").json["status"] == "success"
+    assert sum(row.quantity for row in _loc_rows(fg.id, wh.id, "主仓-B2")) == 0
+
 
 
 def test_complete_and_revert_issue_sync_location_inventory(client):

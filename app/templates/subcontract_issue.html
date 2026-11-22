@@ -9,12 +9,12 @@
     <div class="page-header">
         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
             <h1 class="h3 mb-0 text-gray-800">委外发料单</h1>
-            {% if current_user.role in ['admin', 'production', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
                 <a href="/subcontract_issue/download_template" class="btn btn-outline-secondary btn-sm"><i class="bi bi-file-earmark-excel"></i> 下载模板</a>
-                <a href="/subcontract_issue/export?status={{ filters.status|urlencode }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
+                <a href="/subcontract_issue/export?sort={{ sort_by|urlencode }}&order={{ sort_order|urlencode }}&status={{ filters.status|urlencode }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}" class="btn btn-outline-success btn-sm">
                     <i class="bi bi-download"></i> 导出
                 </a>
+                {% if current_user.role in ['admin', 'production'] %}
                 <button id="subcontractIssueImportFileButton" type="button" class="btn btn-outline-info btn-sm" onclick="document.getElementById('subcontractIssueImportFile').click()">
                     <i class="bi bi-upload"></i> 导入
                 </button>
@@ -22,8 +22,8 @@
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="file" id="subcontractIssueImportFile" name="file" accept=".xlsx,.xls" onchange="submitDocumentImport('subcontractIssueImportForm', 'subcontractIssueImportFile')">
                 </form>
+                {% endif %}
             </div>
-            {% endif %}
         </div>
     </div>
 
@@ -110,12 +110,17 @@
                             <td>
                                 <button class="btn btn-info btn-sm" onclick="showDetail('{{ issue.id }}')">详情</button>
                                 {{ document_print_menu('subcontract_issue', issue.id, icon_only=true) }}
+                                {% if current_user.role in ['admin', 'production'] %}
                                 {% if issue.status == 'pending' %}
-                                <button data-document-action="completeIssue" class="btn btn-success btn-sm" onclick="completeIssue('{{ issue.id }}')">完成</button>
+                                {% if location_management_enabled and not (issue.location or '')|trim %}
+                                <input data-posting-location class="form-control form-control-sm" aria-label="实际库位" placeholder="补录实际库位" maxlength="100" required>
+                                {% endif %}
+                                <button data-document-action="completeIssue" class="btn btn-success btn-sm" onclick="completeIssue('{{ issue.id }}', this)">完成</button>
+                                <button class="btn btn-danger btn-sm" onclick="deleteIssue('{{ issue.id }}')">删除</button>
                                 {% elif issue.status == 'completed' %}
                                 <button class="btn btn-warning btn-sm" onclick="revertIssue('{{ issue.id }}')">反提交</button>
                                 {% endif %}
-                                <button class="btn btn-danger btn-sm" onclick="deleteIssue('{{ issue.id }}')">删除</button>
+                                {% endif %}
                             </td>
                         </tr>
                         {% else %}
@@ -427,11 +432,18 @@ function showDetail(id) {
 }
 
 // 完成发料
-function completeIssue(id) {
+function completeIssue(id, button) {
     return WMS.runDocumentAction('completeIssue', function() {
+        const input = button?.parentElement.querySelector('[data-posting-location]');
+        const bin = input?.value.trim();
+        if (input && !bin) {
+            showToast('请先补录本单实际库位', 'warning');
+            input.focus();
+            return;
+        }
         return showConfirm('确定要完成此发料吗？').then(function(confirmed) {
             if (!confirmed) return;
-            return WMS.api.postRaw('/subcontract/issue/' + id + '/complete', {}).then(function(data) {
+            return WMS.api.postRaw('/subcontract/issue/' + id + '/complete', bin ? {location: bin} : {}).then(function(data) {
                 if (data && data.status === 'success') {
                     showToast('操作成功', 'success');
                     location.reload();

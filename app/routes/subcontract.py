@@ -58,6 +58,30 @@ def resolve_subcontract_import_warehouse(value, parent=None):
     return warehouse
 
 
+def _complete_subcontract_location(document):
+    """在原单写锁内补录库位，随本次过账一并提交。"""
+    from app import location_management_enabled
+    from request_input import json_object_body
+    if not location_management_enabled():
+        return None
+    try:
+        data = json_object_body() if request.is_json else request.form
+        supplied = data.get('location', '')
+        if not isinstance(supplied, str) or len(supplied.strip()) > 100:
+            return '库位须为不超过100字的文本'
+        supplied = supplied.strip()
+    except ValueError:
+        return '库位参数格式不正确'
+    original = (document.location or '').strip()
+    if original and supplied and original != supplied:
+        return '单据已有其他库位，请刷新后核对'
+    if not original and not supplied:
+        return '库位管理已启用，请先补录本单实际库位再完成'
+    if not original:
+        document.location = supplied
+    return None
+
+
 # no-test:reason=路由注册辅助函数，能力由 subcontract_* 各路由测试覆盖
 def register_subcontract_routes(app):
     @app.route('/subcontract/<int:id>/items/import', methods=['POST'])
@@ -1362,6 +1386,8 @@ def register_subcontract_routes(app):
             'info': [
                 ('委外加工单', issue.subcontract_order.order_no if issue.subcontract_order else ''),
                 ('加工厂商', issue.supplier.name if issue.supplier else ''),
+                ('仓库', issue.warehouse or ''),
+                ('库位', issue.location or ''),
                 ('制单人', _operator_name(issue)),
                 ('创建时间', _fmt_date(issue.created_at)),
             ],
@@ -1477,6 +1503,10 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外发料单已提交，不能重复操作')
             issue = locked
+            location_error = _complete_subcontract_location(issue)
+            if location_error:
+                db.session.rollback()
+                return api_error(location_error)
             if not issue.items:
                 db.session.rollback()
                 return api_error('发料单没有明细，无法完成')
@@ -1729,13 +1759,14 @@ def register_subcontract_routes(app):
                         _subcontract_issue_status_label(issue.status),
                         item.remark or issue.remark or '',
                         issue.warehouse or '',
+                        issue.location or '',
                     ])
             else:
-                rows.append([issue.issue_no, issue.date.strftime('%Y-%m-%d') if issue.date else '', issue.subcontract_order.order_no if issue.subcontract_order else '', issue.supplier.name if issue.supplier else '', '', '', '', '', 0, _subcontract_issue_status_label(issue.status), issue.remark or '', issue.warehouse or ''])
+                rows.append([issue.issue_no, issue.date.strftime('%Y-%m-%d') if issue.date else '', issue.subcontract_order.order_no if issue.subcontract_order else '', issue.supplier.name if issue.supplier else '', '', '', '', '', 0, _subcontract_issue_status_label(issue.status), issue.remark or '', issue.warehouse or '', issue.location or ''])
         return _workbook_response(
             'subcontract_issues.xlsx',
             '委外发料',
-            ['发料单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '数量', '状态', '备注', '仓库'],
+            ['发料单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '数量', '状态', '备注', '仓库', '库位'],
             rows,
         )
 
@@ -1747,6 +1778,7 @@ def register_subcontract_routes(app):
     @login_required
     def import_subcontract_issue():
         from flask_login import current_user
+        from app import location_management_enabled
         from app import (SubcontractIssue, SubcontractIssueItem, SubcontractOrder,
                          _find_or_create_material, _find_or_create_supplier,
                          _get_excel_cell, _get_excel_number, _import_result,
@@ -1773,6 +1805,7 @@ def register_subcontract_routes(app):
             'quantity': ['数量'],
             'remark': ['备注'],
             'warehouse': ['仓库', '仓库名称', '仓库编码'],
+            'location': ['库位', '库位名称'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
@@ -1802,6 +1835,13 @@ def register_subcontract_routes(app):
                     return api_error(f'第{row_idx}行：{error}')
                 issue_no = _order_no_from_row(row, col_map, 'order_no', 'SF')
                 issue = orders_by_no.get(issue_no)
+                location = _get_excel_cell(row, col_map, 'location') or (issue.location if issue else '')
+                if location_management_enabled() and not location:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：库位管理已启用，请填写库位')
+                if issue and issue.location != location:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：同一单据不能使用不同库位')
                 if issue and issue.warehouse != warehouse.name:
                     db.session.rollback()
                     return api_error(f'第{row_idx}行：同一单据不能使用不同仓库')
@@ -1817,6 +1857,7 @@ def register_subcontract_routes(app):
                         subcontract_order_id=subcontract_order.id if subcontract_order else None,
                         supplier_id=supplier.id if supplier else None,
                         warehouse=warehouse.name,
+                        location=location,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         operator_id=current_user.id,
@@ -2092,6 +2133,8 @@ def register_subcontract_routes(app):
             'info': [
                 ('委外加工单', receive.subcontract_order.order_no if receive.subcontract_order else ''),
                 ('加工厂商', receive.supplier.name if receive.supplier else ''),
+                ('仓库', receive.warehouse or ''),
+                ('库位', receive.location or ''),
                 ('收货数量', f'{receive.total_quantity or 0:.2f}'),
                 ('报废数量', f'{receive.total_scrap or 0:.2f}'),
                 ('制单人', _operator_name(receive)),
@@ -2201,6 +2244,10 @@ def register_subcontract_routes(app):
             if not ok:
                 return api_error('该委外收货单已提交，不能重复操作')
             receive = locked
+            location_error = _complete_subcontract_location(receive)
+            if location_error:
+                db.session.rollback()
+                return api_error(location_error)
             if not receive.items:
                 db.session.rollback()
                 return api_error('收货单没有明细，无法完成')
@@ -2447,13 +2494,14 @@ def register_subcontract_routes(app):
                         _subcontract_receive_status_label(receive.status),
                         item.remark or receive.remark or '',
                         receive.warehouse or '',
+                        receive.location or '',
                     ])
             else:
-                rows.append([receive.receive_no, receive.date.strftime('%Y-%m-%d') if receive.date else '', receive.subcontract_order.order_no if receive.subcontract_order else '', receive.supplier.name if receive.supplier else '', '', '', '', '', 0, 0, 0, 0, _subcontract_receive_status_label(receive.status), receive.remark or '', receive.warehouse or ''])
+                rows.append([receive.receive_no, receive.date.strftime('%Y-%m-%d') if receive.date else '', receive.subcontract_order.order_no if receive.subcontract_order else '', receive.supplier.name if receive.supplier else '', '', '', '', '', 0, 0, 0, 0, _subcontract_receive_status_label(receive.status), receive.remark or '', receive.warehouse or '', receive.location or ''])
         return _workbook_response(
             'subcontract_receives.xlsx',
             '委外入库',
-            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单位加工费', '加工费金额', '状态', '备注', '仓库'],
+            ['入库单号', '日期', '委外加工单号', '加工厂商', '物料编码', '物料名称', '规格', '单位', '收货数量', '报废数量', '单位加工费', '加工费金额', '状态', '备注', '仓库', '库位'],
             rows,
         )
 
@@ -2465,6 +2513,7 @@ def register_subcontract_routes(app):
     @login_required
     def import_subcontract_receive():
         from flask_login import current_user
+        from app import location_management_enabled
         from app import (SubcontractOrder, SubcontractReceive, SubcontractReceiveItem,
                          _find_or_create_material, _find_or_create_supplier,
                          _get_excel_cell, _get_excel_number, _import_result,
@@ -2494,6 +2543,7 @@ def register_subcontract_routes(app):
             'price': ['单位加工费', '加工单价', '单价', '价格'],
             'remark': ['备注'],
             'warehouse': ['仓库', '仓库名称', '仓库编码'],
+            'location': ['库位', '库位名称'],
         }
         try:
             ws, col_map, header_row = _read_import_sheet(file, aliases)
@@ -2523,6 +2573,13 @@ def register_subcontract_routes(app):
                     return api_error(f'第{row_idx}行：{error}')
                 receive_no = _order_no_from_row(row, col_map, 'order_no', 'SR')
                 receive = orders_by_no.get(receive_no)
+                location = _get_excel_cell(row, col_map, 'location') or (receive.location if receive else '')
+                if location_management_enabled() and not location:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：库位管理已启用，请填写库位')
+                if receive and receive.location != location:
+                    db.session.rollback()
+                    return api_error(f'第{row_idx}行：同一单据不能使用不同库位')
                 if receive and receive.warehouse != warehouse.name:
                     db.session.rollback()
                     return api_error(f'第{row_idx}行：同一单据不能使用不同仓库')
@@ -2538,6 +2595,7 @@ def register_subcontract_routes(app):
                         subcontract_order_id=subcontract_order.id if subcontract_order else None,
                         supplier_id=supplier.id if supplier else None,
                         warehouse=warehouse.name,
+                        location=location,
                         remark=_get_excel_cell(row, col_map, 'remark'),
                         status='pending',
                         total_quantity=0,

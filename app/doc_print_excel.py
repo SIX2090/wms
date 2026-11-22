@@ -170,7 +170,7 @@ DOC_EXCEL_PRINT_TYPES = {
         'label': '委外收货单',
         'header': [('收货单号', 'receive_no'), ('日期', 'date'),
                    ('委外单号', 'subcontract_order.order_no'), ('加工商', 'supplier.name'),
-                   ('仓库', 'warehouse'), ('状态', 'status'), ('备注', 'remark'),
+                   ('仓库', 'warehouse'), ('库位', 'location'), ('状态', 'status'), ('备注', 'remark'),
                    ('操作人', 'operator.username')],
         'columns': [('物料编码', 'material.code', 12), ('物料名称', 'material.name', 20),
                     ('规格', 'material.spec', 14), ('单位', 'unit.name', 6),
@@ -489,17 +489,24 @@ def generate_builtin_template(target_code):
     return output
 
 
+_BUILTIN_LAYOUT_VERSIONS = {
+    'subcontract_receive': 'fee_location_v3',
+    'report_warehouse_monthly': 'fee_v2',
+    'requisition': 'location_v2',
+}
+
+
 def _builtin_filename(target_code):
-    # 变更布局的系统模板使用独立文件名。
-    suffix = 'fee_v2' if target_code in ('subcontract_receive', 'report_warehouse_monthly') else 'default'
-    if target_code == 'requisition':
-        suffix = 'location_v2'
+    suffix = _BUILTIN_LAYOUT_VERSIONS.get(target_code, 'default')
     return f'builtin_{target_code}_{suffix}.xlsx'
 
 
 def _legacy_builtin_template(target_code, template):
-    return (target_code in ('subcontract_receive', 'report_warehouse_monthly', 'requisition') and template is not None
-            and template.excel_template_path == f'/static/uploads/print_templates/builtin_{target_code}_default.xlsx')
+    if target_code not in _BUILTIN_LAYOUT_VERSIONS or template is None:
+        return False
+    prefix = f'/static/uploads/print_templates/builtin_{target_code}_'
+    return (template.excel_template_path == prefix + 'default.xlsx' or
+            (target_code == 'subcontract_receive' and template.excel_template_path == prefix + 'fee_v2.xlsx'))
 
 
 def _builtin_template_abspath(static_folder, target_code):
