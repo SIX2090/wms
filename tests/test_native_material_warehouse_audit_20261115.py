@@ -2,6 +2,7 @@
 real application cases run only under the repository's owned synthetic runtime.
 """
 import ast
+import re
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -54,7 +55,7 @@ class MaterialWarehouseContractTest(unittest.TestCase):
             return (SimpleNamespace(id={'A':1,'B':2}[value],name=value,code=value),None) if value in ('A','B') else (None,'仓库不存在或已停用')
         def payload(item, warehouse=None, **_):
             return {'code':item.code,'stock':{'A':7,'B':13}[warehouse.code] if warehouse else item.stock}
-        namespace = dict(request=request,jsonify=jsonify,Material=SimpleNamespace(query=Query(),
+        namespace = dict(request=request,jsonify=jsonify,re=re,Material=SimpleNamespace(query=Query(),
             code=Column(),name=Column(),spec=Column(),brand=Column()),db=SimpleNamespace(or_=lambda *_:None),
             material_selectable_filter=lambda _:None,MATERIAL_SEARCH_API_LIMIT=100,
             validate_inventory_warehouse=validate,get_warehouse_stock_quantities=lambda _: {},

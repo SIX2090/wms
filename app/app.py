@@ -27007,18 +27007,33 @@ def material_search_api():
     if _sf is not None:
         query = query.filter(_sf)
     if keyword:
-        query = query.filter(
-            db.or_(
-                Material.code.like(f'%{keyword}%'),
-                Material.name.like(f'%{keyword}%'),
-                Material.spec.like(f'%{keyword}%'),
-                Material.brand.like(f'%{keyword}%')
-            )
-        )
+        matches = [
+            Material.code.like(f'%{keyword}%'),
+            Material.name.like(f'%{keyword}%'),
+            Material.spec.like(f'%{keyword}%'),
+            Material.brand.like(f'%{keyword}%'),
+        ]
+        signs = r'[*xX×＊ｘＸ]'
+        sides = [side.strip() for side in re.split(signs, keyword, maxsplit=3)]
+        if len(sides) in (2, 3) and all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', side) for side in sides):
+            # Only complete numeric specifications gain alternative spellings. Keep distinct material IDs.
+            separator = rf'\s*{signs}\s*'
+            parts = [re.escape(side) for side in sides]
+            orders = [parts]
+            if len(parts) == 3 and parts[0] != parts[-1]:
+                orders.append(parts[::-1])
+            ranks = [(Material.code == keyword, 0)]
+            for rank, order in enumerate(orders, 1):
+                exact_spec = Material.spec.regexp_match(r'^\s*' + separator.join(order) + r'\s*$')
+                matches.append(exact_spec)
+                ranks.append((exact_spec, rank))
+            # Show complete dimensions before ordinary substring hits, even at the result limit.
+            query = query.order_by(case(*ranks, else_=len(ranks)))
+        query = query.filter(db.or_(*matches))
     # BUG-2026-09-10-002（R1）：模糊联想上限显式化——返回 total 与 truncated，
     # 调用方据此知晓"全部命中 N 条、本次返回前 100 条"，不得把默认上限当全量。
     filtered = query.order_by(Material.code.asc())
-    total = filtered.count()
+    total = query.order_by(None).count()
     materials = filtered.limit(MATERIAL_SEARCH_API_LIMIT).all()
     # BUG-2026-09-03-004：支持可选 warehouse（Android 已选仓库时返回该仓库账面库存）
     _wh_obj, _wh_raw = None, (request.values.get('warehouse') or '').strip()

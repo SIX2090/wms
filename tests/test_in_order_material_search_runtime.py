@@ -24,7 +24,7 @@ def function(source, name):
 @pytest.mark.parametrize('action', [
     'exact', 'single_request', 'typing', 'clear', 'row', 'escape', 'outside', 'blur', 'detach',
     'order', 'stale_failure', 'selected', 'debounce', 'clear_before_timer', 'lowercase', 'fallback', 'fallback_edit', 'fallback_order',
-    'fallback_detach', 'refresh', 'refresh_order', 'refresh_busy',
+    'fallback_detach', 'refresh', 'refresh_order', 'refresh_busy', 'plate_cache', 'flat_cache',
 ])
 def test_real_inbound_material_async_lifecycle(action):
     run(action)
@@ -93,6 +93,20 @@ async function finish(i,data,kind='search',err=null){let body=kind==='refresh'?{
 const html=i=>rows[i].fields['.material-dropdown'].innerHTML,visible=i=>rows[i].fields['.material-dropdown'].style.display!=='none';
 const escape=()=>{const event={key:'Escape',target:rows[0].fields['.material-code'],preventDefault(){}};if(p.page==='pr')rows[0].fields['.material-code'].handlers.keydown(event);else ctx.handleKeydown(event,rows[0]);};
 (async()=>{
+ if(p.action==='flat_cache'){
+  evaluate("materials.push({code:'FLAT',name:'扁钢',spec:'10*50'}, {code:'OTHER',name:'扁钢',spec:'50*10'})");
+  type(0,'10x50');tick(220);await finish(0,[],'search','network');
+  assert(html(0).includes('data-code="FLAT"'));assert(!html(0).includes('data-code="OTHER"'));
+  choose(rows[0],'FLAT');assert.equal(rows[0].fields['.material-spec'].value,'10*50');return;
+ }
+ if(p.action==='plate_cache'){
+  evaluate("materials.push({code:'PLATE',name:'钢板',spec:'3 × 50 X 100'}, {code:'OTHER',name:'钢板',spec:'13 × 50 X 100'})");
+  type(0,'100*50*3');tick(220);await finish(0,[],'search','network');
+  assert(html(0).includes('data-code="PLATE"'));assert(!html(0).includes('data-code="OTHER"'));
+  assert.equal(rows[0].fields['.material-code'].value,'100*50*3');
+  choose(rows[0],'PLATE');assert.equal(rows[0].fields['.material-code'].value,'PLATE');
+  assert.equal(rows[0].fields['.material-spec'].value,'3 × 50 X 100');return;
+ }
  if(p.action.startsWith('refresh')){
   const a=ctx.refreshMaterials();assert(a&&typeof a.then==='function','refresh must return its completion Promise');
   if(p.action==='refresh_order'||p.action==='refresh_busy'){

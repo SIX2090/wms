@@ -466,13 +466,26 @@ function cancelMaterialSearch() {
 
 function filterLocalMaterials(keyword, showAll) {
     const kw = String(keyword || '').toLowerCase().trim();
-    return materials.filter(m =>
-        showAll ||
-        m.code.toLowerCase().includes(kw) ||
-        m.name.toLowerCase().includes(kw) ||
-        (m.brand && m.brand.toLowerCase().includes(kw)) ||
-        (m.spec && m.spec.toLowerCase().includes(kw))
-    );
+    const splitSides = value => value.split(/[*x×＊ｘ]/).map(side => side.trim());
+    const sides = splitSides(kw);
+    const dimensions = (sides.length === 2 || sides.length === 3) &&
+        sides.every(side => /^[0-9]+(?:\.[0-9]+)?$/.test(side));
+    const forward = sides.join('*');
+    const reverse = sides.length === 3 ? sides.slice().reverse().join('*') : forward;
+    const groups = [[], [], [], []];
+    for (const m of materials) {
+        const code = m.code.toLowerCase();
+        const spec = (m.spec || '').trim().toLowerCase();
+        const normalized = dimensions ? splitSides(spec).join('*') : '';
+        if (dimensions && code === kw) groups[0].push(m);
+        else if (dimensions && normalized === forward) groups[1].push(m);
+        else if (dimensions && normalized === reverse) groups[2].push(m);
+        else if (showAll || code.includes(kw) || m.name.toLowerCase().includes(kw) ||
+                 (m.brand && m.brand.toLowerCase().includes(kw)) || spec.includes(kw)) {
+            groups[3].push(m);
+        }
+    }
+    return groups.flat();
 }
 
 function renderMaterialDropdown(row, filtered, notice) {

@@ -131,3 +131,41 @@ def test_material_info_exact_miss_contract_unchanged(client):
     assert hit["data"]["name"] == "电线 BV2.5"
     assert hit["data"]["spec"] == "2.5mm²"
     assert hit["data"]["brand"] == "远东"
+
+
+def test_plate_dimensions_find_original_material_in_either_direction(client):
+    with app_module.app.app_context():
+        _add_material("Z1", "钢板", "3 * 50 × 100")
+        _add_material("Z2", "不锈钢板", "100x50X3")
+        _add_material("Z3", "尺寸不同", "30*50*100")
+        _add_material("Z4", "其他规格", "13*50*100")
+        _add_material("Z5", "带型号后缀", "3*50*100A")
+        _add_material("Z6", "停用钢板", "3*50*100")
+        Material.query.filter_by(code="Z6").one().status = "inactive"
+        for i in range(MATERIAL_SEARCH_API_LIMIT + 1):
+            _add_material(f"A{i:03d}", "描述中含100*50*3", "其他")
+        db.session.commit()
+
+    for keyword, preferred in [("100*50*3", "Z2"), ("3 × 50 × 100", "Z1")]:
+        body = client.get("/api/material/search", query_string={"kw": keyword}).get_json()
+        assert body["data"][0]["code"] == preferred
+        assert {m["code"]: m["spec"] for m in body["data"][:2]} == {
+            "Z1": "3 * 50 × 100", "Z2": "100x50X3",
+        }
+        assert body["total"] == (MATERIAL_SEARCH_API_LIMIT + 3 if keyword == "100*50*3" else 2)
+        assert body["truncated"] == (keyword == "100*50*3")
+
+
+@pytest.mark.parametrize("keyword", ["10*50", "10x50", "10X50", "10 × 50", "10＊50"])
+def test_two_dimensions_keep_order_and_material_identity(client, keyword):
+    with app_module.app.app_context():
+        _add_material("A", "扁钢", "10*50")
+        _add_material("B", "钢条", "10 x 50")
+        _add_material("C", "另一规格", "50×10")
+        _add_material("D", "另一规格", "110 × 50")
+        _add_material("E", "另一规格", "10 × 500.5")
+        db.session.commit()
+    body = client.get("/api/material/search", query_string={"kw": keyword}).get_json()
+    # A literal substring may still hit other sizes; complete matches always come first.
+    assert [(m["code"], m["spec"]) for m in body["data"][:2]] == [("A", "10*50"), ("B", "10 x 50")]
+    assert all(m["code"] != "C" for m in body["data"])
