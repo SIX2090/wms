@@ -43,3 +43,19 @@ def test_server_cannot_import_app_during_maintenance(tmp_path):
     assert result.returncode != 0
     assert '独占运行锁' in result.stderr
     assert not target.exists(), '必须在app导入和启动DDL前拒绝启动'
+
+
+def test_hold_server_database_lease(tmp_path, monkeypatch):
+    import runtime_guard
+
+    target = tmp_path / 'inventory.db'
+    callbacks = []
+    monkeypatch.setattr(runtime_guard.atexit, 'register', callbacks.append)
+    runtime_guard.hold_server_database_lease({'DATABASE_URL': 'sqlite:///' + target.as_posix()})
+    try:
+        with pytest.raises(RuntimeError, match='独占运行锁'):
+            acquire_database_lease(target)
+    finally:
+        callbacks[0]()
+    with acquire_database_lease(target):
+        assert not target.exists()

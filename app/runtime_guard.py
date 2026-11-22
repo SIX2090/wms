@@ -1,4 +1,5 @@
 """运行服务与离线维护共用的OS锁；不导入Flask，不读取/修改业务库。"""
+import atexit
 import os
 from pathlib import Path
 
@@ -26,6 +27,14 @@ def acquire_database_lease(path, create_parent=False):
         handle.close()
         raise RuntimeError('数据库正在运行或维护，无法取得独占运行锁；请先停止对应WMS服务。') from exc
     return handle
+
+
+def hold_server_database_lease(environ):
+    """Hold the selected SQLite file's lease until this server process exits."""
+    target = server_database_path(environ)
+    if target is not None:
+        lease = acquire_database_lease(target, create_parent=True)
+        atexit.register(lease.close)
 
 
 def server_database_path(environ):

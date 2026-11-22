@@ -15,17 +15,13 @@ from waitress import serve
 
 # Repair task: AUDIT-FULL-20261016-001-F01
 # 必须在导入app（含启动DDL/回填）之前取得运行锁，恢复期间不能启动写库。
-from runtime_guard import acquire_database_lease, server_database_path
+from runtime_guard import hold_server_database_lease
 from pathlib import Path
 from services.runtime_status import preflight_runtime_identity
 
 preflight_runtime_identity(Path(__file__).resolve().parent)
 
-_runtime_database = server_database_path(os.environ)
-_runtime_lease = (acquire_database_lease(_runtime_database, create_parent=True)
-                  if _runtime_database is not None else None)
-if _runtime_lease is not None:
-    atexit.register(_runtime_lease.close)
+hold_server_database_lease(os.environ)
 
 from app import (
     Material,

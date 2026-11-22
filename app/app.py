@@ -31,6 +31,14 @@ import json
 import threading
 from pathlib import Path
 
+# The direct server entry must guard the database before module-level maintenance.
+if __name__ == '__main__':
+    from runtime_guard import hold_server_database_lease
+    from services.runtime_status import preflight_runtime_identity
+
+    preflight_runtime_identity(Path(__file__).resolve().parent)
+    hold_server_database_lease(os.environ)
+
 # Initialize Flask application
 from config import config_dict, validate_production_security_config
 from ai.policies import (
@@ -36982,6 +36990,8 @@ if __name__ == '__main__':
     try:
         with app.app_context():
             initialize_database()
+        from startup_check import verify_schema_or_raise
+        app.logger.info(verify_schema_or_raise(app, db))
         print("[OK] database initialized")
     except Exception:
         app.logger.exception("Database initialization failed")
