@@ -2282,7 +2282,7 @@ def register_native_api_routes(app):
         """移动端入库单详情（按仓库隔离，跨仓返回 404）"""
         from sqlalchemy.orm import joinedload
         from app import (InOrder, InOrderItem, Material, Unit, _in_order_detail_payload,
-                         api_json_error, api_json_success, resolve_request_warehouse)
+                         _warehouse_document_match_clause, api_json_error, api_json_success, resolve_request_warehouse)
         # BUG-2026-08-12-004：仓库必填
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
@@ -2291,9 +2291,10 @@ def register_native_api_routes(app):
             joinedload(InOrder.operator),
             joinedload(InOrder.supplier),
             joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
-        ).get(order_id)
+        ).filter(InOrder.id == order_id,
+                 _warehouse_document_match_clause(InOrder.warehouse, warehouse)).one_or_none()
 
-        if not order or (order.warehouse or '') != (warehouse.name or ''):
+        if order is None:
             return api_json_error('入库单不存在', 404)
 
         return api_json_success(_in_order_detail_payload(order))
@@ -2351,7 +2352,7 @@ def register_native_api_routes(app):
         """移动端出库单详情（按仓库隔离，跨仓返回 404）"""
         from sqlalchemy.orm import joinedload
         from app import (OutOrder, OutOrderItem, Material, Unit, _out_order_detail_payload,
-                         api_json_error, api_json_success, resolve_request_warehouse)
+                         _warehouse_document_match_clause, api_json_error, api_json_success, resolve_request_warehouse)
         # BUG-2026-08-12-004：仓库必填
         warehouse, wh_err = resolve_request_warehouse(request.args)
         if wh_err:
@@ -2360,9 +2361,10 @@ def register_native_api_routes(app):
             joinedload(OutOrder.operator),
             joinedload(OutOrder.department),
             joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
-        ).get(order_id)
+        ).filter(OutOrder.id == order_id,
+                 _warehouse_document_match_clause(OutOrder.warehouse, warehouse)).one_or_none()
 
-        if not order or (order.warehouse or '') != (warehouse.name or ''):
+        if order is None:
             return api_json_error('出库单不存在', 404)
 
         return api_json_success(_out_order_detail_payload(order))
