@@ -520,8 +520,9 @@ def main():
     raise SystemExit(not result.wasSuccessful())
 
 
-def test_sales_summary_in_synthetic_process():
+def test_sales_summary_in_synthetic_process(tmp_path):
     env = {key: os.environ[key] for key in ('SYSTEMROOT', 'WINDIR') if key in os.environ}
+    env.update(TMP=str(tmp_path), TEMP=str(tmp_path), TMPDIR=str(tmp_path))
     result = subprocess.run([sys.executable, '-I', '-S', '-B', '-X', 'utf8', __file__],
                             env=env, capture_output=True, text=True, encoding='utf-8', timeout=30)
     assert result.returncode == 0, result.stderr

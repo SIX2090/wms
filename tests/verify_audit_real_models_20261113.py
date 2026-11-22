@@ -109,7 +109,7 @@ def main():
     ns['allow_negative_location_stock'] = lambda: False
     for name in ('update_purchase_order_status', 'log_operation', '_ledger_source_warehouse_getters',
                  '_ledger_source_warehouse_map', '_filter_txn_list_by_warehouse_scope',
-                 '_warehouse_location_filter_values', 'get_warehouse_stock_quantities',
+                 '_warehouse_location_filter_values', 'get_warehouse_stock_quantities', '_warehouse_ledger_quantities',
                  '_opening_stock_negative_hint', '_opening_stock_line_transaction_ids',
                  '_reverse_opening_stock_line', '_apply_scan_to_batch'):
         extract('app/app.py', name)

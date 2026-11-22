@@ -57,6 +57,15 @@ def warehouse_aliases(warehouse):
         row.id != warehouse.id and alias in (row.name, row.code) for row in rows)]
 
 
+def warehouse_id_or_legacy_text(model, warehouse):
+    """Prefer the document's warehouse ID. Accept only unique historical aliases."""
+    from db import db
+    if warehouse is None:
+        return db.false()
+    return db.or_(model.warehouse_id == warehouse.id, db.and_(
+        model.warehouse_id.is_(None), db.func.trim(model.warehouse).in_(warehouse_aliases(warehouse))))
+
+
 def legacy_warehouse_location_owners():
     """Select unambiguous owners of historical text stored in stock_transaction.location."""
     from sqlalchemy import func, union_all

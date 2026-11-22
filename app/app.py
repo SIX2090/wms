@@ -167,7 +167,8 @@ from ai.documents.sales_draft_validation import (
     validate_ai_only_draft,
 )
 from services.material_label import material_scan_code
-from services.warehouse_identity import WarehouseIdentityError, resolve_warehouse_text, warehouse_aliases
+from services.warehouse_identity import (WarehouseIdentityError, resolve_warehouse_text,
+                                         warehouse_aliases, warehouse_id_or_legacy_text)
 # Import utility functions
 from utils import (
     round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
@@ -1428,18 +1429,12 @@ def auto_migrate_database():
                 ).fetchone()
                 if warehouse_table:
                     cursor.execute("""
-                        UPDATE sales_order
-                        SET warehouse_id = (SELECT w.id FROM warehouse w WHERE w.name = sales_order.warehouse LIMIT 1)
-                        WHERE sales_order.warehouse_id IS NULL
-                          AND sales_order.warehouse IS NOT NULL
-                          AND TRIM(sales_order.warehouse) <> ''
-                    """)
-                    cursor.execute("""
-                        UPDATE sales_order
-                        SET warehouse_id = (SELECT w.id FROM warehouse w WHERE w.code = sales_order.warehouse LIMIT 1)
-                        WHERE sales_order.warehouse_id IS NULL
-                          AND sales_order.warehouse IS NOT NULL
-                          AND TRIM(sales_order.warehouse) <> ''
+                        UPDATE sales_order SET warehouse_id = (
+                            SELECT MIN(w.id) FROM warehouse w
+                            WHERE TRIM(sales_order.warehouse) IN (w.name, w.code)
+                            HAVING COUNT(*) = 1
+                        )
+                        WHERE warehouse_id IS NULL AND TRIM(COALESCE(warehouse, '')) <> ''
                     """)
                     unresolved = cursor.execute(
                         "SELECT COUNT(*) FROM sales_order WHERE warehouse_id IS NULL "
@@ -1736,6 +1731,18 @@ def auto_migrate_database():
                         WHERE warehouse.name = TRIM(location_inventory.location)
                            OR warehouse.code = TRIM(location_inventory.location)
                    )
+                   AND TRIM(location_inventory.location) NOT IN (
+                       SELECT TRIM(known.location)
+                       FROM location_inventory known JOIN warehouse w
+                         ON TRIM(known.location) IN (w.name, w.code)
+                       WHERE known.warehouse_id <> w.id
+                   )
+                   AND NOT EXISTS (
+                       SELECT 1 FROM location_inventory other
+                       WHERE other.material_id = location_inventory.material_id
+                         AND other.location = location_inventory.location
+                         AND other.id <> location_inventory.id
+                   )
                 """
             )
             if cursor.rowcount and cursor.rowcount > 0:
@@ -1902,7 +1909,7 @@ def auto_migrate_database():
         #   - transfer_order.from_location / to_location 历史存的是仓库名，
         #     回填到 from_warehouse / to_warehouse；from_location / to_location
         #     保留原值，后续作为库位字段使用（开启库位管理时由前端覆盖）。
-        #   - inventory_check / adjustment_order 存量数据回填默认仓库名
+        #   - inventory_check / adjustment_order 仅单仓时为存量数据回填默认仓库名
         #     （取 warehouse 表 is_default=True 的第一条；无默认仓库时留 NULL，
         #     路由层必填校验会阻止后续无仓库单据保存）。
         if _table_exists('transfer_order'):
@@ -1924,9 +1931,9 @@ def auto_migrate_database():
             ic_cols = [row[1] for row in cursor.fetchall()]
             if ic_cols and 'warehouse' not in ic_cols:
                 cursor.execute("ALTER TABLE inventory_check ADD COLUMN warehouse VARCHAR(100)")
-                # 存量数据回填默认仓库名
+                # 仅单仓时为存量数据回填默认仓库名
                 try:
-                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' AND (SELECT COUNT(*) FROM warehouse) = 1")
                     row = cursor.fetchone()
                     if row:
                         cursor.execute("UPDATE inventory_check SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
@@ -1939,9 +1946,9 @@ def auto_migrate_database():
             adj_cols = [row[1] for row in cursor.fetchall()]
             if adj_cols and 'warehouse' not in adj_cols:
                 cursor.execute("ALTER TABLE adjustment_order ADD COLUMN warehouse VARCHAR(100)")
-                # 存量数据回填默认仓库名
+                # 仅单仓时为存量数据回填默认仓库名
                 try:
-                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' AND (SELECT COUNT(*) FROM warehouse) = 1")
                     row = cursor.fetchone()
                     if row:
                         cursor.execute("UPDATE adjustment_order SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
@@ -1949,15 +1956,15 @@ def auto_migrate_database():
                     pass
                 modified = True
 
-        # BUG-2026-08-11-021：扫码盘点单补仓库列，存量数据回填默认仓库名
+        # BUG-2026-08-11-021：扫码盘点单补仓库列，仅单仓时为存量数据回填默认仓库名
         if _table_exists('inventory_check_scan'):
             cursor.execute("PRAGMA table_info(inventory_check_scan)")
             ics_cols = [row[1] for row in cursor.fetchall()]
             if ics_cols and 'warehouse' not in ics_cols:
                 cursor.execute("ALTER TABLE inventory_check_scan ADD COLUMN warehouse VARCHAR(100)")
-                # 存量数据回填默认仓库名
+                # 仅单仓时为存量数据回填默认仓库名
                 try:
-                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' AND (SELECT COUNT(*) FROM warehouse) = 1")
                     row = cursor.fetchone()
                     if row:
                         cursor.execute("UPDATE inventory_check_scan SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
@@ -2011,14 +2018,14 @@ def auto_migrate_database():
                 cursor.execute('ALTER TABLE inventory_check_scan_item ADD COLUMN created_batch_item BOOLEAN')
                 modified = True
 
-        # BUG-2026-08-05-008：工单领料单补仓库列，存量数据回填默认仓库名
+        # BUG-2026-08-05-008：工单领料单补仓库列，仅单仓时为存量数据回填默认仓库名
         if _table_exists('production_requisition'):
             cursor.execute("PRAGMA table_info(production_requisition)")
             pr_cols = [row[1] for row in cursor.fetchall()]
             if pr_cols and 'warehouse' not in pr_cols:
                 cursor.execute("ALTER TABLE production_requisition ADD COLUMN warehouse VARCHAR(100)")
                 try:
-                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' LIMIT 1")
+                    cursor.execute("SELECT name FROM warehouse WHERE is_default = 1 AND status = 'active' AND (SELECT COUNT(*) FROM warehouse) = 1")
                     row = cursor.fetchone()
                     if row:
                         cursor.execute("UPDATE production_requisition SET warehouse = ? WHERE warehouse IS NULL OR warehouse = ''", (row[0],))
@@ -2123,11 +2130,11 @@ def backfill_empty_warehouse_documents(db_path: str | None = None):
     """启动期自动回填历史无仓库单据到默认仓库（BUG-2026-08-18-005）。
 
     系统早期采购入库单/领料单未强制选择仓库，单据 warehouse 为空字符串，
-    报表按仓库过滤后这些历史单据“有数据也查不出来”。启动时若存在默认仓库，
+    报表按仓库过滤后这些历史单据“有数据也查不出来”。启动时若全库只有一个仓库且该仓是启用的默认仓库，
     则把 warehouse/location 为空的 in_order、production_requisition 及其
     关联 stock_transaction.location 回填为默认仓库名，无需人工执行命令。
 
-    幂等：只处理 NULL/空串行，重复执行无变化；无默认仓库则跳过不写库。
+    幂等：只处理 NULL/空串行。多仓或无启用的默认仓库时跳过回填。
     对应手工核对脚本 scripts/backfill_document_warehouse.py（dry-run 用）。
     """
     conn = None
@@ -2145,17 +2152,17 @@ def backfill_empty_warehouse_documents(db_path: str | None = None):
         cur.execute('PRAGMA journal_mode=WAL')
         cur.execute('PRAGMA busy_timeout=60000')
 
+        cur.execute('BEGIN EXCLUSIVE')
         default_wh = cur.execute(
             "SELECT name FROM warehouse "
             "WHERE is_default = 1 AND status = 'active' "
-            "ORDER BY id LIMIT 1"
+            "AND (SELECT COUNT(*) FROM warehouse) = 1"
         ).fetchone()
         if not default_wh:
-            logging.getLogger(__name__).info('[DB] 未配置默认仓库，跳过历史单据仓库回填')
+            logging.getLogger(__name__).info('[DB] 历史单据缺少唯一默认仓库，保留待核')
             return
         wh_name = default_wh['name']
 
-        cur.execute('BEGIN EXCLUSIVE')
         total_docs = 0
         total_txns = 0
 
@@ -5767,17 +5774,10 @@ def get_warehouse_stock_quantities(warehouse):
     if location_management_enabled():
         # 优先按 warehouse_id 精确汇总；OR 兼容旧数据：warehouse_id 为 NULL
         # 且 location 字符串等于仓库名或编码的历史行。
-        name_clauses = [LocationInventory.warehouse_id == warehouse.id]
-        if warehouse_key:
-            name_clauses.append(db.and_(
-                LocationInventory.warehouse_id.is_(None),
-                LocationInventory.location == warehouse_key,
-            ))
-        if warehouse_code and warehouse_code != warehouse_key:
-            name_clauses.append(db.and_(
-                LocationInventory.warehouse_id.is_(None),
-                LocationInventory.location == warehouse_code,
-            ))
+        owners = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
+        legacy_names = set(aliases).intersection(owners)
+        name_clauses = [LocationInventory.warehouse_id == warehouse.id, db.and_(
+            LocationInventory.warehouse_id.is_(None), func.trim(LocationInventory.location).in_(legacy_names))]
         rows = (db.session.query(LocationInventory.material_id,
                                  func.coalesce(func.sum(LocationInventory.quantity), 0))
                 .filter(db.or_(*name_clauses))
@@ -5795,38 +5795,7 @@ def get_warehouse_stock_quantities(warehouse):
         # BUG-2026-08-27-004：与台账/月报同口径——库位名流水经 _warehouse_location_filter_values
         # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
         # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
-        loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-        # C-2026-08-27：warehouse_id 外键精确聚合优先（B 治本）；未回填行
-        # （warehouse_id IS NULL）退回 location 字符串兜底，避免漏掉历史流水。
-        rows = (db.session.query(StockTransaction.material_id,
-                                 func.coalesce(func.sum(StockTransaction.quantity), 0))
-                .filter(db.or_(
-                    StockTransaction.warehouse_id == warehouse.id,
-                    db.and_(
-                        StockTransaction.warehouse_id.is_(None),
-                        StockTransaction.location.in_(loc_names),
-                    ),
-                ))
-                .group_by(StockTransaction.material_id).all())
-        result = {material_id: float(quantity or 0) for material_id, quantity in rows}
-        # 多仓库下空 location 且未回填（warehouse_id IS NULL）的历史流水按来源单据
-        # 仓库归属补入（与台账一致）；已回填的空 location 行已由上方 SQL 聚合命中。
-        # BUG-2026-09-07-015：无来源单据（reference_type/reference_id 为空）的历史行
-        # 在 _ledger_source_warehouse_map 中必然被跳过——_filter_txn_list_by_warehouse_scope
-        # 的三条保留条件对它们全为假（warehouse_id 为 NULL 不等于所选仓库、location
-        # 为空、来源单据解析不出仓库名），永远不可能贡献任何仓库的库存。此处在 SQL
-        # 侧先行排除，纯剪枝、语义等价：实测该扫描由 22330 行 / 0.476s 降至
-        # 11971 行 / 0.081s（-83%），库存报表/库存查询每次查询都受益。
-        empty_txns = StockTransaction.query.filter(
-            StockTransaction.warehouse_id.is_(None),
-            db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
-            StockTransaction.reference_type.isnot(None),
-            StockTransaction.reference_type != '',
-            StockTransaction.reference_id.isnot(None),
-        ).all()
-        for t in _filter_txn_list_by_warehouse_scope(empty_txns, loc_names, warehouse.id):
-            result[t.material_id] = result.get(t.material_id, 0.0) + float(t.quantity or 0)
-        return result
+        return _warehouse_ledger_quantities(warehouse)
 
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
@@ -5848,6 +5817,28 @@ def get_all_warehouses_stock_quantities():
         for mid, qty in get_warehouse_stock_quantities(wh).items():
             result[mid] = result.get(mid, 0.0) + qty
     return result
+
+
+def _warehouse_ledger_quantities(warehouse, since_dt=None, *, names=None, include_empty=True):
+    """按外键汇总已归仓行，对有来源的旧流水逐行交叉核对旧位置。"""
+    if names is None:
+        names = _warehouse_location_filter_values(warehouse.id, warehouse.name, warehouse.code)
+    txn = StockTransaction
+    scoped = txn.query
+    if since_dt is not None:
+        scoped = scoped.filter(txn.created_at >= since_dt)
+    has_source = db.and_(txn.reference_type.isnot(None), txn.reference_type != '',
+                         txn.reference_id.isnot(None))
+    located = func.trim(txn.location).in_(names)
+    direct = scoped.filter(db.or_(txn.warehouse_id == warehouse.id, db.and_(
+        txn.warehouse_id.is_(None), located, ~has_source)))
+    rows = direct.with_entities(txn.material_id, func.sum(txn.quantity)).group_by(txn.material_id)
+    totals = {mid: float(quantity or 0) for mid, quantity in rows}
+    candidates = db.or_(located, func.trim(func.coalesce(txn.location, '')) == '') if include_empty else located
+    legacy = scoped.filter(txn.warehouse_id.is_(None), has_source, candidates)
+    for row in _filter_txn_list_by_warehouse_scope(legacy.all(), names, warehouse.id):
+        totals[row.material_id] = totals.get(row.material_id, 0.0) + float(row.quantity or 0)
+    return totals
 
 
 def get_warehouse_txn_delta_map(warehouse, since_dt):
@@ -5880,49 +5871,13 @@ def get_warehouse_txn_delta_map(warehouse, since_dt):
         return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
     if location_management_enabled():
-        # 与 LocationInventory 分支的子句一致：warehouse_id 精确 + NULL 行按仓库名/编码
-        name_clauses = [StockTransaction.warehouse_id == warehouse.id]
-        if warehouse_key:
-            name_clauses.append(db.and_(
-                StockTransaction.warehouse_id.is_(None),
-                StockTransaction.location == warehouse_key,
-            ))
-        if warehouse_code and warehouse_code != warehouse_key:
-            name_clauses.append(db.and_(
-                StockTransaction.warehouse_id.is_(None),
-                StockTransaction.location == warehouse_code,
-            ))
-        rows = (db.session.query(StockTransaction.material_id,
-                                 func.coalesce(func.sum(StockTransaction.quantity), 0))
-                .filter(db.or_(*name_clauses), StockTransaction.created_at >= since_dt)
-                .group_by(StockTransaction.material_id).all())
-        return {material_id: float(quantity or 0) for material_id, quantity in rows}
+        # 库位模式沿用只认仓名/编码的旧流水范围，并与来源单据交叉核对。
+        owners = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
+        names = set(warehouse_aliases(warehouse)).intersection(owners)
+        return _warehouse_ledger_quantities(warehouse, since_dt, names=names, include_empty=False)
 
-    # 关库位管理多仓：与 get_warehouse_stock_quantities 的 OFF 分支逐条一致
-    loc_names = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-    clauses = [StockTransaction.warehouse_id == warehouse.id]
-    if loc_names:
-        clauses.append(db.and_(
-            StockTransaction.warehouse_id.is_(None),
-            StockTransaction.location.in_(loc_names),
-        ))
-    rows = (db.session.query(StockTransaction.material_id,
-                             func.coalesce(func.sum(StockTransaction.quantity), 0))
-            .filter(db.or_(*clauses), StockTransaction.created_at >= since_dt)
-            .group_by(StockTransaction.material_id).all())
-    result = {material_id: float(quantity or 0) for material_id, quantity in rows}
-    # 空 location 历史行按来源单据仓库归属补入（与其 OFF 分支兜底一致）
-    empty_txns = StockTransaction.query.filter(
-        StockTransaction.created_at >= since_dt,
-        StockTransaction.warehouse_id.is_(None),
-        db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
-        StockTransaction.reference_type.isnot(None),
-        StockTransaction.reference_type != '',
-        StockTransaction.reference_id.isnot(None),
-    ).all()
-    for t in _filter_txn_list_by_warehouse_scope(empty_txns, loc_names, warehouse.id):
-        result[t.material_id] = result.get(t.material_id, 0.0) + float(t.quantity or 0)
-    return result
+    return _warehouse_ledger_quantities(warehouse, since_dt)
+
 
 
 def get_committed_quantities(warehouse_id, exclude_sales_order_id=None):
@@ -7643,6 +7598,9 @@ def build_material_locations_map(material_ids, wh_obj=None, legacy_location_name
     if not ids:
         return locations_map
     legacy_names = [n for n in (legacy_location_names or []) if (n or '').strip()]
+    if wh_obj is not None and legacy_names:
+        owners = _warehouse_location_filter_values(wh_obj.id, wh_obj.name, wh_obj.code)
+        legacy_names = set(legacy_names).intersection(owners)
     for start in range(0, len(ids), 500):
         chunk = ids[start:start + 500]
         query = LocationInventory.query.filter(
@@ -7656,7 +7614,7 @@ def build_material_locations_map(material_ids, wh_obj=None, legacy_location_name
                 query = query.filter(db.or_(
                     LocationInventory.warehouse_id == wh_obj.id,
                     db.and_(LocationInventory.warehouse_id.is_(None),
-                            LocationInventory.location.in_(legacy_names)),
+                            func.trim(LocationInventory.location).in_(legacy_names)),
                 ))
             else:
                 query = query.filter(LocationInventory.warehouse_id == wh_obj.id)
@@ -30455,18 +30413,18 @@ def _ledger_source_warehouse_getters():
     }
 
 
-def _ledger_source_warehouse_map(transactions, *, verify_transfer_scope=None, end_date=None):
-    """对 location 为空的流水，按来源单据解析仓库名，返回 {txn_id: 仓库名}（BUG-2026-08-27-003）。"""
+def _ledger_source_warehouse_map(transactions, *, verify_transfer_scope=None, end_date=None, include_located=False):
+    """按来源单据解析旧流水仓库名，默认只查空位置，返回 {txn_id: 仓库名}（BUG-2026-08-27-003）。"""
     result = {}
     by_type = {}
     for t in transactions:
-        if getattr(t, 'warehouse_id', None) is not None or (t.location or '').strip():
+        if getattr(t, 'warehouse_id', None) is not None or (not include_located and (t.location or '').strip()):
             continue
         if (t.reference_type == 'opening_stock' and t.reference_id == t.material_id
                 and getattr(t, 'remark', None) == '新增物料初始库存'):
             continue
         if not t.reference_type or not t.reference_id:
-            if (verify_transfer_scope is not None and t.reference_type == 'transfer'
+            if (verify_transfer_scope is not None and not (t.location or '').strip() and t.reference_type == 'transfer'
                     and (not end_date or (t.created_at or datetime.min).date() <= end_date)):
                 raise ReportFilterError(f'调拨流水 {t.id} 缺少来源单据，仓库归属待核')
             continue
@@ -30498,7 +30456,7 @@ def _ledger_source_warehouse_map(transactions, *, verify_transfer_scope=None, en
         for t in txns:
             doc = doc_map.get(t.reference_id)
             if doc is None:
-                if (verify_transfer_scope is not None and ref_type == 'transfer'
+                if (verify_transfer_scope is not None and not (t.location or '').strip() and ref_type == 'transfer'
                         and (not end_date or (t.created_at or datetime.min).date() <= end_date)):
                     raise ReportFilterError(f'调拨流水 {t.id} 的来源单据不存在，仓库归属待核')
                 continue
@@ -30508,7 +30466,7 @@ def _ledger_source_warehouse_map(transactions, *, verify_transfer_scope=None, en
             if ref_type == 'transfer' and not wh:
                 if (t.reference_id, t.material_id) in simple_transfers and not (t.remark or '').strip():
                     wh = doc.from_warehouse if t.quantity < 0 else doc.to_warehouse
-                elif (verify_transfer_scope is not None
+                elif (verify_transfer_scope is not None and not (t.location or '').strip()
                       and verify_transfer_scope.intersection((doc.from_warehouse, doc.to_warehouse))
                       and (not end_date or (doc.date or (t.created_at or datetime.min).date()) <= end_date)):
                     raise ReportFilterError(f'调拨单 {doc.transfer_no} 的历史流水归属待核，无法计算该仓结存')
@@ -30676,7 +30634,7 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
 
     回填规则（与台账/月报仓库口径同源）：
     1. location 同时作为库位、仓库名或编码核对。所有匹配都指向同一仓库时才归属；
-    2. 跨仓同名库位或库位与其他仓库名/编码冲突时保留 NULL；
+    2. 旧位置有歧义或与来源单据仓库不符时保留 NULL；
     3. location 为空 → 按来源单据仓库推断（复用 _ledger_source_warehouse_map，
        调拨按数量正负归 to/from 仓库）；
     4. 无法唯一确定 → 保留 NULL，不猜（AGENTS.md：不自动归入任意默认仓库）。
@@ -30709,20 +30667,14 @@ def backfill_stock_txn_warehouse_id(batch_size=2000):
         if not batch:
             break
         last_id = batch[-1].id
-        # 空 location 行按来源单据仓库推断（与台账/月报归属同源）
-        empty_txns = [t for t in batch if not (t.location or '').strip()]
-        src_wh_names = _ledger_source_warehouse_map(empty_txns) if empty_txns else {}
+        sources = _ledger_source_warehouse_map(batch, include_located=True)
         changed = 0
         for t in batch:
-            wid = None
-            key = (t.location or '').strip()
-            if key:
-                wid = loc_map.get(key)
-            else:
-                wh_name = src_wh_names.get(t.id)
-                if wh_name:
-                    wid = name_map.get(wh_name)
-            if wid:
+            location = (t.location or '').strip()
+            source = sources.get(t.id)
+            source_id = name_map.get(source)
+            wid = loc_map.get(location) if location else source_id
+            if wid and (not source or source_id == wid):
                 t.warehouse_id = wid
                 changed += 1
         if changed:
@@ -30791,15 +30743,15 @@ def _warehouse_scoped_txn_condition(filters):
             db.and_(
                 StockTransaction.warehouse_id.is_(None),
                 db.or_(
-                    StockTransaction.location.in_(loc_names),
+                    func.trim(StockTransaction.location).in_(loc_names),
                     StockTransaction.location.is_(None),
-                    StockTransaction.location == '',
+                    func.trim(StockTransaction.location) == '',
                 ),
             ),
         )
     else:
         condition = db.or_(
-            StockTransaction.location.in_(loc_names),
+            func.trim(StockTransaction.location).in_(loc_names),
             StockTransaction.location.is_(None),
             StockTransaction.location == '',
         )
@@ -30811,23 +30763,24 @@ def _filter_txn_list_by_warehouse_scope(transactions, loc_names, warehouse_id=No
 
     判定优先级（C-2026-08-27 治本）：
     1. warehouse_id 精确命中所选仓库 → 直接保留（含空 location 的新数据/已回填行）；
-    2. location 非空 → SQL 条件已保证属所选仓库（字符串兜底），直接保留；
+    2. 旧位置与来源单据须相容，有冲突时不计入该仓；
     3. 空 location 且 warehouse_id IS NULL → 仅当来源单据仓库属所选仓库时保留
        （BUG-2026-08-27-003/004，历史遗留无法回填的行）。
     loc_names 为空且 warehouse_id 为 None 表示不过滤（单仓库或未选仓库）。
     """
     if not loc_names and warehouse_id is None:
         return transactions
-    _src_wh = _ledger_source_warehouse_map(transactions, verify_transfer_scope=verify_transfer_scope, end_date=end_date)
-    _loc_set = {n for n in loc_names if n}
+    sources = _ledger_source_warehouse_map(transactions, verify_transfer_scope=verify_transfer_scope,
+                                         end_date=end_date, include_located=True)
+    aliases = set(loc_names)
+    if sources and warehouse_id is not None:
+        warehouse = db.session.get(Warehouse, warehouse_id)
+        aliases = set(warehouse_aliases(warehouse)) if warehouse else set()
     return [
         t for t in transactions
-        # C-2026-08-27 修复1：warehouse_id 为 None（降级场景：loc_names 非空但仓库
-        # 解析失败）时必须跳过精确命中判断——否则 None == None 会把全部 NULL 行
-        # （含其他仓库的空 location 流水）误保留，绕过来源单据归属过滤导致串仓。
         if (warehouse_id is not None and t.warehouse_id == warehouse_id)
-        or (t.location or '').strip()
-        or _src_wh.get(t.id) in _loc_set
+        or (t.warehouse_id is None and
+            (sources[t.id] in aliases if t.id in sources else bool((t.location or '').strip())))
     ]
 
 
@@ -36597,7 +36550,7 @@ def api_sales_order_selectable():
     if salesperson_id:
         query = query.filter(SalesOrder.salesperson_id == salesperson_id)
     if warehouse:
-        query = query.filter(SalesOrder.warehouse == warehouse)
+        query = query.filter(warehouse_id_or_legacy_text(SalesOrder, resolve_warehouse_text(warehouse)))
     query = query.order_by(SalesOrder.delivery_date.asc().nullslast(), SalesOrder.date.asc(), SalesOrder.id.asc()).limit(limit)
 
     items = []
@@ -36908,7 +36861,7 @@ def _sales_report_orders():
             query = query.filter(SalesOrder.date <= parsed)
     if customer_id:
         query = query.filter(SalesOrder.customer_id == customer_id)
-    query = query.filter(db.or_(SalesOrder.warehouse_id == required_wh.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == required_wh.name)))
+    query = query.filter(warehouse_id_or_legacy_text(SalesOrder, required_wh))
     if material_code:
         query = query.join(SalesOrderItem).join(Material).filter(
             db.or_(Material.code.ilike(f'%{material_code}%'), Material.name.ilike(f'%{material_code}%'))
@@ -36971,12 +36924,11 @@ def _wh_stock_guards(material_id, warehouse, qty):
         return []
     if _material_stock_unattributed(material_id):
         return []
-    # 「空 location + 带来源单据」的历史行由 _filter_txn_list_by_warehouse_scope
+    # 「缺少仓库外键且带来源单据」的历史行由 _filter_txn_list_by_warehouse_scope
     # 在 Python 侧按来源单据归属补入，SQL 聚合无法表达 → 口径不等价，跳过下推。
     _src = db.session.query(StockTransaction.id).filter(
         StockTransaction.material_id == material_id,
         StockTransaction.warehouse_id.is_(None),
-        db.or_(StockTransaction.location.is_(None), StockTransaction.location == ''),
         StockTransaction.reference_type.isnot(None),
         StockTransaction.reference_type != '',
         StockTransaction.reference_id.isnot(None),
@@ -36992,7 +36944,7 @@ def _wh_stock_guards(material_id, warehouse, qty):
                db.or_(
                    StockTransaction.warehouse_id == warehouse_obj.id,
                    db.and_(StockTransaction.warehouse_id.is_(None),
-                           StockTransaction.location.in_(loc_names)),
+                           func.trim(StockTransaction.location).in_(loc_names)),
                ),
            )
            .scalar_subquery())

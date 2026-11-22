@@ -21,6 +21,7 @@
 # 注意：本文件顶部不用多行 """docstring""" 作为模块说明，会触发 lint 脚本
 # strip_py_comments 把多行字符串折叠成一行、导致行号偏移、豁免注释检测失效。
 from __future__ import annotations
+from services.warehouse_identity import warehouse_id_or_legacy_text
 
 import json
 from collections import Counter
@@ -1600,7 +1601,7 @@ def register_sales_routes(app):
         date_start = request.args.get('date_start') or ''
         date_end = request.args.get('date_end') or ''
         query = SalesOrder.query.join(Customer).outerjoin(SalesOrderItem, SalesOrderItem.sales_order_id == SalesOrder.id).outerjoin(Material, SalesOrderItem.material_id == Material.id).distinct()
-        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+        query = query.filter(warehouse_id_or_legacy_text(SalesOrder, selected_warehouse))
         if search:
             like = f'%{search}%'
             query = query.filter(db.or_(SalesOrder.order_no.like(like), Customer.name.like(like), Customer.code.like(like), Material.code.like(like), Material.name.like(like), SalesOrder.project_no.like(like)))
@@ -1936,7 +1937,7 @@ def register_sales_routes(app):
         start_month = (today.replace(day=1) - timedelta(days=months_back * 31)).replace(day=1)
         orders = SalesOrder.query.filter(
             SalesOrder.date >= start_month, SalesOrder.status != 'cancelled',
-            db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)),
+            warehouse_id_or_legacy_text(SalesOrder, selected_warehouse),
         ).all()
         by_month = {}
         for order in orders:

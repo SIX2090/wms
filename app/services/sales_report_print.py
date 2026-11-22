@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from flask import current_app, flash, jsonify, redirect, request, url_for
 
+from services.warehouse_identity import warehouse_id_or_legacy_text
 from db import db
 
 
@@ -239,7 +240,7 @@ def sales_summary_context():
             query = query.filter(SalesOrder.shipment_status == shipment_status)
         if project_no:
             query = query.filter(SalesOrder.project_no.like(f'%{project_no}%'))
-        query = query.filter(db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name)))
+        query = query.filter(warehouse_id_or_legacy_text(SalesOrder, selected_warehouse))
         orders = query.order_by(SalesOrder.date.asc(), SalesOrder.id.asc()).all()
     drill_material_id = None
     if drill_material_code:
@@ -376,7 +377,7 @@ def sales_trend_context():
     if not selected_warehouse:
         orders = []
     else:
-        orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled', db.or_(SalesOrder.warehouse_id == selected_warehouse.id, db.and_(SalesOrder.warehouse_id.is_(None), SalesOrder.warehouse == selected_warehouse.name))).order_by(SalesOrder.date.asc()).all()
+        orders = SalesOrder.query.filter(SalesOrder.date >= start_month, SalesOrder.status != 'cancelled', warehouse_id_or_legacy_text(SalesOrder, selected_warehouse)).order_by(SalesOrder.date.asc()).all()
     by_month = {}
     for order in orders:
         if not order.date:

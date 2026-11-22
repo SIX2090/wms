@@ -5,7 +5,7 @@
 AGENTS.md 仓库必填规则落地后，报表（入库明细、仓库月报、采购报表、工单领料报表）
 一律按仓库过滤，导致这些历史单据“有数据也查不出来”。
 
-本脚本把以下存量数据回填为默认仓库（warehouse 表 is_default=1 且 active 的第一条）：
+只有全库恰好一个仓库且它是启用的默认仓库时，本脚本才回填下列存量数据：
   1. in_order（采购入库单）           warehouse 为空 -> 默认仓库名
   2. production_requisition（领料单） warehouse 为空 -> 默认仓库名
   3. 上述单据关联的 stock_transaction.location 为空 ->
@@ -35,11 +35,11 @@ DOCUMENT_TABLES = (
 
 
 def resolve_default_warehouse(conn: sqlite3.Connection) -> str | None:
-    """取启用中的默认仓库规范名称；未配置或未启用时返回 None。"""
+    """仅在全库只有一个仓库且其为启用的默认仓库时返回名称。"""
     row = conn.execute(
         "SELECT name FROM warehouse "
         "WHERE is_default = 1 AND status = 'active' "
-        "ORDER BY id LIMIT 1"
+        "AND (SELECT COUNT(*) FROM warehouse) = 1"
     ).fetchone()
     return row[0] if row else None
 
@@ -80,10 +80,10 @@ def backfill(db_path: str | None = None, apply: bool = False) -> int:
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:
+        conn.execute('BEGIN IMMEDIATE' if apply else 'BEGIN')
         default_wh = resolve_default_warehouse(conn)
         if not default_wh:
-            print('未找到启用中的默认仓库（warehouse.is_default=1 且 status=active）。')
-            print('请先在「仓库管理」中设置默认仓库，再执行本脚本。')
+            print('只有全库唯一且启用的默认仓库可以回填。请人工核对历史单据归属。')
             return 1
 
         total_docs = 0

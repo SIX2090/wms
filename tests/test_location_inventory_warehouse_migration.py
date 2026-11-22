@@ -50,6 +50,11 @@ def test_startup_sqlite_migration_backfills_only_unique_warehouse_matches(tmp_pa
                 (5, 14, '原料仓', 5);
             """
         )
+        connection.execute("UPDATE warehouse SET status='active' WHERE id=1")
+        for header in ('inventory_check', 'inventory_check_scan', 'adjustment_order', 'production_requisition'):
+            connection.execute('DROP TABLE '+header)
+            connection.execute('CREATE TABLE '+header+' (id INTEGER PRIMARY KEY)')
+            connection.execute('INSERT INTO '+header+' (id) VALUES (1)')
         connection.commit()
     finally:
         connection.close()
@@ -63,6 +68,8 @@ def test_startup_sqlite_migration_backfills_only_unique_warehouse_matches(tmp_pa
 
     connection = sqlite3.connect(db_path)
     try:
+        for header in ('inventory_check', 'inventory_check_scan', 'adjustment_order', 'production_requisition'):
+            assert connection.execute('SELECT id,warehouse FROM '+header).fetchall() == [(1, None)]
         columns = {
             row[1] for row in connection.execute(
                 'PRAGMA table_info(location_inventory)'

@@ -187,3 +187,18 @@ def test_t5_startup_wiring_runs_backfill_with_upgrade_only_skip(tmp_path):
         (103, None),
         (110, '材料仓'), (111, None),
     ]
+
+def test_multiple_warehouses_keep_empty_documents_and_movements_for_review(tmp_path):
+    from scripts.backfill_document_warehouse import backfill
+    path = tmp_path / 'historical.db'
+    _create_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute("insert into warehouse values (2, '历史仓', 'OLD', 'inactive', 0)")
+    def facts():
+        return [_read(path, 'select * from '+table+' order by id')
+                for table in ('in_order','production_requisition','stock_transaction')]
+    before = facts()
+    backfill_empty_warehouse_documents(str(path))
+    assert facts() == before
+    assert backfill(str(path), apply=True) == 1
+    assert facts() == before

@@ -177,6 +177,7 @@ def main():
                      function(opening_routes, '_opening_stock_deleted_lines_audit'),
                      function(identity, 'legacy_warehouse_location_owners'),
                      function(source, 'get_warehouse_stock_quantities'),
+                     function(source, '_warehouse_ledger_quantities'),
                      function(source, '_warehouse_location_filter_values'),
                      function(source, '_ledger_source_warehouse_map'),
                      function(source, '_filter_txn_list_by_warehouse_scope'),
