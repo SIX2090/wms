@@ -26,7 +26,7 @@
         <thead><tr><th>单据号</th><th>建账日期</th><th>仓库</th><th>物料编码</th><th>物料名称</th><th>规格</th><th>单位</th><th>数量</th><th>单价</th><th>金额</th><th>备注</th></tr></thead>
         <tbody>
         {% for line in lines %}
-        <tr><td>{% if doc %}{{ doc.doc_no }}{% elif line.doc %}<a href="{{ url_for('opening_stock_doc_detail', id=line.doc.id) }}">{{ line.doc.doc_no }}</a>{% else %}未归单{% endif %}</td>
+        <tr><td>{% if doc %}{{ doc.doc_no }}{% elif line.doc %}<a href="{{ url_for('opening_stock_doc_detail', id=line.doc.id) }}" target="_blank" rel="noopener">{{ line.doc.doc_no }}</a>{% else %}未归单{% endif %}</td>
             <td>{{ line.date or '' }}</td><td>{{ line.warehouse.name if line.warehouse else '未指定' }}</td>
             <td>{{ line.material.code if line.material else '' }}</td><td>{{ line.material.name if line.material else '' }}</td>
             <td>{{ line.material.spec or '' if line.material else '' }}</td><td>{{ line.material.unit.name if line.material and line.material.unit else '' }}</td>

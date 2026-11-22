@@ -40,6 +40,9 @@ def test_finance_opening_stock_reads_and_navigation(print_case):
         result = mobile.get('/api/opening_stock', query_string={'warehouse_id': wh}, headers=headers)
         assert result.status_code == 200
         assert [item['remark'] for item in result.json['data']['items']] == [expected]
+        if wh == 1:
+            link = table.find('a', string=doc_no)
+            assert link['target'] == '_blank' and 'noopener' in link['rel']
         if wh == 2:
             assert '未归单' in table.get_text() and result.json['data']['items'][0]['quantity'] == 0
     empty = client.get('/opening_stock?warehouse_id=999')
@@ -69,6 +72,9 @@ def test_finance_opening_stock_reads_and_navigation(print_case):
         assert mobile.post(path, headers=headers, json={}).status_code == 403
 
     sign_in(client, 'warehouse')
+    listing = BeautifulSoup(client.get('/opening_stock').data, 'html.parser')
+    links = listing.table.select(f'a[href="{base}"]')
+    assert len(links) == 2 and all(link['target'] == '_blank' and 'noopener' in link['rel'] for link in links)
     assert 'saveDocument()' in client.get(base).get_data(as_text=True)
     assert client.get('/opening_stock/add').status_code == 200
 
