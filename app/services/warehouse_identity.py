@@ -57,13 +57,28 @@ def warehouse_aliases(warehouse):
         row.id != warehouse.id and alias in (row.name, row.code) for row in rows)]
 
 
+def bin_warehouse_condition(inventory, warehouse_id, aliases, *, bins=None):
+    """A legacy bin row cannot borrow a conflicting assignment for the same material."""
+    from sqlalchemy import and_, exists, func, or_, select
+    from sqlalchemy.orm import aliased
+    other = aliased(bins if bins is not None else inventory)
+    conflict = exists(select(other.id).where(
+        other.material_id == inventory.material_id,
+        func.trim(other.location) == func.trim(inventory.location),
+        other.warehouse_id != warehouse_id,
+    ).correlate(inventory))
+    return or_(inventory.warehouse_id == warehouse_id, and_(
+        inventory.warehouse_id.is_(None), func.trim(inventory.location).in_(aliases), ~conflict))
+
+
 def warehouse_id_or_legacy_text(model, warehouse):
     """Prefer the document's warehouse ID. Accept only unique historical aliases."""
     from db import db
+    from sqlalchemy import false, func
     if warehouse is None:
-        return db.false()
+        return false()
     return db.or_(model.warehouse_id == warehouse.id, db.and_(
-        model.warehouse_id.is_(None), db.func.trim(model.warehouse).in_(warehouse_aliases(warehouse))))
+        model.warehouse_id.is_(None), func.trim(model.warehouse).in_(warehouse_aliases(warehouse))))
 
 
 def legacy_warehouse_location_owners():

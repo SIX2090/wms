@@ -96,7 +96,7 @@ def main():
 
     for name in ('round_to_2_decimals', 'round_money_product', 'normalize_stock_quantity', 'recalculate_order_total'):
         extract('app/utils.py', name)
-    for name in ('warehouse_aliases', 'legacy_warehouse_location_owners'):
+    for name in ('warehouse_aliases', 'legacy_warehouse_location_owners', 'bin_warehouse_condition'):
         extract('app/services/warehouse_identity.py', name)
     for name in ('stage_order_audit', 'snapshot_audit_row', 'stock_document_audit_checkpoint',
                  'stage_stock_document_snapshot'):

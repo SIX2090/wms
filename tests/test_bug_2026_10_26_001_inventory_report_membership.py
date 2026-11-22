@@ -208,3 +208,18 @@ def test_inventory_summary_keeps_incompatible_units_separate(inventory_scope):
     assert summary['quantity'] is None
     assert {v['unit']: v['quantity'] for v in summary['unit_totals']} == {
         '米': case['expected_a']['A'], '件': sum(case['expected_a'].values()) - case['expected_a']['A']}
+
+def test_bin_warehouse_condition(inventory_scope):
+    from services.warehouse_identity import bin_warehouse_condition
+    with m.app.app_context():
+        a = m.db.session.get(m.Warehouse, inventory_scope['a'])
+        b = m.db.session.get(m.Warehouse, inventory_scope['b'])
+        material = m.Material.query.filter_by(code='NEVER').one()
+        pending = m.LocationInventory(material_id=material.id, location=a.code, quantity=3)
+        explicit = m.LocationInventory(material_id=material.id, location=a.code, warehouse_id=b.id, quantity=5)
+        m.db.session.add_all((pending, explicit))
+        m.db.session.flush()
+        rows = m.LocationInventory.query.filter_by(material_id=material.id)
+        assert rows.filter(bin_warehouse_condition(m.LocationInventory, a.id, [a.code])).all() == []
+        assert rows.filter(bin_warehouse_condition(m.LocationInventory, b.id, [b.code])).all() == [explicit]
+        m.db.session.rollback()

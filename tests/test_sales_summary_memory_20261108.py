@@ -139,7 +139,7 @@ def main():
             raise AssertionError('missing or ambiguous source function: ' + name)
         node = found[0]
         node.decorator_list = []
-        node.body = [n for n in node.body if not (isinstance(n, ast.ImportFrom) and n.module == 'app')]
+        node.body = [n for n in node.body if not (isinstance(n, ast.ImportFrom) and n.module in ('app', 'db', 'models.master_data'))]
         return node
 
     flask_app = Flask('synthetic-sales-summary')
@@ -153,7 +153,9 @@ def main():
            'Material': Material, 'SalesOrder': SalesOrder, 'SalesOrderItem': SalesOrderItem,
            'sales_status_label': lambda value: value,
            '_require_report_warehouse': require_synthetic_warehouse}
-    nodes = [function('app/utils.py', 'round_to_2_decimals'),
+    nodes = [function('app/services/warehouse_identity.py', 'warehouse_aliases'),
+             function('app/services/warehouse_identity.py', 'warehouse_id_or_legacy_text'),
+             function('app/utils.py', 'round_to_2_decimals'),
              function('app/utils.py', 'round_money_product'),
              function('app/services/sales_report_print.py', 'sales_summary_context')]
     exec(compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), '<synthetic-report>', 'exec'), env)

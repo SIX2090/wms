@@ -176,6 +176,7 @@ def main():
             nodes = [function(utils, 'round_to_2_decimals'), function(utils, 'normalize_stock_quantity'), aliases,
                      function(opening_routes, '_opening_stock_deleted_lines_audit'),
                      function(identity, 'legacy_warehouse_location_owners'),
+                     function(identity, 'bin_warehouse_condition'),
                      function(source, 'get_warehouse_stock_quantities'),
                      function(source, '_warehouse_ledger_quantities'),
                      function(source, '_warehouse_location_filter_values'),

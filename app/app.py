@@ -168,7 +168,7 @@ from ai.documents.sales_draft_validation import (
 )
 from services.material_label import material_scan_code
 from services.warehouse_identity import (WarehouseIdentityError, resolve_warehouse_text,
-                                         warehouse_aliases, warehouse_id_or_legacy_text)
+                                         warehouse_aliases, warehouse_id_or_legacy_text, bin_warehouse_condition)
 # Import utility functions
 from utils import (
     round_to_2_decimals, format_quantity, parse_float_value, parse_int_value, parse_date_value,
@@ -1731,11 +1731,13 @@ def auto_migrate_database():
                         WHERE warehouse.name = TRIM(location_inventory.location)
                            OR warehouse.code = TRIM(location_inventory.location)
                    )
-                   AND TRIM(location_inventory.location) NOT IN (
-                       SELECT TRIM(known.location)
+                   AND NOT EXISTS (
+                       SELECT 1
                        FROM location_inventory known JOIN warehouse w
                          ON TRIM(known.location) IN (w.name, w.code)
-                       WHERE known.warehouse_id <> w.id
+                       WHERE known.material_id = location_inventory.material_id
+                         AND TRIM(known.location) = TRIM(location_inventory.location)
+                         AND known.warehouse_id <> w.id
                    )
                    AND NOT EXISTS (
                        SELECT 1 FROM location_inventory other
@@ -5774,13 +5776,10 @@ def get_warehouse_stock_quantities(warehouse):
     if location_management_enabled():
         # 优先按 warehouse_id 精确汇总；OR 兼容旧数据：warehouse_id 为 NULL
         # 且 location 字符串等于仓库名或编码的历史行。
-        owners = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-        legacy_names = set(aliases).intersection(owners)
-        name_clauses = [LocationInventory.warehouse_id == warehouse.id, db.and_(
-            LocationInventory.warehouse_id.is_(None), func.trim(LocationInventory.location).in_(legacy_names))]
+        condition = bin_warehouse_condition(LocationInventory, warehouse.id, aliases)
         rows = (db.session.query(LocationInventory.material_id,
                                  func.coalesce(func.sum(LocationInventory.quantity), 0))
-                .filter(db.or_(*name_clauses))
+                .filter(condition)
                 .group_by(LocationInventory.material_id).all())
     else:
         # 库位管理关闭时仍用流水 location 字符串（仓库名/编码）汇总
@@ -5825,6 +5824,8 @@ def _warehouse_ledger_quantities(warehouse, since_dt=None, *, names=None, includ
         names = _warehouse_location_filter_values(warehouse.id, warehouse.name, warehouse.code)
     txn = StockTransaction
     scoped = txn.query
+    if not include_empty:
+        scoped = scoped.filter(bin_warehouse_condition(txn, warehouse.id, names, bins=LocationInventory))
     if since_dt is not None:
         scoped = scoped.filter(txn.created_at >= since_dt)
     has_source = db.and_(txn.reference_type.isnot(None), txn.reference_type != '',
@@ -5859,9 +5860,6 @@ def get_warehouse_txn_delta_map(warehouse, since_dt):
     """
     if not warehouse or since_dt is None:
         return {}
-    warehouse_key = (warehouse.name or '').strip()
-    warehouse_code = (warehouse.code or '').strip()
-
     if not location_management_enabled() and Warehouse.query.count() == 1:
         # 单仓：一切流水都属于这个仓（与 get_warehouse_stock_quantities 单仓回退同源）
         rows = (db.session.query(StockTransaction.material_id,
@@ -5872,9 +5870,7 @@ def get_warehouse_txn_delta_map(warehouse, since_dt):
 
     if location_management_enabled():
         # 库位模式沿用只认仓名/编码的旧流水范围，并与来源单据交叉核对。
-        owners = _warehouse_location_filter_values(warehouse.id, warehouse_key, warehouse_code)
-        names = set(warehouse_aliases(warehouse)).intersection(owners)
-        return _warehouse_ledger_quantities(warehouse, since_dt, names=names, include_empty=False)
+        return _warehouse_ledger_quantities(warehouse, since_dt, names=warehouse_aliases(warehouse), include_empty=False)
 
     return _warehouse_ledger_quantities(warehouse, since_dt)
 
@@ -7599,8 +7595,7 @@ def build_material_locations_map(material_ids, wh_obj=None, legacy_location_name
         return locations_map
     legacy_names = [n for n in (legacy_location_names or []) if (n or '').strip()]
     if wh_obj is not None and legacy_names:
-        owners = _warehouse_location_filter_values(wh_obj.id, wh_obj.name, wh_obj.code)
-        legacy_names = set(legacy_names).intersection(owners)
+        legacy_names = set(legacy_names).intersection(warehouse_aliases(wh_obj))
     for start in range(0, len(ids), 500):
         chunk = ids[start:start + 500]
         query = LocationInventory.query.filter(
@@ -7611,11 +7606,7 @@ def build_material_locations_map(material_ids, wh_obj=None, legacy_location_name
             if legacy_names:
                 # 优先精确归属；OR 兼容历史脏数据（warehouse_id 为 NULL 但
                 # location 写的是本仓库名/编码）——与 get_warehouse_stock_quantities 同口径
-                query = query.filter(db.or_(
-                    LocationInventory.warehouse_id == wh_obj.id,
-                    db.and_(LocationInventory.warehouse_id.is_(None),
-                            func.trim(LocationInventory.location).in_(legacy_names)),
-                ))
+                query = query.filter(bin_warehouse_condition(LocationInventory, wh_obj.id, legacy_names))
             else:
                 query = query.filter(LocationInventory.warehouse_id == wh_obj.id)
         rows = query.order_by(
