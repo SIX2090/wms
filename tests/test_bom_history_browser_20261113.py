@@ -10,4 +10,4 @@ def test_bom_recorded_cost_browser_interactions():
     result = subprocess.run([node, str(Path(__file__).with_suffix('.cjs'))],
                             capture_output=True, text=True, encoding='utf-8', timeout=20)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert 'TOTAL 17 passed=17 failed=0' in result.stdout
+    assert 'TOTAL 18 passed=18 failed=0' in result.stdout

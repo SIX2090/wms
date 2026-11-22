@@ -44,7 +44,7 @@ function setup(docType = 'bom') {
         WMS: {MaterialPicker: {bindEntryRow() {}}}};
     context.window = context; vm.createContext(context);
     for (const rel of ['app/static/js/decimal-input.js', 'app/static/js/money.js']) vm.runInContext(fs.readFileSync(path.join(root, rel), 'utf8'), context);
-    vm.runInContext(['formatQty', 'getMaterialUnit', 'ensureIssueEntryRow', 'fillMaterialFields', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'calcTotal', 'updateCheckTotals', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
+    vm.runInContext(['formatQty', 'getMaterialUnit', 'ensureIssueEntryRow', 'fillMaterialFields', 'clearMaterialFields', 'rowHasEnteredDetails', 'bomRecordedFieldUnchanged', 'createRow', 'bindRowEvents', 'copyRowAfter', 'calcRow', 'calcTotal', 'updateCheckTotals', 'collectItems', 'findEmptyRow', 'parsePastedData'].map(block).join('\n'), context);
     const data = {line_id: 10, material_id: 3, code: 'B-M', unit_id: 1, quantity: 3.33,
         price: 1.2345, recorded_unit_cost: 1.2345, total_cost: 4.11, recorded_total_cost: 4.11};
     const r = context.createRow(data);
@@ -143,6 +143,19 @@ test('count entry stays blank until typed and preserves an explicit zero', () =>
     actual.value = ''; actual.fire('input');
     assert.equal(row.fields['.line-diff'].value, '');
     assert.equal(c.context.collectItems().items[0].actual_stock, null);
+});
+test('a count entered before the material survives lookup, including zero', () => {
+    const c = setup('check');
+    const partial = c.context.createRow(null), empty = c.context.createRow(null);
+    partial.fields['.actual-stock'].value = '0';
+    partial.fields['.actual-stock'].fire('input');
+    assert.match(c.context.collectItems().invalidRows[0], /第 2 行缺少物料/);
+    assert.equal(c.context.findEmptyRow(), empty);
+    c.context.clearMaterialFields(partial);
+    c.context.fillMaterialFields(partial, c.material);
+    assert.equal(c.context.collectItems().items[1].actual_stock, 0);
+    c.context.fillMaterialFields(partial, {...c.material, id: 99});
+    assert.equal(partial.fields['.actual-stock'].value, '');
 });
 (async () => {
     try {

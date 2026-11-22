@@ -23,6 +23,21 @@ def test_duplicate_named_area_rejected_without_partial_save(scene):
     assert wms.InventoryCheckItem.query.count() == 0
 
 
+def test_incomplete_second_pallet_preserves_first_pallet_count(scene):
+    client, _, warehouse, material = scene
+    original = _save(client, warehouse, material, [{"actual_stock": 3}])
+    assert original["status"] == "success"
+    key = original["id"]
+    rejected = _save(client, warehouse, material, [
+        {"actual_stock": 9}, {"material_id": None, "actual_stock": 0, "area": "B"},
+    ], order_id=key)
+    assert rejected["status"] == "error"
+    wms.db.session.expire_all()
+    check = wms.db.session.get(wms.InventoryCheck, key)
+    assert [row.actual_stock for row in check.items] == [3]
+    assert check.status == "pending"
+
+
 def test_separate_paper_lines_keep_identity_and_subtract_book_once(scene):
     client, _, warehouse, material = scene
     rows = [{"actual_stock": 1} for _ in range(200)]

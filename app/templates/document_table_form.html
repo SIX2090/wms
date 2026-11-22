@@ -444,7 +444,8 @@ function unitOptions(selectedId) {
     return html;
 }
 function fillMaterialFields(row, material) {
-    const sameMaterial = String(row.dataset.materialId) === String(material.id);
+    const previousMaterialId = row.dataset.materialId;
+    const sameMaterial = String(previousMaterialId) === String(material.id);
     row.dataset.materialId = material.id || '';
     row.querySelector('.material-code').value = material.code || '';
     row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = material.brand || '');
@@ -466,8 +467,10 @@ function fillMaterialFields(row, material) {
     if (docType === 'check') {
         if (!sameMaterial) {
             row.dataset.systemStockFrozen = 'false';
-            row.querySelector('.actual-stock').value = '';
-            row.dataset.counted = 'false';
+            if (previousMaterialId) {
+                row.querySelector('.actual-stock').value = '';
+                row.dataset.counted = 'false';
+            }
         }
         if (row.dataset.systemStockFrozen !== 'true') {
             row.querySelector('.system-stock').value = stockInput.value;
@@ -477,6 +480,7 @@ function fillMaterialFields(row, material) {
     ensureIssueEntryRow();
 }
 function clearMaterialFields(row) {
+    const hadMaterial = Boolean(row.dataset.materialId);
     row.dataset.materialId = '';
     row.querySelector('.material-brand') && (row.querySelector('.material-brand').value = '');
     row.querySelector('.material-name').value = '';
@@ -485,8 +489,10 @@ function clearMaterialFields(row) {
     row.querySelector('.material-stock') && (row.querySelector('.material-stock').value = '');
     if (docType === 'check') {
         row.querySelector('.system-stock').value = '';
-        row.querySelector('.actual-stock').value = '';
-        row.dataset.counted = 'false';
+        if (hadMaterial) {
+            row.querySelector('.actual-stock').value = '';
+            row.dataset.counted = 'false';
+        }
         calcRow(row);
     }
 }
@@ -809,13 +815,27 @@ function hideDropdown() {
         activeDropdown = null;
     }
 }
+function rowHasEnteredDetails(row) {
+    const selectors = docType === 'check' ? ['.actual-stock', '.line-area', '.line-reason']
+        : ['.line-qty', '.line-price', '.line-usage', '.line-remark'];
+    return selectors.some(selector => {
+        const field = row.querySelector(selector);
+        return field && (field.value.trim() !== '' || field.validity?.badInput);
+    });
+}
+
 function collectItems() {
     const items = [];
     const invalidRows = [];
     document.querySelectorAll('#docTableBody tr').forEach(function(row, index) {
         const codeInput = row.querySelector('.material-code');
         const code = codeInput.value.trim();
-        if (!code) return;
+        if (!code) {
+            const entered = rowHasEnteredDetails(row);
+            codeInput.style.borderColor = entered ? '#ff4d4f' : '';
+            if (entered) invalidRows.push('第 ' + (index + 1) + ' 行缺少物料，请补全或清空该行');
+            return;
+        }
         const material = findMaterialByCode(code);
         if (!material) {
             codeInput.style.borderColor = '#ff4d4f';
@@ -1177,7 +1197,7 @@ async function parsePastedData() {
 
 function findEmptyRow() {
     for (const row of document.querySelectorAll('#docTableBody tr')) {
-        if (!row.querySelector('.material-code').value.trim()) return row;
+        if (!row.querySelector('.material-code').value.trim() && !rowHasEnteredDetails(row)) return row;
     }
     return null;
 }
