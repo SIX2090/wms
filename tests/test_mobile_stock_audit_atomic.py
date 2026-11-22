@@ -187,3 +187,47 @@ def test_void_scan_audit_and_rollback(mobile_actors, native):
                 assert new['batch_items'] == []
             assert w.db.session.get(w.InventoryCheckScan, scan_id).status == 'void'
             assert rows(w.StockTransaction) == before[1]
+
+
+@pytest.mark.parametrize('mode', ['in', 'out'])
+def test_h5_confirm_rechecks_draft_warehouse(mobile_actors, mode):
+    web, mobile, headers, ids = mobile_actors
+    created = web.post('/mobile/api/scan_batch_draft', json={
+        'mode': mode, 'warehouse_id': ids['a'], 'lines': [{'material_code': 'DC-M1', 'quantity': 3}],
+    })
+    assert created.json['status'] == 'success'
+    oid = created.json['data']['order_id']
+    model = w.InOrder if mode == 'in' else w.OutOrder
+    with w.app.app_context():
+        w.db.session.get(w.Warehouse, ids['a']).status = 'inactive'
+        w.db.session.commit()
+        before = snapshot(model), rows(w.OperationAudit)
+    result = mobile.post(f'/mobile/api/scan_draft_confirm/{oid}', headers=headers, json={'order_type': mode})
+    assert result.status_code == 400 and '停用' in result.json['msg'], result.json
+    with w.app.app_context():
+        assert (snapshot(model), rows(w.OperationAudit)) == before
+
+
+def test_h5_sales_draft_default_warehouse_must_match_source(mobile_actors):
+    web, mobile, headers, ids = mobile_actors
+    created = web.post('/mobile/api/scan_batch_draft', json={
+        'mode': 'out', 'warehouse_id': ids['a'], 'lines': [{'material_code': 'DC-M1', 'quantity': 3}],
+    })
+    oid = created.json['data']['order_id']
+    with w.app.app_context():
+        customer = w.Customer(code='H5-C', name='测试客户')
+        w.db.session.add(customer)
+        w.db.session.flush()
+        sale = w.SalesOrder(order_no='H5-SALE', warehouse_id=ids['b'], customer_id=customer.id)
+        w.db.session.add(sale)
+        w.db.session.flush()
+        order = w.db.session.get(w.OutOrder, oid)
+        order.business_type = '销售出库'
+        order.source_sales_order_id = sale.id
+        order.warehouse = ''
+        w.db.session.commit()
+        before = snapshot(w.OutOrder)
+    response = mobile.post(f'/mobile/api/scan_draft_confirm/{oid}', headers=headers, json={'order_type': 'out'})
+    assert response.status_code == 400 and '来源销售订单一致' in response.json['msg']
+    with w.app.app_context():
+        assert snapshot(w.OutOrder) == before

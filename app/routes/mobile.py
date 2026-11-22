@@ -1084,9 +1084,9 @@ def register_mobile_routes(app):
         from sqlalchemy.orm import selectinload
         from flask import current_app
         from app import (InOrder, InOrderItem, OutOrder, OutOrderItem, StockTransaction,
-                         current_user, db, get_bearer_user,
+                         assert_warehouse_active, current_user, db, get_bearer_user, get_default_warehouse,
                          jsonify, normalize_stock_quantity,
-                         request,
+                         request, validate_sales_outbound_warehouse,
                          _acquire_order_write_lock)
         from services.document_stock_audit import stage_stock_document_snapshot
         from services.warehouse_stock_service import apply_stock_delta
@@ -1110,7 +1110,28 @@ def register_mobile_routes(app):
                 ])
                 if not ok:
                     return jsonify({'status': 'error', 'success': False, 'msg': '该入库草稿已提交或不存在'}), 400
-                order = locked
+            else:
+                locked, ok = _acquire_order_write_lock(OutOrder, order_id, 'pending', [
+                    selectinload(OutOrder.items).selectinload(OutOrderItem.material),
+                ])
+                if not ok:
+                    return jsonify({'status': 'error', 'success': False, 'msg': '该出库草稿已提交或不存在'}), 400
+            order = locked
+            if not (order.warehouse or '').strip():
+                default_wh = get_default_warehouse()
+                if not default_wh:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': '请选择仓库'}), 400
+                order.warehouse = default_wh.name
+            if c_req.order_type == 'out' and order.business_type == '销售出库':
+                active, error = validate_sales_outbound_warehouse(order)
+            else:
+                active, error = assert_warehouse_active(order.warehouse, allow_empty=False)
+            if not active:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
+
+            if c_req.order_type == 'in':
                 if not order.items:
                     return jsonify({'status': 'error', 'success': False, 'msg': '入库草稿没有明细，无法确认'}), 400
                 # This endpoint accepts existing PC drafts as well as scan drafts.
@@ -1142,12 +1163,6 @@ def register_mobile_routes(app):
                 enqueue_auto_print_job('in_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_in')
                 order_no = order.order_no
             else:
-                locked, ok = _acquire_order_write_lock(OutOrder, order_id, 'pending', [
-                    selectinload(OutOrder.items).selectinload(OutOrderItem.material),
-                ])
-                if not ok:
-                    return jsonify({'status': 'error', 'success': False, 'msg': '该出库草稿已提交或不存在'}), 400
-                order = locked
                 if not order.items:
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
                 last_movement_id = db.session.query(db.func.max(StockTransaction.id)).filter(
