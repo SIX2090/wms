@@ -148,6 +148,14 @@ class TestBug20260907021:
         client.post("/login", data={"username": "admin", "password": "admin"})
         return client
 
+    def test_stagnant_report_title_in_center_and_preview(self):
+        client = self._client()
+        center = client.get('/report')
+        preview = client.get('/report/view/inventory_analysis')
+        assert center.status_code == preview.status_code == 200
+        assert '<h4 class="mt-3 mb-2">呆滞料分析报表</h4>' in center.get_data(as_text=True)
+        assert '<span id="reportHeading">呆滞料分析报表</span>' in preview.get_data(as_text=True)
+
     def _query(self, wh_id=None, **extra):
         params = {'warehouse_id': wh_id if wh_id is not None else self.wh_a_id}
         params.update(extra)

@@ -28536,8 +28536,8 @@ REPORT_DEFINITIONS = {
         },
     },
     'inventory_analysis': {
-        'title': '库存经营分析',
-        'description': '物料维度经营视角：库存状态预警、ABC 分类与呆滞识别。',
+        'title': '呆滞料分析报表',
+        'description': '查看物料的最近出库日期、呆滞天数及呆滞标记。',
         'icon': 'bi-graph-up-arrow',
         'accent': 'danger',
         'summary_labels': {
