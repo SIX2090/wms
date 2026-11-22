@@ -1,0 +1,18 @@
+<dialog id="salesBatchDialog" aria-labelledby="salesBatchTitle" class="border rounded shadow p-4" style="width:min(26rem,94vw);">
+    <form method="dialog">
+        <h2 id="salesBatchTitle" class="h5 mb-3">批量修改销售明细</h2>
+        <label for="salesBatchField" class="form-label">修改字段</label>
+        <select id="salesBatchField" class="form-select mb-3">
+            <option value="price">单价</option>
+            <option value="qty">数量</option>
+            <option value="tax-rate">税率（%）</option>
+        </select>
+        <label for="salesBatchValue" class="form-label">新值</label>
+        <input id="salesBatchValue" class="form-control" type="number" required>
+        <p id="salesBatchPreview" class="my-3" aria-live="polite"></p>
+        <div class="d-flex justify-content-end gap-2">
+            <button type="button" data-cancel class="btn btn-outline-secondary">取消</button>
+            <button type="submit" class="btn btn-primary" disabled>应用到明细</button>
+        </div>
+    </form>
+</dialog>

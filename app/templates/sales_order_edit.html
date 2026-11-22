@@ -621,12 +621,14 @@ textarea.form-control {
     </div>
 </div>
 
+{% include "partials/sales_batch_dialog.html" %}
 <div class="footer-bar">
     <div style="font-size:13px;color:#334155;">含税金额合计：<strong id="footerTotal" style="color:#dc2626;font-size:16px;">0.00</strong></div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
+<script src="{{ url_for('static', filename='js/pages/sales-batch-dialog.js') }}?v={{ config['STATIC_VERSION'] }}"></script>
 <script defer src="{{ url_for('static', filename='js/pages/document-form-accessibility.js') }}"></script>
 <script src="{{ url_for('static', filename='js/material-cache.js') }}?v={{ config['STATIC_VERSION'] }}"></script>
 <script>
@@ -1141,24 +1143,7 @@ textarea.form-control {
     document.getElementById('refreshMaterialsBtn').addEventListener('click', refreshMaterials);
 
     document.getElementById('batchUpdateBtn').addEventListener('click', function() {
-        var field = window.prompt('批量修改字段：qty / price / tax_rate', 'price');
-        if (!field) return;
-        field = String(field).trim().toLowerCase();
-        var map = { qty: '.qty', quantity: '.qty', price: '.price', tax_rate: '.tax-rate', tax: '.tax-rate' };
-        var selector = map[field];
-        if (!selector) {
-            document.getElementById('entryStatus').textContent = '仅支持 qty / price / tax_rate';
-            return;
-        }
-        var value = window.prompt('请输入要写入的值');
-        if (value == null || value === '') return;
-        body.querySelectorAll('tr').forEach(function(row) {
-            if (!row.querySelector('.material-code').value.trim()) return;
-            var input = row.querySelector(selector);
-            if (input) input.value = value;
-        });
-        recalc();
-        document.getElementById('entryStatus').textContent = '批量修改完成';
+        openSalesBatchDialog(body, recalc);
     });
 
     document.getElementById('columnSettingsBtn').addEventListener('click', function() {

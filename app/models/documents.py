@@ -216,6 +216,12 @@ class InOrderItem(db.Model):
 
 class OutOrder(db.Model):
     """Outbound order."""
+
+    @classmethod
+    def requisition_filter(cls):
+        """旧领料单未登记业务类型。"""
+        return db.or_(cls.business_type == '领料单', cls.business_type.is_(None))
+
     __tablename__ = 'out_order'
     __table_args__ = (
         db.Index('idx_out_order_no', 'order_no'),

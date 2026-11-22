@@ -7959,7 +7959,8 @@ def index():
     else:
         low_stock = 0
     pending_in = InOrder.query.filter_by(status='pending').count()
-    pending_out = OutOrder.query.filter_by(status='pending').count()
+    pending_requisitions = OutOrder.query.filter_by(status='pending').filter(OutOrder.requisition_filter())
+    pending_out = pending_requisitions.count()
     pending_purchase = PurchaseRequest.query.filter_by(status='pending').count()
     purchase_order_summary = build_purchase_order_todo_summary()
     pending_stock_tasks = pending_in + pending_out + purchase_order_summary.get('open_count', 0) + low_stock
@@ -7978,8 +7979,7 @@ def index():
         .all()
     )
     out_progress_orders = (
-        OutOrder.query.options(joinedload(OutOrder.department))
-        .filter(OutOrder.status == 'pending')
+        pending_requisitions.options(joinedload(OutOrder.department))
         .order_by(OutOrder.created_at.desc(), OutOrder.id.desc())
         .limit(5)
         .all()
@@ -28414,6 +28414,24 @@ def api_purchase_order_selectable():
         PurchaseOrder.id.asc()
     ).paginate(page=page, per_page=limit, error_out=False)
 
+    order_ids = [order.id for order in pagination.items]
+    completed_by_item = {}
+    drafts_by_item = {}
+    if order_ids:
+        receipts = _purchase_completed_receipts_subquery(order_ids=order_ids)
+        completed_by_item = dict(db.session.query(receipts.c.item_id, receipts.c.received_quantity).all())
+        drafts = db.session.query(
+            PurchaseOrderItem.id, InOrder.id, InOrder.order_no,
+        ).select_from(PurchaseOrderItem).join(
+            InOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
+        ).join(InOrder, InOrder.id == InOrderItem.in_order_id).filter(
+            PurchaseOrderItem.purchase_order_id.in_(order_ids), InOrder.status == 'pending',
+        ).distinct().order_by(PurchaseOrderItem.id, InOrder.id)
+        for item_id, draft_id, draft_no in drafts:
+            drafts_by_item.setdefault(item_id, []).append({
+                'order_no': draft_no, 'url': url_for('in_order_detail', id=draft_id),
+            })
+
     orders = []
     flat_items = []
     for order in pagination.items:
@@ -28432,10 +28450,15 @@ def api_purchase_order_selectable():
                 haystack = ' '.join([material_code, material_name, material_spec, (material.brand or '') if material else '']).lower()
                 if search not in haystack:
                     continue
+            completed = round_to_2_decimals(completed_by_item.get(item.id, 0))
             row = {
                 'purchase_order_id': order.id,
                 'purchase_order_no': order.order_no,
                 'purchase_order_item_id': item.id,
+                'completed_quantity': completed,
+                'unreceived_quantity': round_to_2_decimals(max((item.quantity or 0) - completed, 0)),
+                'draft_quantity': round_to_2_decimals(max((item.received_quantity or 0) - completed, 0)),
+                'drafts': drafts_by_item.get(item.id, []),
                 'supplier_id': order.supplier_id,
                 'supplier_name': supplier_name,
                 'date': order.date.strftime('%Y-%m-%d') if order.date else '',

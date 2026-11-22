@@ -409,7 +409,7 @@ def register_out_order_routes(app):
         if explicit_bt not in ('领料单', '其他出库', '销售出库', '采购退货出库'):
             explicit_bt = ''
         if not explicit_bt:
-            query = query.filter(db.or_(OutOrder.business_type == '领料单', OutOrder.business_type.is_(None)))
+            query = query.filter(OutOrder.requisition_filter())
         else:
             query = query.filter(OutOrder.business_type == explicit_bt)
         query = query.order_by(*_out_order_detail_ordering(sort_by, sort_order))

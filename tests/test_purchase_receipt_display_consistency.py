@@ -81,13 +81,28 @@ def test_print_and_export_received_quantities_do_not_include_drafts(purchase_cas
         assert wms.Material.query.filter_by(code='DC-M1').one().stock == 30
 
 
-def test_selection_labels_describe_pushed_counter_and_remaining_capacity(purchase_case):
-    client, _ = purchase_case
+@pytest.mark.parametrize('draft_status,completed,occupied', [('pending', 4, 4), ('completed', 8, 0)])
+def test_selection_explains_receipts_and_reservations(purchase_case, draft_status, completed, occupied):
+    client, ids = purchase_case
+    with wms.app.app_context():
+        draft = wms.InOrder.query.filter_by(order_no='IN-DISPLAY-1').one()
+        draft.status = draft_status
+        draft_id = draft.id
+        db.session.commit()
+    row, = client.get('/api/purchase_order/selectable', query_string={'purchase_order_id': ids['order']}).json['items']
+    assert row['quantity'] == 10 and row['received_quantity'] == 8
+    assert row['completed_quantity'] == completed and row['draft_quantity'] == occupied
+    assert row['unreceived_quantity'] == 10 - completed and row['remaining_quantity'] == 2
+    assert row['drafts'] == ([{'url': f'/in_order/{draft_id}', 'order_no': 'IN-DISPLAY-1'}] if occupied else [])
+    if occupied:
+        detail = client.get(row['drafts'][0]['url'])
+        assert detail.status_code == 200 and 'IN-DISPLAY-1' in detail.get_data(as_text=True)
     html = client.get('/in_order/add').get_data(as_text=True)
     modal = html[html.index('function showPurchaseOrderSelectModal('):html.index('function loadPurchaseOrderSelectable(')]
-    assert re.search(r'<th\b[^>]*>已下推</th>', modal)
-    assert re.search(r'<th\b[^>]*>未下推</th>', modal)
-    assert not re.search(r'<th\b[^>]*>已入库</th>', modal)
+    for label in ('采购数量', '已入库', '未入库', '草稿占用', '可再下推'):
+        assert re.search(r'<th\b[^>]*>' + label + '</th>', modal)
+    renderer = html[html.index('function renderPurchaseOrderSelectableRows('):html.index('function selectAllRowsOfOrder(')]
+    assert 'item.completed_quantity' in renderer and 'item.received_quantity' not in renderer
 
 
 def test_detail_still_distinguishes_completed_pending_and_unpushed(purchase_case):
