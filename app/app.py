@@ -28855,6 +28855,7 @@ REPORT_DEFINITIONS = {
 REPORT_TYPE_ORDER = [
     'inventory',
     'inventory_analysis',
+    'inventory_turnover',
     'in_detail',
     'out_detail',
     'summary',
@@ -29198,7 +29199,7 @@ def _begin_report_read():
 
 
 def _build_report_filters(require_existing_warehouse=True, report_type=None):
-    if report_type in ('in_detail', 'out_detail', 'ledger'):
+    if report_type in ('in_detail', 'out_detail', 'ledger', 'inventory_turnover'):
         _begin_report_read()
     raw_warehouse = (request.args.get('warehouse_id') or '').strip()
     if report_type in ('in_detail', 'out_detail', 'ledger') and not raw_warehouse:
@@ -29239,7 +29240,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'ledger')
                    else _parse_positive_int(request.args.get('material_id'), 0))
     inbound_detail = report_type == 'in_detail'
-    include_prices = not inbound_detail or price_dimension_enabled()
+    include_prices = report_type not in ('in_detail', 'inventory_turnover') or price_dimension_enabled()
     print_snapshot = inbound_detail and request.args.get('web_print') == '1'
     sort_field = (request.args.get('sort_field') or '').strip()
     if not include_prices and sort_field in ('amount', 'price'):
@@ -29255,6 +29256,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     if raw_business_type not in REPORT_BUSINESS_TYPE_WHITELIST:
         raw_business_type = ''
     return {
+        **(turnover_filters(request.args) if report_type == 'inventory_turnover' else {}),
         'start_month': (request.args.get('start_month') or '').strip(),
         'end_month': (request.args.get('end_month') or '').strip(),
         'start_date': start_date,
@@ -31583,13 +31585,17 @@ def _build_requisition_report(filters):
     columns, rows, summary, _ = _sql_paged_requisition_report(dict(filters, export='excel'))
     return columns, rows, summary
 
+from services.inventory_turnover_report import (DEFINITION as _TURNOVER_DEFINITION,
+                                                build_inventory_turnover_report, turnover_filters)
 from services.material_movement_report import (DEFINITION as _MATERIAL_MOVEMENT_DEFINITION,
                                                _build_material_movement_report,
                                                _sql_paged_material_movement_report)
 
+REPORT_DEFINITIONS['inventory_turnover'] = _TURNOVER_DEFINITION
 REPORT_DEFINITIONS['material_movement'] = _MATERIAL_MOVEMENT_DEFINITION
 
 REPORT_BUILDERS = {
+    'inventory_turnover': build_inventory_turnover_report,
     'material_movement': _build_material_movement_report,
     'inventory': _build_inventory_report,
     'inventory_analysis': _build_inventory_analysis_report,

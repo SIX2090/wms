@@ -233,6 +233,10 @@ def register_report_routes(app):
                 return redirect(url_for('report_view', report_type=report_type, **params))
         warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
                       if report_type == 'in_detail' else get_active_warehouses())
+        category_rows = []
+        if report_type == 'inventory_turnover':
+            from app import MaterialCategory, build_category_tree_rows
+            category_rows = build_category_tree_rows(MaterialCategory.query.all())
         reconciliation = None
         from flask_login import current_user
         if report_type == 'warehouse_monthly' and current_user.role in ('admin', 'warehouse'):
@@ -245,6 +249,7 @@ def register_report_routes(app):
             report_type=report_type,
             title=definition['title'],
             reconciliation=reconciliation,
+            category_rows=category_rows,
             warehouses=warehouses,
             default_warehouse=get_default_warehouse(),
             summary_labels=definition['summary_labels'],

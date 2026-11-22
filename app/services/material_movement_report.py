@@ -31,12 +31,10 @@ def _columns():
     ]
 
 
-def _sql_paged_material_movement_report(filters):
-    """按库存台账同源归属和业务日期取全，再按物料分页；无明细截断。"""
+def warehouse_material_balances(filters, *, category_filter=None, load_category=False):
+    """按仓库及业务日期归集每种物料的期初、入库和发出数量。"""
     import app as m
 
-    columns = _columns()
-    empty = (columns, [], {'count': 0, 'unit_totals': []}, 0)
     start, end = filters.get('start_date'), filters.get('end_date')
     if start and end and start > end:
         raise ValueError('结束日期不能早于开始日期')
@@ -45,23 +43,28 @@ def _sql_paged_material_movement_report(filters):
         warehouse_id = m.resolve_inventory_warehouse_id(filters.get('warehouse') or filters.get('warehouse_code'))
     warehouse = m.db.session.get(m.Warehouse, warehouse_id) if warehouse_id else None
     if warehouse is None:
-        return empty
+        return warehouse, {}, {}
     scope = {**filters, 'warehouse_id': warehouse.id,
              'warehouse': warehouse.name, 'warehouse_code': warehouse.code}
     loc_names, condition, wid = m._warehouse_scoped_txn_condition(scope)
 
     materials_query = m.Material.query.options(joinedload(m.Material.unit))
+    if load_category:
+        materials_query = materials_query.options(joinedload(m.Material.category))
+    if category_filter is not None:
+        materials_query = materials_query.filter(category_filter)
     material_clause = m._material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         materials_query = materials_query.filter(material_clause)
     materials = {material.id: material for material in materials_query.all()}
     if not materials:
-        return empty
+        return warehouse, {}, {}
     query = m.StockTransaction.query
     if condition is not None:
         query = query.filter(condition)
-    if material_clause is not None:
-        query = query.join(m.StockTransaction.material).filter(material_clause)
+    if material_clause is not None or category_filter is not None:
+        query = query.filter(m.StockTransaction.material_id.in_(
+            materials_query.with_entities(m.Material.id)))
 
     balances = {}
     last_id = 0
@@ -89,6 +92,16 @@ def _sql_paged_material_movement_report(filters):
             else:
                 bucket[2] -= quantity
 
+    return warehouse, materials, balances
+
+
+def _sql_paged_material_movement_report(filters):
+    """按库存台账同源归属和业务日期取全，再按物料分页；无明细截断。"""
+    import app as m
+
+    columns = _columns()
+    start, end = filters.get('start_date'), filters.get('end_date')
+    warehouse, materials, balances = warehouse_material_balances(filters)
     rows = []
     totals = defaultdict(lambda: {key: Decimal(0) for key in QUANTITY_FIELDS})
     for mid, (opening, incoming, outgoing) in balances.items():

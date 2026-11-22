@@ -924,6 +924,10 @@ def _dynamic_report_template(report_type, template):
         return template.excel_template_path in {
             f'/static/uploads/print_templates/builtin_{target}_{suffix}.xlsx'
             for suffix in ('default', 'pallet_v2', 'units_v3')}
+    if report_type == 'inventory_turnover':
+        return template.excel_template_path in {
+            f'/static/uploads/print_templates/builtin_{target}_{variant}.xlsx'
+            for variant in ('price', 'quantity')}
     if report_type in ('in_detail', 'out_detail'):
         prefix = f'/static/uploads/print_templates/builtin_{target}_'
         return template.excel_template_path in {prefix + suffix + '.xlsx' for suffix in
@@ -971,7 +975,10 @@ def _report_builtin_abspath(static_folder, report_type, title, columns):
     os.makedirs(abs_dir, exist_ok=True)
     target = report_target_code(report_type)
     filename = _builtin_filename(target)
-    if report_type in ('in_detail', 'out_detail'):
+    if report_type == 'inventory_turnover':
+        variant = 'price' if any(col['field'] == 'inventory_amount' for col in columns) else 'quantity'
+        filename = f'builtin_{target}_{variant}.xlsx'
+    elif report_type in ('in_detail', 'out_detail'):
         variant = 'price' if any(col['field'] == 'price' for col in columns) else 'quantity'
         filename = f'builtin_{target}_detail_v2_{variant}.xlsx'
     elif report_type in ('check', 'summary', 'requisition', 'subcontract'):

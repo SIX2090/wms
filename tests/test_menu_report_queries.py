@@ -59,7 +59,7 @@ def test_forms_existing_reports_and_master_data_still_have_entries(role, locatio
             '/other_out_order/add', '/sales/add', '/sales/outbound_selection', '/after_sale_out/add',
             '/transfer', '/check', '/requisition', '/subcontract', '/supplier', '/customer'}.issubset(paths)
     assert {'/report/view/in_detail', '/report/view/out_detail', '/report/view/inventory',
-            '/report/view/summary', '/report/view/check', '/report/view/ledger', '/report/view/inventory_analysis',
+            '/report/view/summary', '/report/view/check', '/report/view/ledger', '/report/view/inventory_analysis', '/report/view/inventory_turnover',
             '/report/view/warehouse_monthly', '/report/view/requisition', '/report/view/subcontract',
             '/sales/outflow_report', '/sales/report', '/purchase_report'}.issubset(paths)
     assert links.count('/adjustment') == 2  # 库存管理菜单和旧版导航各有一个入口
