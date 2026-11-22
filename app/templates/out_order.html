@@ -12,6 +12,9 @@
             <button type="button" class="btn btn-outline-secondary btn-sm" id="columnSettingsBtn" title="显示/隐藏、调整顺序及修改显示名称">
                 <i class="bi bi-layout-three-columns"></i> 栏目设置
             </button>
+            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&business_type={{ filters.business_type|urlencode }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&sort={{ sort_by }}&order={{ sort_order }}" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-file-earmark-excel"></i> 导出
+            </a>
         </div>
         {% if current_user.role in ['admin', 'warehouse'] %}
         <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
@@ -25,9 +28,6 @@
             <button id="outOrderImportFileButton" type="button" class="btn btn-outline-success btn-sm" data-document-list-action="out-order-choose-import">
                 <i class="bi bi-upload"></i> 导入
             </button>
-            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&business_type={{ filters.business_type|urlencode }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&sort={{ sort_by }}&order={{ sort_order }}" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-file-earmark-excel"></i> 导出
-            </a>
             {% if filters.business_type == '其他出库' %}
             <a href="/other_out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增其他出库</a>
             {% elif filters.business_type == '采购退货出库' %}
