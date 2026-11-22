@@ -26,7 +26,7 @@ def run(page, action, scenario):
     if not node:
         pytest.skip('Node.js required')
     source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
-    payload = dict(page=page, action=action, scenario=scenario, source=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+function(source, action))
+    payload = dict(page=page, action=action, scenario=scenario, source=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+function(source, 'outboundRowHasDetails' if page == 'out' else 'receiptRowHasDetails')+'\n'+function(source, action))
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);
 let focused='',messages=[],alerts=0,calls=[],removed=false,calcs=0;
@@ -36,7 +36,7 @@ const ids={sourceInOrderNo:input('source','IN-1'),sourceInOrderId:input('sourceI
 const line={};Object.entries({'.material-code':'M1','.material-qty':'2','.material-price':'1','.line-contract-no':'C1','.line-project-name':'P1','.material-remark':'R1','.line-source-in-item-id':'9','.material-batch-no':'old','.material-expiry':'2026-12-01'}).forEach(([k,v])=>line[k]=input(k,v));
 const row={dataset:{},querySelector:s=>line[s]||null};let rows=[row];
 let sale=false,purchase=false,other=false;
-const expected={date:'date',customer:'customer',supplier:'customer',source:'source',quantity:'.material-qty',empty:'.material-code',warehouse:'warehouse_id',location:'location',batchWarehouse:'batchWarehouse',batchField:'batchField',batchEmpty:'batchValue',batchNaN:'batchValue',batchQuantity:'batchValue',batchPrice:'batchValue',batchPrecision:'batchValue',batchLength:'batchValue',batchFormula:'batchValue',batchExpiry:'batchValue'};
+const expected={date:'date',customer:'customer',supplier:'customer',source:'source',quantity:'.material-qty',empty:'.material-code',partial:'.material-code',warehouse:'warehouse_id',location:'location',batchWarehouse:'batchWarehouse',batchField:'batchField',batchEmpty:'batchValue',batchNaN:'batchValue',batchQuantity:'batchValue',batchPrice:'batchValue',batchPrecision:'batchValue',batchLength:'batchValue',batchFormula:'batchValue',batchExpiry:'batchValue'};
 switch(p.scenario){
 case 'date':fields.date.value='';break;
 case 'customer':sale=true;fields.customer.value='';break;
@@ -45,6 +45,7 @@ case 'validBlankDepartment':fields.department_id.value='';break;
 case 'source':purchase=true;ids.sourceInOrderNo.value='';ids.sourceInOrderId.value='';break;
 case 'quantity':line['.material-qty'].value='0';break;
 case 'empty':line['.material-code'].value='';break;
+case 'partial':rows.push({dataset:{},querySelector:s=>s==='.material-code'?input(s,''):s==='.material-qty'?input(s,'0'):input(s,'')});break;
 case 'warehouse':fields.warehouse_id.value='';break;
 case 'location':fields.location.value='';break;
 case 'batchWarehouse':ids.batchUpdateField.value='warehouse';ids.batchUpdateWarehouse.value='';break;
@@ -95,7 +96,7 @@ if(expected[p.scenario]){
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-@pytest.mark.parametrize('scenario', ['date', 'customer', 'supplier', 'validBlankDepartment', 'source', 'quantity', 'empty', 'warehouse', 'location', 'valid', 'validPurchase', 'validSale', 'validOther', 'validNoLocation'])
+@pytest.mark.parametrize('scenario', ['date', 'customer', 'supplier', 'validBlankDepartment', 'source', 'quantity', 'empty', 'partial', 'warehouse', 'location', 'valid', 'validPurchase', 'validSale', 'validOther', 'validNoLocation'])
 def test_outbound_validation_and_original_payload(scenario):
     run('out', 'submitForm', scenario)
 
@@ -121,3 +122,23 @@ def test_bulk_overlay_leaves_common_feedback_visible(page):
     base = page_style_source(ROOT / 'app/templates/base.html')
     toast = int(re.search(r'\.cb-toast-stack\s*\{[^}]*z-index:\s*(\d+)', base).group(1))
     assert 1055 < overlay < toast
+
+
+@pytest.mark.parametrize('page,helper', [('in', 'receiptRowHasDetails'), ('out', 'outboundRowHasDetails')])
+def test_paste_avoids_partially_entered_lines(page, helper):
+    node = shutil.which('node')
+    if not node:
+        pytest.skip('Node.js required')
+    source = (ROOT / f'app/templates/{page}_order_add.html').read_text('utf8')
+    script = function(source, helper) + '\n' + function(source, 'findEmptyRow') + """
+const assert = require('node:assert/strict');
+function row(fields) {
+    return {querySelector:s => fields[s] || (s === '.material-code' ? {value:''} : null)};
+}
+const empty = row({});
+const partial = [row({'.material-qty':{value:'0'}}), row({'.line-project-name':{value:'项目'}})];
+if (PAGE === 'in') partial.push(row({'.line-customer-supplied':{checked:true}}), row({'.material-name':{value:'手工产品'}}));
+const document = {querySelectorAll:() => [...partial,empty]};
+assert.equal(findEmptyRow(), empty);
+"""
+    subprocess.run([node, '-e', script.replace('PAGE', repr(page))], check=True, timeout=20)

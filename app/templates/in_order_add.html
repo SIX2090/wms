@@ -1012,9 +1012,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         const qty = parseFloat(row.querySelector('.material-qty').value);
         const price = isProductIn && !row.querySelector('.material-price').value ? 0 : parseFloat(row.querySelector('.material-price').value);
         if (!code && !hasProductData) {
-            if (businessType === '采购入库' && ['.line-contract-no', '.line-project-name']
-                .some(selector => row.querySelector(selector)?.value.trim())) {
-                errors.push({rowIndex, selector: '.material-code', message: '第 ' + (rowIndex + 1) + ' 行已填写合同信息，请选择物料。'});
+            if (receiptRowHasDetails(row)) {
+                errors.push({rowIndex, selector: '.material-code', message: '第 ' + (rowIndex + 1) + ' 行已填写明细，请选择物料或清空该行。'});
                 markRowError(row, '.material-code');
             }
             return;
@@ -1584,12 +1583,20 @@ async function parsePastedData() {
     }
 }
 
+function receiptRowHasDetails(row) {
+    if (row.querySelector('.line-customer-supplied')?.checked) return true;
+    return ['.material-name', '.material-spec', '.material-unit', '.material-qty', '.material-price',
+        '.material-box-no', '.material-batch-no', '.material-expiry', '.line-contract-no',
+        '.line-project-name', '.material-remark'].some(selector => {
+        const input = row.querySelector(selector);
+        return input && !input.readOnly && (input.value.trim() !== '' || input.validity?.badInput);
+    });
+}
+
 function findEmptyRow() {
-    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
     const rows = document.querySelectorAll('#materialTableBody tr');
     for (const row of rows) {
-        const code = row.querySelector('.material-code').value.trim();
-        if (!code && (!isProductIn || !['.material-name', '.material-spec', '.material-unit', '.material-box-no', '.material-qty'].some(selector => row.querySelector(selector)?.value.trim()))) return row;
+        if (!row.querySelector('.material-code').value.trim() && !receiptRowHasDetails(row)) return row;
     }
     return null;
 }

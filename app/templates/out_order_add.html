@@ -1244,7 +1244,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
     let firstInvalidQuantity = null;
     let largeQtyCount = 0;
     
-    for (const row of rows) {
+    for (const [index, row] of rows.entries()) {
         const code = row.querySelector('.material-code').value.trim();
         if (code) {
             WMS.normalizeDecimalInput(row.querySelector('.material-qty'));
@@ -1253,7 +1253,14 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         const qty = parseFloat(row.querySelector('.material-qty').value);
         const price = parseFloat(row.querySelector('.material-price').value);
         
-        if (!code) continue;
+        if (!code) {
+            if (outboundRowHasDetails(row)) {
+                showToast('第 ' + (index + 1) + ' 行已填写明细，请选择物料或清空该行。', 'danger');
+                row.querySelector('.material-code').focus();
+                return;
+            }
+            continue;
+        }
         
         if (!qty || qty <= 0) {
             emptyQtyCount++;
@@ -1817,11 +1824,19 @@ async function parsePastedData() {
     }
 }
 
+function outboundRowHasDetails(row) {
+    return ['.material-qty', '.material-price', '.line-contract-no', '.line-project-name', '.material-remark']
+        .some(selector => {
+            const input = row.querySelector(selector);
+            return input && (input.value.trim() !== '' || input.validity?.badInput);
+        });
+}
+
 function findEmptyRow() {
     const rows = document.querySelectorAll('#materialTableBody tr');
     for (const row of rows) {
         const code = row.querySelector('.material-code').value.trim();
-        if (!code) return row;
+        if (!code && !outboundRowHasDetails(row)) return row;
     }
     return null;
 }

@@ -47,11 +47,13 @@ def test_other_receipts_keep_draft_actions(kind):
 
 @pytest.mark.parametrize('scenario', [
     'success', 'save_error', 'save_network', 'complete_error', 'warning',
-    'complete_network', 'double_click', 'invalid',
+    'complete_network', 'double_click', 'invalid', 'partial',
 ])
 def test_submit_form_one_action(scenario):
     source = SOURCE.read_text(encoding='utf-8')
     submit = 'function submitForm(' + source.split('function submitForm(', 1)[1].split("\ndocument.addEventListener('click'", 1)[0]
+    from tests.test_document_validation_feedback import function
+    submit += '\n' + function(source, 'receiptRowHasDetails')
     harness = r'''
 const assert = require('assert');
 const scenario = SCENARIO;
@@ -63,10 +65,14 @@ const row = {dataset:{},querySelector(s){
  const values={'.material-code':'M-TEST','.material-qty':'2','.material-price':'1'};
  return s in values ? {value:values[s]} : null;
 }};
+const partial = {dataset:{},querySelector(s){
+ const values={'.material-code':'','.material-qty':'0','.material-price':''};
+ return s in values ? {value:values[s]} : null;
+}};
 const buttons=[{disabled:false}];
 const document = {
  querySelector(s){const m=s.match(/name="([^"]+)"/);return m ? fields[m[1]]||null : null;},
- querySelectorAll(s){return s==='#materialTableBody tr' ? [row] : buttons;}
+ querySelectorAll(s){return s==='#materialTableBody tr' ? (scenario==='partial'?[row,partial]:[row]) : buttons;}
 };
 const window={location:{href:'original'}};
 const messages=[];const calls=[];const issues=[];let releaseSave;
@@ -85,7 +91,7 @@ function fetch(url,options){return WMS.api.postRaw(url,options).then(data=>({jso
 const partyField='supplier_id',partyLabel='供应商',supplierRequired=true,returnAddUrl='/in_order/add';
 let inOrderSubmitting=false;
 function clearInOrderValidation(){}
-function showInOrderValidation(errors){messages.push('validation');}
+function showInOrderValidation(errors){messages.push('validation');issues.push(...errors);}
 function markRowError(){}
 function findMaterialByCode(){return true;}
 function showToast(message){messages.push(message);}
@@ -102,6 +108,7 @@ async function main(){
  }
  await pending;
  await new Promise(resolve=>setImmediate(resolve));
+ if(scenario==='partial'){assert.equal(calls.length,0);assert.equal(issues[0].rowIndex,1);return;}
  if(scenario==='invalid'){assert.equal(calls.length,0);return;}
  assert.equal(calls[0].url,'/in_order/add');
  if(['save_error','save_network'].includes(scenario)){

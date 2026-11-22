@@ -677,3 +677,4 @@ POST_SPLIT_BUGS['BUG-2026-11-22-001'] = 'fixed'  # Preserve partially entered ad
 POST_SPLIT_BUGS['BUG-2026-11-22-002'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-22-003'] = 'fixed'
 POST_SPLIT_BUGS['BUG-2026-11-22-004'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-22-005'] = 'fixed'
