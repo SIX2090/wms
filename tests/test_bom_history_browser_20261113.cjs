@@ -129,13 +129,13 @@ test('count entry stays blank until typed and preserves an explicit zero', () =>
     for (const name of ['.actual-stock', '.system-stock', '.material-stock', '.line-diff'])
         assert.equal(row.fields[name].value, '');
     c.context.fillMaterialFields(row, {...c.material, stock: 24});
-    assert.equal(row.fields['.system-stock'].value, '24.00');
+    assert.equal(row.fields['.system-stock'].value, '24');
     actual.fire('blur');
     assert.equal(c.context.collectItems().items[0].actual_stock, null);
     actual.value = '0'; actual.fire('input'); actual.fire('blur');
     c.context.fillMaterialFields(row, {...c.material, stock: 24});
     assert.equal(c.context.collectItems().items[0].actual_stock, 0);
-    assert.equal(row.fields['.line-diff'].value, '-24.00');
+    assert.equal(row.fields['.line-diff'].value, '-24');
     actual.value = '-0.001'; actual.fire('input'); actual.fire('blur');
     const invalid = c.context.collectItems();
     assert.equal(invalid.items.length, 0);
@@ -156,6 +156,19 @@ test('a count entered before the material survives lookup, including zero', () =
     assert.equal(c.context.collectItems().items[1].actual_stock, 0);
     c.context.fillMaterialFields(partial, {...c.material, id: 99});
     assert.equal(partial.fields['.actual-stock'].value, '');
+});
+test('stocktake quantities omit trailing zeros while preserving decimals', () => {
+    const c = setup('check');
+    for (const [value, expected] of [[100, '100'], [100.02, '100.02'], [100.5, '100.5'], [0, '0'], [-2.5, '-2.5']])
+        assert.equal(c.context.formatQty(value), expected);
+    c.rows.length = 0;
+    const row = c.context.createRow({...c.data, system_stock: 100, actual_stock: 100.02, counted_at: '2026-11-23'});
+    c.context.calcTotal();
+    assert.equal(row.fields['.system-stock'].value, '100');
+    assert.equal(row.fields['.actual-stock'].value, '100.02');
+    assert.equal(row.fields['.count-total'].value, '100.02');
+    assert.equal(row.fields['.line-diff'].value, '0.02');
+    assert.equal(c.context.document.getElementById('totalQty').textContent, '100.02');
 });
 (async () => {
     try {
