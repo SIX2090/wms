@@ -55,6 +55,82 @@ def test_saved_stocktake_returns_to_its_warehouse_list(scene, embedded):
     assert check.check_no not in client.get('/check').get_data(as_text=True)
 
 
+@pytest.mark.parametrize('batch', [False, True], ids=['single', 'batch'])
+def test_delete_stocktake_after_removed_adjustment_is_fully_reversed(scene, batch):
+    client, _, warehouse, material = scene
+    check_id = _count(client, warehouse, material, [{'actual_stock': 110}])
+    check_no = wms.db.session.get(wms.InventoryCheck, check_id).check_no
+    assert _complete(client, check_id)['status'] == 'success'
+    order_id = wms.AdjustmentOrder.query.one().id
+    for path in (f'/adjustment/{order_id}/complete', f'/adjustment/{order_id}/revert',
+                 f'/check/{check_id}/revert', f'/adjustment/{order_id}/delete'):
+        assert document_post(client, path, json={}).json['status'] == 'success'
+    ledger = wms.StockTransaction.query.filter_by(reference_type='adjustment', reference_id=order_id)
+    flows = [(row.id, row.quantity, row.warehouse_id, row.location) for row in ledger.order_by(wms.StockTransaction.id)]
+    assert sorted(flow[1] for flow in flows) == [-10, 10]
+
+    filters = {'warehouse_id': warehouse.id, 'search': check_no}
+    html = client.get('/check', query_string=filters).get_data(as_text=True)
+    checkbox = re.search(r'class="itemCheck check-item" value="' + str(check_id) + r'" [^>]*>', html)
+    assert checkbox is not None and 'disabled' not in checkbox[0]
+    url = '/check/batch_delete' if batch else f'/check/{check_id}/delete'
+    result = document_post(client, url, json={'ids': [check_id]} if batch else {}).json
+    assert result['status'] == 'success', result
+    if batch:
+        assert result['deleted'] == 1
+
+    assert wms.db.session.get(wms.InventoryCheck, check_id) is None
+    assert not wms.InventoryCheckItem.query.filter_by(inventory_check_id=check_id).count()
+    assert client.get(f'/check/{check_id}').status_code == 404
+    listing = client.get('/check', query_string=filters).get_data(as_text=True)
+    assert '暂无盘点记录' in listing and f'href="/check/{check_id}"' not in listing
+    assert not material_rows(client.get('/check/export', query_string=filters), material.code)
+    if batch:
+        assert document_post(client, url, json={'ids': [check_id]}).json['deleted'] == 0
+    else:
+        assert document_post(client, url, json={}).status_code == 404
+    historical_adjustment = wms.db.session.get(wms.AdjustmentOrder, order_id)
+    assert historical_adjustment.status == 'deleted' and historical_adjustment.source_id is None
+    assert [(row.id, row.quantity, row.warehouse_id, row.location) for row in ledger.order_by(wms.StockTransaction.id)] == flows
+    assert material.stock == 100
+
+
+@pytest.mark.parametrize('blocker', ['adjustment', 'warehouse', 'location', 'scan', 'direct_flow'])
+def test_delete_stocktake_rejects_unresolved_dependencies(scene, blocker):
+    client, other, warehouse, material = scene
+    check_id = _count(client, warehouse, material, [{'actual_stock': 110}])
+    assert _complete(client, check_id)['status'] == 'success'
+    order_id = wms.AdjustmentOrder.query.one().id
+    for path in (f'/adjustment/{order_id}/complete', f'/adjustment/{order_id}/revert', f'/check/{check_id}/revert'):
+        assert document_post(client, path, json={}).json['status'] == 'success'
+    if blocker != 'adjustment':
+        assert document_post(client, f'/adjustment/{order_id}/delete', json={}).json['status'] == 'success'
+    if blocker in ('warehouse', 'location'):
+        reversal = wms.StockTransaction.query.filter_by(reference_type='adjustment', reference_id=order_id,
+                                                         transaction_type='revert_adjustment_in').one()
+        if blocker == 'warehouse':
+            reversal.warehouse_id = other.id
+        else:
+            reversal.location = 'Different bin'
+    if blocker == 'scan':
+        wms.db.session.add(wms.InventoryCheckScan(check_id=check_id, check_no='SCAN-LINKED', warehouse=warehouse.name))
+    if blocker == 'direct_flow':
+        wms.db.session.add(wms.StockTransaction(material_id=material.id, warehouse_id=warehouse.id,
+                                                transaction_type='check_in', quantity=1,
+                                                reference_type='check', reference_id=check_id))
+    wms.db.session.commit()
+
+    html = client.get('/check', query_string={'warehouse_id': warehouse.id}).get_data(as_text=True)
+    checkbox = re.search(r'class="itemCheck check-item" value="' + str(check_id) + r'" [^>]*>', html)
+    assert checkbox is not None and 'disabled' in checkbox[0]
+    expected = {'adjustment': '移除', 'warehouse': '冲回', 'location': '冲回', 'scan': '扫码', 'direct_flow': '盘点流水'}[blocker]
+    assert expected in document_post(client, f'/check/{check_id}/delete', json={}).json['msg']
+    batch = document_post(client, '/check/batch_delete', json={'ids': [check_id]}).json
+    assert batch['deleted'] == 0 and expected in batch['skipped'][0]
+    assert wms.db.session.get(wms.InventoryCheck, check_id) is not None
+    assert wms.db.session.get(wms.AdjustmentOrder, order_id).source_id == check_id
+
+
 def test_pallet_count_outputs_and_source_navigation(scene):
     client, _, warehouse, material = scene
     key = _count(client, warehouse, material, [{'actual_stock': 40}, {'actual_stock': 70}])

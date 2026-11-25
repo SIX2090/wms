@@ -41,7 +41,7 @@ from db import db
 from services.import_validation import InactiveMaterialImportError
 from services.web_document_idempotency import (web_document_idempotent,
                                                    web_document_command_idempotent, stage_document_response)
-from utils import require_role
+from utils import STOCK_COMPARE_EPSILON, require_role
 
 
 # no-test:reason=纯查询展开辅助，能力由 test_check_add_category_generate 测试覆盖
@@ -353,6 +353,53 @@ def _check_warehouse_snapshot(check, items):
     }
 
 
+def _check_delete_errors(check_ids):
+    from app import AdjustmentOrder, InventoryCheckScan, StockTransaction
+
+    if not check_ids:
+        return {}
+    errors = {}
+    scans = db.session.query(InventoryCheckScan.check_id).filter(
+        InventoryCheckScan.check_id.in_(check_ids)).distinct()
+    for (check_id,) in scans:
+        errors[check_id] = '存在关联扫码记录，须保留盘点单'
+    direct_flows = db.session.query(StockTransaction.reference_id).filter(
+        StockTransaction.reference_type == 'check', StockTransaction.reference_id.in_(check_ids)).distinct()
+    for (check_id,) in direct_flows:
+        errors.setdefault(check_id, '存在直接盘点流水，须保留盘点单')
+
+    adjustments = db.session.query(AdjustmentOrder.id, AdjustmentOrder.source_id, AdjustmentOrder.status).filter(
+        AdjustmentOrder.source_type == 'check', AdjustmentOrder.source_id.in_(check_ids)).all()
+    for adjustment in adjustments:
+        if adjustment.status != 'deleted':
+            errors.setdefault(adjustment.source_id, '请先撤回并移除关联的库存调整单')
+    removed = {adjustment.id: adjustment.source_id for adjustment in adjustments if adjustment.source_id not in errors}
+    if removed:
+        # 不同调整单、物料、仓库和库位之间的流水不能互相抵消。
+        totals = db.session.query(StockTransaction.reference_id, db.func.sum(StockTransaction.quantity)).filter(
+            StockTransaction.reference_type == 'adjustment', StockTransaction.reference_id.in_(removed)
+        ).group_by(StockTransaction.reference_id, StockTransaction.material_id, StockTransaction.warehouse_id,
+                   db.func.coalesce(StockTransaction.location, ''))
+        for order_id, net in totals:
+            if net is None or not math.isfinite(net) or abs(net) > STOCK_COMPARE_EPSILON:
+                errors[removed[order_id]] = '关联调整流水未按原仓库、库位和物料完整冲回'
+    return errors
+
+
+def _stage_check_delete(check):
+    """在盘点单写锁内核验依赖，解除历史调整指向后删除盘点单。"""
+    from app import AdjustmentOrder, InventoryCheckItem
+
+    error = _check_delete_errors({check.id}).get(check.id)
+    if error:
+        return error
+    AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).update(
+        {AdjustmentOrder.source_id: None}, synchronize_session='fetch')
+    InventoryCheckItem.query.filter_by(inventory_check_id=check.id).delete()
+    db.session.delete(check)
+    return None
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -403,10 +450,8 @@ def register_check_routes(app):
         sort_col = getattr(InventoryCheck, sort_by, InventoryCheck.created_at)
         pagination = query.order_by(sort_col.asc() if sort_order == 'asc' else sort_col.desc()).paginate(page=page, per_page=per_page, error_out=False)
         checks = pagination.items
-        from app import AdjustmentOrder
-        retained = {row.source_id for row in db.session.query(AdjustmentOrder.source_id).filter(
-            AdjustmentOrder.source_type == 'check', AdjustmentOrder.source_id.in_([c.id for c in checks])).distinct()}
-        deletable_ids = {c.id for c in checks if c.status == 'pending' and c.id not in retained}
+        draft_ids = {check.id for check in checks if check.status == 'pending'}
+        deletable_ids = draft_ids.difference(_check_delete_errors(draft_ids))
         filters = {
             'status': status_filter,
             'search': search,
@@ -1177,8 +1222,7 @@ def register_check_routes(app):
     @login_required
     def delete_check(id):
         """删除盘点单"""
-        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckItem,
-                         _acquire_order_write_lock, api_error, log_operation)
+        from app import InventoryCheck, _acquire_order_write_lock, api_error, log_operation
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以删除')
@@ -1188,16 +1232,14 @@ def register_check_routes(app):
             locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending')
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该盘点单状态已变更；已完成单请先反提交后再删除'}), 409
-            check = locked
-            if AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).first():
+            check_no = locked.check_no
+            error = _stage_check_delete(locked)
+            if error:
                 db.session.rollback()
-                return api_error('存在关联调整记录，须保留来源盘点单')
-            # 删除明细
-            InventoryCheckItem.query.filter_by(inventory_check_id=id).delete()
-            db.session.delete(check)
+                return api_error(error)
             db.session.commit()
 
-            log_operation('删除盘点单', f'盘点单：{check.check_no}', 'check', id)
+            log_operation('删除盘点单', f'盘点单：{check_no}', 'check', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
@@ -1209,8 +1251,7 @@ def register_check_routes(app):
     @login_required
     def batch_delete_check():
         """批量删除盘点单"""
-        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckItem,
-                         _acquire_order_write_lock, api_error, log_operation)
+        from app import InventoryCheck, _acquire_order_write_lock, api_error, log_operation
         try:
             data = request.get_json(silent=True) or {}
             ids = data.get('ids')
@@ -1233,14 +1274,12 @@ def register_check_routes(app):
                         skipped.append(f'{check_no}(状态已变更)')
                         db.session.rollback()
                         continue
-                    check = locked
-                    check_no = check.check_no
-                    if AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).first():
-                        skipped.append(f'{check_no}(存在关联调整记录)')
+                    check_no = locked.check_no
+                    error = _stage_check_delete(locked)
+                    if error:
+                        skipped.append(f'{check_no}({error})')
                         db.session.rollback()
                         continue
-                    InventoryCheckItem.query.filter_by(inventory_check_id=check_id).delete()
-                    db.session.delete(check)
                     db.session.commit()
                     deleted_count += 1
                 except Exception:
