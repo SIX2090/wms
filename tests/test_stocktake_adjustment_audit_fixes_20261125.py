@@ -67,6 +67,7 @@ def _release_app_ctx():
 
 def _reset():
     g.pop("_system_setting_cache", None)
+    g.pop("_login_user", None)
     db.session.remove()
     db.drop_all()
     db.create_all()
@@ -125,6 +126,7 @@ def _seed_material(code, name, unit, warehouse=None, stock=0.0, location="", sta
 
 
 def _login_web(client, user):
+    g.pop("_login_user", None)
     with client.session_transaction() as sess:
         sess["_user_id"] = str(user.id)
         sess["_fresh"] = True
