@@ -1763,7 +1763,7 @@ fun StocktakeScreen(
     // 才能对齐服务端"启用库位管理且有差异时必填"的口径。
     LaunchedEffect(uiState.selectedWarehouse) {
         if (uiState.selectedWarehouse != null) {
-            viewModel.loadLocationOptions()
+            viewModel.loadLocationOptions(force = true)
         }
     }
 

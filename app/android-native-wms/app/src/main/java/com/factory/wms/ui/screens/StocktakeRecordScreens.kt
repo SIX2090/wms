@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -415,10 +416,10 @@ private fun StocktakeRecordDetailDialog(
                                 .height(360.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(
+                            itemsIndexed(
                                 detail.items,
-                                key = { "${it.materialCode}|${it.area}|${it.hashCode()}" }
-                            ) { item ->
+                                key = { index, it -> "$index|${it.materialCode}|${it.area}" }
+                            ) { _, item ->
                                 StocktakeRecordDetailRow(item)
                             }
                         }

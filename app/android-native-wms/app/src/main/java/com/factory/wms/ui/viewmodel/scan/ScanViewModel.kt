@@ -385,8 +385,8 @@ class ScanViewModel(
     }
 
     fun updateStocktakeArea(value: String) {
-        if (draftEditingBlocked() || !canChangeQuantityContext(value.trim() != _uiState.value.selectedLocation)) return
-        _uiState.value = _uiState.value.copy(selectedLocation = value.trim())
+        if (draftEditingBlocked() || !canChangeQuantityContext(value != _uiState.value.selectedLocation)) return
+        _uiState.value = _uiState.value.copy(selectedLocation = value)
     }
 
     fun selectLocation(value: String) {
@@ -410,8 +410,8 @@ class ScanViewModel(
         _uiState.value = _uiState.value.copy(evidence = _uiState.value.evidence + encodedJpeg)
     }
 
-    fun loadLocationOptions() {
-        if (editDraftOperation == null) return
+    fun loadLocationOptions(force: Boolean = false) {
+        if (!force && editDraftOperation == null && !stocktakeRestoreStarted) return
         val code = _uiState.value.selectedWarehouse?.code ?: return
         locationOptionsJob?.cancel()
         val owner = RetrofitClient.sessionSnapshot()
@@ -1553,10 +1553,15 @@ class ScanViewModel(
                     _uiState.value = _uiState.value.copy(isLoading = false, error = "原请求无法读取，请保留清单：${error.message}")
                     return@launch
                 }
-            val requestId = state.pendingSubmissionId ?: stored?.requestId ?: UUID.randomUUID().toString()
+            val previousPendingId = state.pendingSubmissionId
+            val requestId = previousPendingId ?: stored?.requestId ?: UUID.randomUUID().toString()
             _uiState.value = _uiState.value.copy(pendingSubmissionId = requestId)
             if (!persistStocktakeDraftNow()) {
-                _uiState.value = _uiState.value.copy(isLoading = false, error = "盘点清单未安全保存，暂不提交")
+                _uiState.value = _uiState.value.copy(
+                    isLoading = false,
+                    pendingSubmissionId = previousPendingId,
+                    error = "盘点清单未安全保存，暂不提交"
+                )
                 return@launch
             }
             val result = repository.submitStocktake(request, requestId)
@@ -1679,8 +1684,14 @@ class ScanViewModel(
                     stocktakeRestoreComplete = true
                     _uiState.value = _uiState.value.copy(isLoading = false,
                         success = if (legacy) "本机保留历史盘点草稿，缺少账号来源，未自动恢复；请联系维护人员核对归属，勿重复录入" else null)
-                    if (_uiState.value.warehouses.isNotEmpty() && _uiState.value.selectedWarehouse == null)
-                        _uiState.value = _uiState.value.copy(selectedWarehouse = _uiState.value.warehouses.singleOrNull { it.isDefault })
+                    if (_uiState.value.warehouses.isNotEmpty() && _uiState.value.selectedWarehouse == null) {
+                        val defaultWarehouse = _uiState.value.warehouses.singleOrNull { it.isDefault }
+                        _uiState.value = _uiState.value.copy(selectedWarehouse = defaultWarehouse)
+                        if (defaultWarehouse?.code != null) {
+                            loadPendingCheckOrders()
+                            loadLocationOptions(force = true)
+                        }
+                    }
                     return@launch
                 }
                 stocktakeSourceWarehouse = draft.warehouseCode
@@ -1711,6 +1722,11 @@ class ScanViewModel(
                         throw IllegalStateException("原盘点单已不在进行中列表，请保留清单核对")
                     _uiState.value = _uiState.value.copy(checkOrders = orders,
                         selectedCheckOrder = check ?: CheckOrderDto(draft.checkId, "待核实 #${draft.checkId}"))
+                } else if (warehouse?.code != null) {
+                    loadPendingCheckOrders()
+                }
+                if (warehouse?.code != null) {
+                    loadLocationOptions(force = true)
                 }
                 _uiState.value = _uiState.value.copy(success = if (draft.requestId == null)
                     "已恢复原仓库盘点清单，请核对后继续" else "已恢复待核实提交，请使用原请求核实结果")

@@ -103,7 +103,13 @@ class StocktakeRecordViewModel(application: Application) : AndroidViewModel(appl
             if (version != listVersion || owner.generation != RetrofitClient.sessionSnapshot().generation) return@launch
             response.fold(
                 onSuccess = { data ->
-                    val merged = if (append) state.records + data.items else data.items
+                    val merged = if (append) {
+                        (state.records + data.items).distinctBy {
+                            if (it.id != 0L) it.id else it.checkNo ?: it
+                        }
+                    } else {
+                        data.items.distinctBy { if (it.id != 0L) it.id else it.checkNo ?: it }
+                    }
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         records = merged,
