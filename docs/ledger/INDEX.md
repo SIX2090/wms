@@ -966,6 +966,7 @@
 | BUG-2026-11-22-022 | bugs | entries-2026-11.md |
 | BUG-2026-11-22-023 | bugs | entries-2026-11.md |
 | FEAT-2026-11-25-001 | bugs | entries-2026-11.md |
+| FEAT-2026-11-25-002 | bugs | entries-2026-11.md |
 | BUG-INSPECT-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-MOBILE-2026-07-27-001 | bugs | fixed-2026-07.md |
 | BUG-DATE-2026-07-27-001 | bugs | fixed-2026-07.md |

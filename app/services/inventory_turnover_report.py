@@ -4,9 +4,8 @@ from datetime import date
 from decimal import Decimal
 import re
 
-from sqlalchemy import select
-
 from services.material_movement_report import warehouse_material_balances
+from services.report_material_category import parse_report_category, report_category_clause
 from services.warehouse_monthly_report import _month_period
 
 
@@ -27,23 +26,8 @@ def turnover_filters(args):
     if standard and (not re.fullmatch(r'[0-9]{1,8}(?:\.[0-9]{1,2})?', standard)
                      or Decimal(standard) <= 0):
         raise ReportFilterError('标准周转天数须为正数，最多 8 位整数、2 位小数')
-    category = (args.get('category_id') or '').strip()
-    if category and category != 'uncategorized' and (
-            not re.fullmatch(r'[0-9]{1,19}', category) or not 0 < int(category) < 2**63):
-        raise ReportFilterError('请选择有效的物料分类')
-    return {'standard_days': Decimal(standard) if standard else None, 'category_id': category}
-
-
-def _category_filter(category):
-    from app import Material, MaterialCategory
-
-    if not category:
-        return None
-    if category == 'uncategorized':
-        return Material.category_id.is_(None)
-    tree = select(MaterialCategory.id).where(MaterialCategory.id == int(category)).cte(recursive=True)
-    tree = tree.union(select(MaterialCategory.id).join(tree, MaterialCategory.parent_id == tree.c.id))
-    return Material.category_id.in_(select(tree.c.id))
+    return {'standard_days': Decimal(standard) if standard else None,
+            'category_id': parse_report_category(args)}
 
 
 def build_inventory_turnover_report(filters):
@@ -59,7 +43,7 @@ def build_inventory_turnover_report(filters):
     prices = filters.get('include_prices', True)
     warehouse, materials, balances = warehouse_material_balances(
         dict(filters, start_date=start, end_date=end),
-        category_filter=_category_filter(filters.get('category_id')), load_category=True)
+        category_filter=report_category_clause(filters.get('category_id')), load_category=True)
     columns = [{'field': key, 'title': label} for key, label in (
         ('warehouse_code', '仓库编码'), ('warehouse', '仓库'), ('category', '物料分类'),
         ('material_code', '物料编码'), ('material_name', '物料名称'), ('spec', '规格型号'), ('unit', '单位'))]

@@ -920,6 +920,8 @@ def _report_print_quantity(rows):
 
 def _dynamic_report_template(report_type, template):
     target = report_target_code(report_type)
+    if report_type == 'inventory':
+        return template.excel_template_path == f'/static/uploads/print_templates/{_builtin_filename(target)}'
     if report_type in ('check', 'summary', 'requisition', 'subcontract'):
         return template.excel_template_path in {
             f'/static/uploads/print_templates/builtin_{target}_{suffix}.xlsx'

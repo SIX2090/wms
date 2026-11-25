@@ -133,6 +133,73 @@ def test_supplier_filter_intersects_warehouse_membership(inventory_scope):
     _assert_rows(_query(case, 'b', supplier_id=case['supplier']), {})
 
 
+@pytest.fixture
+def category_scope(inventory_scope):
+    with m.app.app_context():
+        parent = m.MaterialCategory(code='FILTER-PARENT', name='分类上级')
+        child = m.MaterialCategory(code='FILTER-CHILD', name='分类下级', parent=parent)
+        other = m.MaterialCategory(code='FILTER-OTHER', name='其他分类')
+        for category, codes in (
+            (parent, ('A', 'B')),
+            (child, ('SHARED', 'ZERO')),
+            (other, ('NEGATIVE',)),
+        ):
+            for material in m.Material.query.filter(m.Material.code.in_(codes)):
+                material.category = category
+        m.db.session.commit()
+        return dict(inventory_scope, parent=parent.id, child=child.id, other=other.id)
+
+
+def test_report_category_clause(category_scope):
+    case = category_scope
+    page = case['client'].get('/report/view/inventory').get_data(as_text=True)
+    assert 'name="category_id"' in page and '分类上级' in page and '分类下级' in page
+    assert 'name="standard_days"' not in page
+    _assert_rows(_query(case, 'a', category_id=case['parent']), {'A': 5, 'SHARED': 2, 'ZERO': 0})
+    _assert_rows(_query(case, 'b', category_id=case['parent']), {'SHARED': 7, 'B': 11})
+    _assert_rows(_query(case, 'a', category_id=case['child'], hide_zero=1), {'SHARED': 2})
+    _assert_rows(_query(case, 'a', category_id=case['parent'], supplier_id=case['supplier']), {'A': 5})
+    _assert_rows(_query(case, 'a', category_id=case['parent'], material_code='物料-NEGATIVE'), {})
+    _assert_rows(_query(case, 'a', category_id=case['other']), {'NEGATIVE': -2})
+    _assert_rows(_query(case, 'a', category_id=999999), {})
+    _assert_rows(_query(case, 'a', category_id='uncategorized'), {
+        code: stock for code, stock in case['expected_a'].items()
+        if code not in {'A', 'SHARED', 'ZERO', 'NEGATIVE'}
+    })
+
+
+def test_parse_report_category(category_scope):
+    case = category_scope
+    result = case['client'].get('/report/api/inventory', query_string={
+        'warehouse_id': case['a'], 'category_id': 'abc'})
+    assert result.status_code == 400 and '物料分类' in result.get_json()['msg']
+
+
+def test_category_filter_applies_to_full_excel_and_print_preview(category_scope):
+    case = category_scope
+    params = {'warehouse_id': case['a'], 'category_id': case['parent'], 'page': 2, 'page_size': 1}
+    data = _query(case, 'a', category_id=case['parent'], page=2, page_size=1)
+    assert [row['code'] for row in data['data']] == ['SHARED']
+    assert data['total'] == data['summary']['count'] == 3 and data['summary']['quantity'] == 7
+    response = case['client'].get('/report/api/inventory', query_string=dict(params, export='excel'))
+    assert response.status_code == 200
+    workbook = load_workbook(io.BytesIO(response.data), read_only=True)
+    try:
+        rows = workbook.active.iter_rows(values_only=True)
+        head = next(rows)
+        assert {row[head.index('物料编码')]: row[head.index('当前库存')] for row in rows} == {
+            'A': 5, 'SHARED': 2, 'ZERO': 0,
+        }
+    finally:
+        workbook.close()
+    response = case['client'].get('/report/inventory/print_excel', query_string=params)
+    assert set(_xlsx_codes(response)) & set(case['expected_a']) == {'A', 'SHARED', 'ZERO'}
+    response = case['client'].get('/report/inventory/print_preview', query_string=params)
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200, html.split('role="alert">')[-1].split('</p>')[0]
+    assert '当前筛选共 3 行' in html and '物料-SHARED' in html and '物料-NEGATIVE' not in html
+
+
 def test_material_search_cannot_reintroduce_other_warehouse_rows(inventory_scope):
     _assert_rows(_query(inventory_scope, 'b', material_code='物料-A'), {})
     _assert_rows(_query(inventory_scope, 'a', material_code='物料-A'), {'A': 5})

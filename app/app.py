@@ -29243,6 +29243,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
         raw_business_type = ''
     return {
         **(turnover_filters(request.args) if report_type == 'inventory_turnover' else {}),
+        **({'category_id': parse_report_category(request.args)} if report_type == 'inventory' else {}),
         'start_month': (request.args.get('start_month') or '').strip(),
         'end_month': (request.args.get('end_month') or '').strip(),
         'start_date': start_date,
@@ -29784,6 +29785,9 @@ def _collect_inventory_rows(filters):
         selectinload(Material.unit),
         selectinload(Material.supplier),
     ).order_by(Material.code.asc(), Material.id.asc())
+    category_clause = report_category_clause(filters.get('category_id'))
+    if category_clause is not None:
+        query = query.filter(category_clause)
     if filters['supplier_id']:
         query = query.filter(Material.supplier_id == filters['supplier_id'])
     supplier_clause = _supplier_filter_clause(filters.get('supplier'))
@@ -31566,6 +31570,7 @@ def _build_requisition_report(filters):
     columns, rows, summary, _ = _sql_paged_requisition_report(dict(filters, export='excel'))
     return columns, rows, summary
 
+from services.report_material_category import parse_report_category, report_category_clause
 from services.inventory_turnover_report import (DEFINITION as _TURNOVER_DEFINITION,
                                                 build_inventory_turnover_report, turnover_filters)
 from services.material_movement_report import (DEFINITION as _MATERIAL_MOVEMENT_DEFINITION,

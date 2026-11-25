@@ -234,7 +234,7 @@ def register_report_routes(app):
         warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
                       if report_type == 'in_detail' else get_active_warehouses())
         category_rows = []
-        if report_type == 'inventory_turnover':
+        if report_type in ('inventory', 'inventory_turnover'):
             from app import MaterialCategory, build_category_tree_rows
             category_rows = build_category_tree_rows(MaterialCategory.query.all())
         reconciliation = None

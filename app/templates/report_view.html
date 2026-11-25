@@ -126,7 +126,7 @@
                 </select>
             </div>
 
-            {% if report_type == 'inventory_turnover' %}
+            {% if report_type in ('inventory', 'inventory_turnover') %}
             <div class="col-md-3">
                 <label for="category_id" class="form-label">物料分类（含下级）</label>
                 <select id="category_id" name="category_id" class="form-select">
@@ -137,6 +137,8 @@
                     {% endfor %}
                 </select>
             </div>
+            {% endif %}
+            {% if report_type == 'inventory_turnover' %}
             <div class="col-md-3">
                 <label for="standard_days" class="form-label">标准周转天数（选填）</label>
                 <input id="standard_days" name="standard_days" type="number" class="form-control" min="0.01" max="99999999.99" step="0.01">
