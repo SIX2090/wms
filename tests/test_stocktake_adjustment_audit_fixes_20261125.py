@@ -685,11 +685,12 @@ def test_p2_1_p2_2_p2_3_p2_4_p2_9_p2_15_labels_meta_audit_and_templates():
     wb = Workbook()
     ws = wb.active
     ws.append(["单据编号", "日期", "仓库", "物料编码", "物料名称", "实际库存"])
-    ws.append(["CK-EMPTY-BAD", "2026-11-25", wh.name, "NO-SUCH-MAT", "不存在", "5"])
+    ws.append(["CK-EMPTY-BAD", "2026-11-25", wh.name, mat.code, mat.name, "-5"])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    client.post("/check/import", data={"file": (buf, "bad.xlsx")}, content_type="multipart/form-data")
+    r_imp = client.post("/check/import", data={"file": (buf, "bad.xlsx")}, content_type="multipart/form-data")
+    assert r_imp.status_code == 400
     assert app_module.InventoryCheck.query.filter_by(check_no="CK-EMPTY-BAD").first() is None
 
     # P2-15: print_adjustment hides fake total_amount and uses Chinese source label; export_check_template has 仓库 & 区域/库位
