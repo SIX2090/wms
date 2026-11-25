@@ -12513,10 +12513,7 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
 
     item_location = ''
     if location_management_enabled():
-        default_loc = get_default_location(warehouse.id)
-        if not default_loc:
-            return None, f'库位管理已启用，仓库 {warehouse.name} 尚未配置默认库位，请先配置默认库位或在电脑端填写库位'
-        item_location = default_loc.code
+        return None, '库位管理已启用，AI 文本草稿暂不支持自动分配库位，请在电脑端库存调整页指定库位后保存'
 
     if adjustment_type == 'loss' and not allow_negative_stock():
         wh_stock = get_warehouse_stock_quantities(warehouse)
@@ -28229,7 +28226,7 @@ def _void_check_scan(check_id, *, actor):
             by_id = {row.id: row for row in batch_rows}
             bound_ids = {
                 row_id for (row_id,) in db.session.query(InventoryCheckScanItem.batch_item_id)
-                .join(InventoryCheckScan, InventoryCheckScan.id == InventoryCheckScanItem.check_id)
+                .join(InventoryCheckScan, InventoryCheckScan.id == InventoryCheckScanItem.check_scan_id)
                 .join(InventoryCheckItem, InventoryCheckItem.id == InventoryCheckScanItem.batch_item_id)
                 .filter(
                     InventoryCheckItem.inventory_check_id == batch.id,

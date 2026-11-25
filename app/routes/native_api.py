@@ -1436,7 +1436,7 @@ def register_native_api_routes(app):
                 return api_json_error(
                     f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试', 409)
             batch = locked_batch
-            from app import OperationLog, get_default_location, get_request_ip, resolve_inventory_warehouse_id
+            from app import OperationLog, get_request_ip, resolve_inventory_warehouse_id
             if resolve_inventory_warehouse_id(batch.warehouse) != wh_obj.id:
                 message = (f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
                            f'与所选盘点仓库「{warehouse}」不一致，请重新选择')
@@ -1460,18 +1460,14 @@ def register_native_api_routes(app):
                 if existing_row.material_id:
                     frozen_by_material.setdefault(existing_row.material_id, existing_row.system_stock)
             locations_enabled = location_management_enabled()
-            default_loc = get_default_location(wh_obj.id) if locations_enabled else None
-            default_area = (default_loc.code or default_loc.name or '') if default_loc else ''
             for index, line in enumerate(lines, start=1):
                 code = _clean_text(line.get('material_code')) or _clean_text(line.get('code'))
                 # 盘点区域（可选；开启库位管理时必填）：分区盘点时按"物料+区域"分行
                 area = (_clean_text(line.get('area')) or _clean_text(line.get('region'))
                         or _clean_text(line.get('location')) or _clean_text(line.get('location_code')))
                 if locations_enabled and not area:
-                    area = default_area
-                if locations_enabled and not area:
                     db.session.rollback()
-                    return api_json_error(f'第 {index} 行库位管理已启用，必须填写库位/区域', 400)
+                    return api_json_error(f'第 {index} 行库位管理已启用，盘点差异必须填写库位/区域', 400)
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     db.session.rollback()
@@ -1508,7 +1504,7 @@ def register_native_api_routes(app):
             db.session.add(OperationLog(
                 user_id=user.id,
                 operation_type='手机扫码盘点',
-                content=f'扫码盘点单：{check.check_no}，批次：{batch.check_no}',
+                operation_content=f'扫码盘点单：{check.check_no}，批次：{batch.check_no}',
                 target_type='inventory_check_scan',
                 target_id=check.id,
                 ip_address=get_request_ip(),

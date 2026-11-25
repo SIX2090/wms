@@ -1689,7 +1689,6 @@ class ScanViewModel(
                         _uiState.value = _uiState.value.copy(selectedWarehouse = defaultWarehouse)
                         if (defaultWarehouse?.code != null) {
                             loadPendingCheckOrders()
-                            loadLocationOptions(force = true)
                         }
                     }
                     return@launch
@@ -1724,9 +1723,6 @@ class ScanViewModel(
                         selectedCheckOrder = check ?: CheckOrderDto(draft.checkId, "待核实 #${draft.checkId}"))
                 } else if (warehouse?.code != null) {
                     loadPendingCheckOrders()
-                }
-                if (warehouse?.code != null) {
-                    loadLocationOptions(force = true)
                 }
                 _uiState.value = _uiState.value.copy(success = if (draft.requestId == null)
                     "已恢复原仓库盘点清单，请核对后继续" else "已恢复待核实提交，请使用原请求核实结果")

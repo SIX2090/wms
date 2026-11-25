@@ -120,7 +120,7 @@ class StocktakeAuditFixTest {
     fun updateStocktakeAreaPreservesSpacesWhileTyping() {
         val model = keep(ScanViewModel(application))
         model.updateStocktakeArea("Rack A 01 ")
-        assertEquals("Rack A 01 ", model.uiState.value.stocktakeArea)
+        assertEquals("Rack A 01 ", model.uiState.value.selectedLocation)
     }
 
     @Test

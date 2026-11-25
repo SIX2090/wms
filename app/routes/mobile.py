@@ -728,11 +728,6 @@ def register_mobile_routes(app):
                 # FEATURE-2026-09-05-004：行级差异原因（可选），盘出差异时当场备注
                 reason = _clean_text(data.get('reason'))
                 if location_management_enabled() and not area:
-                    from app import get_default_location
-                    default_loc = get_default_location(warehouse.id)
-                    if default_loc:
-                        area = default_loc.code or default_loc.name or ''
-                if location_management_enabled() and not area:
                     return jsonify({'status': 'error', 'success': False,
                                     'msg': '库位管理已启用，请填写盘点库位/区域'}), 400
                 actual_raw = data.get('actual_stock')

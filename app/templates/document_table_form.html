@@ -948,11 +948,13 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
-    if (docType === 'check' && !data.header.warehouse_id) {
-        showToast('请选择仓库', 'warning');
+    if (docType === 'check') {
         const warehouseField = document.querySelector('[name="warehouse_id"]');
-        if (warehouseField && typeof warehouseField.focus === 'function') warehouseField.focus();
-        return;
+        if (warehouseField && !String(data.header.warehouse_id || warehouseField.value || '').trim()) {
+            showToast('请选择仓库', 'warning');
+            if (typeof warehouseField.focus === 'function') warehouseField.focus();
+            return;
+        }
     }
     if (docType === 'check' && data.order_id) {
         const warehouseField = document.querySelector('[name="warehouse_id"]');

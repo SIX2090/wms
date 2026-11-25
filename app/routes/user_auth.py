@@ -867,7 +867,7 @@ def register_user_auth_routes(app):
                 ('售后出库单', AfterSaleOutOrder.query.filter(AfterSaleOutOrder.operator_id.in_(ids)).count()),
                 ('工单领料单', ProductionRequisition.query.filter(ProductionRequisition.operator_id.in_(ids)).count()),
                 ('库存流水', StockTransaction.query.filter(StockTransaction.operator_id.in_(ids)).count()),
-                ('审计记录', OperationAudit.query.filter(OperationAudit.operator_id.in_(ids)).count()),
+                ('审计记录', OperationAudit.query.filter(OperationAudit.user_id.in_(ids)).count()),
             ]
             blocking_refs = [f'{label} {count} 条' for label, count in doc_refs if count > 0]
             if blocking_refs:

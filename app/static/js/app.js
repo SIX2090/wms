@@ -2469,6 +2469,10 @@ function exportCurrent(module) {
         window.open(buildModuleUrl(module.detailExportUrl, id), '_blank');
         return;
     }
+    if (!isWmsListPage(module) && !module.detailExportUrl) {
+        exportVisibleTable(module);
+        return;
+    }
     if (!openUrl(buildCurrentFilteredUrl(module.exportUrl), '_blank')) exportVisibleTable(module);
 }
 
@@ -3734,10 +3738,8 @@ function insertGlobalActionBar() {
         buttons = trimWmsActionbarDividers(buttons.filter(function(item) {
             // A read-only detail is not a save target; modal forms must not be submitted.
             if (item.key === 'save' && (!isFormPage() || document.querySelector('form.readonly-mask') || pageHasOwnButton(['保存', '保存草稿'], bar))) return false;
-            // New documents have no saved record for the generic delete/print/export actions.
+            // New documents have no saved record for the generic delete action.
             if (item.key === 'delete' && (/\/add\/?$/.test(window.location.pathname) || document.querySelector('form[data-wms-no-delete]'))) return false;
-            if (item.key === 'print' && /\/add\/?$/.test(window.location.pathname)) return false;
-            if (item.key === 'export' && (/\/add\/?$/.test(window.location.pathname) || !module.detailExportUrl)) return false;
             if (item.key === 'add' && /\/\d+\/?$/.test(window.location.pathname) && pageHasOwnButton(['再建一张', '新增'], bar)) return false;
             if (item.key === 'settings' && !module.printTemplateUrl && pageHasOwnListAction('settings', bar)) return false;
             return true;

@@ -5,7 +5,7 @@
 {% block body_class %}mobile-scan-page{% endblock %}
 
 {% block content %}
-<div class="mobile-scan-shell" data-mode="{{ mode }}" data-can-write="{{ '1' if can_write else '0' }}">
+<div class="mobile-scan-shell" data-mode="{{ mode }}" data-can-write="{{ '1' if can_write else '0' }}" data-location-enabled="{{ '1' if location_management_enabled else '0' }}">
     <nav class="mobile-scan-tabs" aria-label="扫码功能">
         <a class="mobile-scan-tab {% if mode == 'in' %}active{% endif %}" href="{{ url_for('mobile_scan', mode='in') }}">
             <i class="bi bi-box-arrow-in-down"></i>
@@ -291,7 +291,7 @@
 
     var mode = shell.dataset.mode || 'query';
     var canWrite = shell.dataset.canWrite === '1';
-    var locationManagementEnabled = {{ 'true' if location_management_enabled else 'false' }};
+    var locationManagementEnabled = shell.dataset.locationEnabled === '1';
     var scanCode = document.getElementById('scanCode');
     var lookupBtn = document.getElementById('lookupBtn');
     var scanStatus = document.getElementById('scanStatus');
@@ -777,11 +777,6 @@
         matchList.hidden = true;
         if (printLabelBtn) printLabelBtn.hidden = true;
     });
-    [quantityInput, warehouseInput, locationInput, scanAreaInput, scanReasonInput, targetInput, remarkInput].forEach(function(el) {
-        if (!el) return;
-        el.addEventListener('input', function() { pendingScanRequestId = null; });
-        el.addEventListener('change', function() { pendingScanRequestId = null; });
-    });
     lookupBtn.addEventListener('click', lookupMaterial);
     scanCode.addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
@@ -811,6 +806,12 @@
             .finally(function() {
                 if (printLabelBtn) printLabelBtn.disabled = false;
             });
+    });
+
+    [quantityInput, warehouseInput, locationInput, scanAreaInput, scanReasonInput, targetInput, remarkInput].forEach(function(el) {
+        if (!el) return;
+        el.addEventListener('input', function() { pendingScanRequestId = null; });
+        el.addEventListener('change', function() { pendingScanRequestId = null; });
     });
 
     // INV-BATCH-001-E：盘点必须先选电脑端建好的进行中盘点单（统一挂一张盘点单）。
@@ -947,13 +948,15 @@
         if ((scanCode.value || '').trim()) lookupMaterial();
     });
 
-    if (mode === 'check' && warehouseInput && canWrite) {
-        warehouseInput.addEventListener('change', function () {
-            lastCheckWh = null;
-            checkOrderSelect.value = '';
+    if (mode === 'check' && warehouseInput) {
+        if (typeof canWrite === 'undefined' || canWrite) {
+            warehouseInput.addEventListener('change', function () {
+                lastCheckWh = null;
+                checkOrderSelect.value = '';
+                loadCheckOrders((warehouseInput.value || '').trim());
+            });
             loadCheckOrders((warehouseInput.value || '').trim());
-        });
-        loadCheckOrders((warehouseInput.value || '').trim());
+        }
     }
 
     scanForm.addEventListener('submit', function(event) {

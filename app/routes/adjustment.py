@@ -418,9 +418,9 @@ def register_adjustment_routes(app):
                         operator_id=current_user.id,
                         date=date.today()
                     )
-                    db.session.add(adjustment)
 
             if replace_items and not items_data:
+                db.session.rollback()
                 return api_error('请至少填写一条调整明细')
 
             parsed_date = None
@@ -428,17 +428,20 @@ def register_adjustment_routes(app):
                 try:
                     parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                 except ValueError:
+                    db.session.rollback()
                     return api_error('日期格式不正确')
 
             if order_id and stocktake_adjustment_history(adjustment.id):
                 from app import resolve_inventory_warehouse_id
                 old_wh_id = resolve_inventory_warehouse_id(adjustment.warehouse)
                 if parsed_date is not None and adjustment.date and parsed_date != adjustment.date:
+                    db.session.rollback()
                     return api_error('该调整单已有历史过账/反提交流水，不能更改日期；如需修改请新建调整单')
                 if (old_wh_id is not None and old_wh_id != wh_obj.id) or (
                     old_wh_id is None and (adjustment.warehouse or '').strip()
                     and (adjustment.warehouse or '').strip() != warehouse
                 ):
+                    db.session.rollback()
                     return api_error('该调整单已有历史过账/反提交流水，不能更换仓库；如需修改请新建调整单')
 
             if parsed_date is not None:
@@ -500,16 +503,21 @@ def register_adjustment_routes(app):
                     if not material and material_code:
                         material = Material.query.filter_by(code=material_code).first()
                     if not material:
+                        db.session.rollback()
                         return api_error(f'物料不存在：{material_code or material_id}')
                     if (material.status or 'active') == 'inactive' and material.id not in existing_material_ids:
+                        db.session.rollback()
                         return api_error(f'物料 {material.code} 已停用，不能新增到调整单')
                     try:
                         quantity = round_to_2_decimals(item_data.get('quantity', 0))
                     except (TypeError, ValueError):
+                        db.session.rollback()
                         return api_error(f'物料 {material.code} 的数量必须是数字')
                     if quantity <= 0:
+                        db.session.rollback()
                         return api_error(f'物料 {material.code} 的数量必须大于0')
                     if quantity > 999999:
+                        db.session.rollback()
                         return api_error(f'物料 {material.code} 的数量超过合理范围（最大 999999）')
 
                     location = (item_data.get('location') or '').strip()
@@ -517,6 +525,7 @@ def register_adjustment_routes(app):
 
                     # P1-BUGFIX: 开启库位管理时 item 级 location 必填（AGENTS.md 规则二）
                     if use_location and not location:
+                        db.session.rollback()
                         return api_error(f'库位管理已启用，物料 {material.code} 请填写库位')
 
                     material_map[material.id] = material
@@ -529,8 +538,11 @@ def register_adjustment_routes(app):
 
                 stock_error = _check_loss_stock_totals(material_map, material_totals, location_totals)
                 if stock_error:
+                    db.session.rollback()
                     return api_error(stock_error)
 
+                if not order_id:
+                    db.session.add(adjustment)
                 db.session.flush()
                 # Clear existing items only after all line & stock validations pass.
                 AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment.id).delete()
@@ -554,12 +566,15 @@ def register_adjustment_routes(app):
                         continue
                     mat = item.material or db.session.get(Material, item.material_id)
                     if not mat:
+                        db.session.rollback()
                         return api_error(f'明细物料不存在：{item.material_id}')
                     loc = (item.location or '').strip()
                     if use_location and not loc:
+                        db.session.rollback()
                         return api_error(f'库位管理已启用，物料 {mat.code} 请填写库位')
                     abs_qty = round_to_2_decimals(abs(item.quantity or 0))
                     if abs_qty <= 0:
+                        db.session.rollback()
                         return api_error(f'物料 {mat.code} 的数量必须大于0')
                     material_map[mat.id] = mat
                     material_totals[mat.id] = round_to_2_decimals(
@@ -569,12 +584,15 @@ def register_adjustment_routes(app):
                             location_totals.get((mat.id, loc), 0) + abs_qty)
                 stock_error = _check_loss_stock_totals(material_map, material_totals, location_totals)
                 if stock_error:
+                    db.session.rollback()
                     return api_error(stock_error)
                 for item in adjustment.items:
                     if not item.material_id:
                         continue
                     abs_qty = round_to_2_decimals(abs(item.quantity or 0))
                     item.quantity = abs_qty if adjustment_type == 'surplus' else -abs_qty
+            elif not order_id:
+                db.session.add(adjustment)
 
             db.session.flush()
             stage_document_response({'status': 'success', 'msg': '保存成功', 'id': adjustment.id, 'adjustment_no': adjustment.adjustment_no})

@@ -24,6 +24,7 @@ from __future__ import annotations
 import io
 import os
 import sys
+import types
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,6 +32,8 @@ import pytest
 from flask import g
 from openpyxl import Workbook, load_workbook
 from werkzeug.security import generate_password_hash
+
+from tests.document_revision_client import document_post
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
@@ -63,6 +66,7 @@ def _release_app_ctx():
 
 
 def _reset():
+    g.pop("_system_setting_cache", None)
     db.session.remove()
     db.drop_all()
     db.create_all()
@@ -133,12 +137,9 @@ def _bearer(client, username, password="pw"):
 
 
 def _set_setting(key, value):
-    row = app_module.SystemSetting.query.filter_by(key=key).first()
-    if row:
-        row.value = value
-    else:
-        db.session.add(app_module.SystemSetting(key=key, value=value))
+    app_module.set_system_setting(key, value)
     db.session.commit()
+    g.pop("_system_setting_cache", None)
 
 
 def test_p0_1_header_only_adjustment_type_flip_updates_sign_and_checks_loss_stock():
@@ -162,7 +163,7 @@ def test_p0_1_header_only_adjustment_type_flip_updates_sign_and_checks_loss_stoc
     adj_id = r_create.get_json()["id"]
 
     # Header-only flip surplus -> loss must reject when warehouse stock (3) < loss qty (5)
-    r_bad = client.post("/adjustment/add", json={
+    r_bad = document_post(client, "/adjustment/add", json={
         "order_id": adj_id,
         "date": "2026-11-25",
         "adjustment_type": "loss",
@@ -180,7 +181,7 @@ def test_p0_1_header_only_adjustment_type_flip_updates_sign_and_checks_loss_stoc
     ))
     db.session.commit()
 
-    r_ok = client.post("/adjustment/add", json={
+    r_ok = document_post(client, "/adjustment/add", json={
         "order_id": adj_id,
         "date": "2026-11-25",
         "adjustment_type": "loss",
@@ -192,7 +193,7 @@ def test_p0_1_header_only_adjustment_type_flip_updates_sign_and_checks_loss_stoc
     assert adj.adjustment_type == "loss"
     assert adj.items[0].quantity == -5.0
 
-    r_done = client.post(f"/adjustment/{adj_id}/complete", json={})
+    r_done = document_post(client, f"/adjustment/{adj_id}/complete", json={})
     assert r_done.status_code == 200, r_done.get_data(as_text=True)
     db.session.expire_all()
     assert db.session.get(app_module.Material, mat.id).stock == 5.0
@@ -243,8 +244,10 @@ def test_p0_3_merge_material_duplicates_blocks_shared_check_and_pending_adjustme
     db.session.commit()
 
     with pytest.raises(ValueError, match="盘点单"):
-        app_module.merge_material_duplicates(m1.id, m2.id)
+        app_module.merge_material_duplicates(m1.id, m2.id, identity_confirmed=True)
 
+    for row in list(ck.items):
+        db.session.delete(row)
     db.session.delete(ck)
     adj = app_module.AdjustmentOrder(
         adjustment_no="ADJ-M1", adjustment_type="surplus", source_type="manual",
@@ -259,7 +262,7 @@ def test_p0_3_merge_material_duplicates_blocks_shared_check_and_pending_adjustme
     db.session.commit()
 
     with pytest.raises(ValueError, match="草稿库存调整单"):
-        app_module.merge_material_duplicates(m1.id, m2.id)
+        app_module.merge_material_duplicates(m1.id, m2.id, identity_confirmed=True)
 
 
 def test_p0_4_acquire_order_write_lock_runs_lock_when_native_request_not_atomic():
@@ -298,13 +301,13 @@ def test_p1_1_and_p1_2_reverted_adjustment_locks_date_warehouse_and_renamed_wh_r
     })
     assert r_create.status_code == 200
     adj_id = r_create.get_json()["id"]
-    assert client.post(f"/adjustment/{adj_id}/complete", json={}).status_code == 200
+    assert document_post(client, f"/adjustment/{adj_id}/complete", json={}).status_code == 200
 
     # Rename warehouse before reverting -> reversal transaction must retain wh1.id
     wh1.name = "新一仓"
     db.session.commit()
 
-    r_rev = client.post(f"/adjustment/{adj_id}/revert", json={})
+    r_rev = document_post(client, f"/adjustment/{adj_id}/revert", json={})
     assert r_rev.status_code == 200, r_rev.get_data(as_text=True)
     rev_txn = app_module.StockTransaction.query.filter_by(
         reference_type="adjustment", reference_id=adj_id, transaction_type="revert_adjustment_in"
@@ -312,7 +315,7 @@ def test_p1_1_and_p1_2_reverted_adjustment_locks_date_warehouse_and_renamed_wh_r
     assert rev_txn.warehouse_id == wh1.id
 
     # Reverted adjustment with history cannot change date or warehouse
-    r_date = client.post("/adjustment/add", json={
+    r_date = document_post(client, "/adjustment/add", json={
         "order_id": adj_id,
         "date": "2026-11-20",
         "adjustment_type": "surplus",
@@ -322,7 +325,7 @@ def test_p1_1_and_p1_2_reverted_adjustment_locks_date_warehouse_and_renamed_wh_r
     assert r_date.status_code == 400
     assert "不能更改日期" in (r_date.get_json().get("msg") or "")
 
-    r_wh = client.post("/adjustment/add", json={
+    r_wh = document_post(client, "/adjustment/add", json={
         "order_id": adj_id,
         "date": "2026-11-25",
         "adjustment_type": "surplus",
@@ -394,12 +397,13 @@ def test_p1_4_check_scan_adjustment_single_book_deduction_and_void_validation():
     db.session.flush()
     # Two pallets (40 + 70 = 110 vs book 100 => net +10 surplus, NOT 40-100 + 70-100 = -90)
     db.session.add_all([
-        app_module.InventoryCheckScanItem(check_id=scan.id, material_id=mat.id, area="A1", system_stock=100, actual_stock=40, difference=-60),
-        app_module.InventoryCheckScanItem(check_id=scan.id, material_id=mat.id, area="A2", system_stock=100, actual_stock=70, difference=-30),
+        app_module.InventoryCheckScanItem(check_scan_id=scan.id, material_id=mat.id, area="A1", system_stock=100, actual_stock=40, difference=-60),
+        app_module.InventoryCheckScanItem(check_scan_id=scan.id, material_id=mat.id, area="A2", system_stock=100, actual_stock=70, difference=-30),
     ])
     db.session.commit()
 
-    created = app_module._create_adjustment_drafts_from_check_scan(scan, operator_id=admin.id)
+    created, create_err = app_module._create_adjustment_drafts_from_check_scan(scan)
+    assert create_err is None, create_err
     db.session.commit()
     assert len(created) == 1
     adj = created[0]
@@ -408,31 +412,32 @@ def test_p1_4_check_scan_adjustment_single_book_deduction_and_void_validation():
     assert adj.items[0].quantity == 10.0
     assert adj.items[0].location == "A1"
 
-    assert validate_stocktake_adjustment(adj) is None
+    assert validate_stocktake_adjustment(adj, wh) is None
     scan.status = "void"
     db.session.commit()
-    assert "已作废" in (validate_stocktake_adjustment(adj) or "")
+    assert "已作废" in (validate_stocktake_adjustment(adj, wh) or "")
     scan.status = "completed"
     adj.warehouse = wh2.name
     db.session.commit()
-    assert "不一致" in (validate_stocktake_adjustment(adj) or "")
+    assert "不一致" in (validate_stocktake_adjustment(adj, wh2) or "")
 
 
 def test_p1_5_and_p1_6_warehouse_and_user_delete_blockers():
     _reset()
     admin = _seed_user("admin", "admin")
     staff = _seed_user("staff1", "warehouse")
+    staff.status = "disabled"
     wh = _seed_warehouse("W1", "一仓", is_default=True)
     ck = app_module.InventoryCheck(check_no="CK-BLK", warehouse=wh.name, status="pending", operator_id=staff.id)
     db.session.add(ck)
     db.session.commit()
 
     blockers = app_module._warehouse_delete_blockers(wh)
-    assert any("盘点单" in b for b in blockers)
+    assert any("盘点单" in label for label, _ in blockers)
 
     client = app_module.app.test_client()
     _login_web(client, admin)
-    r_del = client.post(f"/user/{staff.id}/delete")
+    r_del = client.post("/user/delete", json={"ids": [staff.id]})
     assert r_del.status_code == 400
     assert "盘点单" in (r_del.get_json().get("msg") or "")
 
@@ -509,7 +514,7 @@ def test_p1_8_location_management_requires_area_on_mobile_and_native_stocktake()
 
 def test_p1_9_and_p1_10_ai_check_draft_and_confirmed_draft_fixes():
     _reset()
-    from ai.agents.draft_check import DraftCheckAgent
+    from ai.agents.draft_check import draft_check_agent, format_draft_check_report
 
     admin = _seed_user("admin", "admin")
     wh1 = _seed_warehouse("W1", "默认仓", is_default=True)
@@ -571,25 +576,26 @@ def test_p1_9_and_p1_10_ai_check_draft_and_confirmed_draft_fixes():
         adj_reply, _ = app_module._ai_check_draft("adjustment", adj)
         assert "检查通过" in adj_reply
 
-    # DraftCheckAgent: multi-pallet check allowed & adjustment header reason not required
-    agent = DraftCheckAgent()
-    check_res = agent.check_draft("check", {
-        "warehouse": "项目二仓",
-        "items": [
-            {"material_code": "M1", "actual_stock": 3},
-            {"material_code": "M1", "actual_stock": 4},
+    # draft_check_agent: multi-pallet check allowed & adjustment header reason not required
+    fake_check = types.SimpleNamespace(
+        warehouse="项目二仓",
+        items=[
+            types.SimpleNamespace(material_id=1, actual_stock=3, has_actual_count=True),
+            types.SimpleNamespace(material_id=1, actual_stock=4, has_actual_count=True),
         ],
-    })
-    assert check_res.success
-    assert not any(i.code == "DUPLICATE_MATERIAL" for i in check_res.data["issues"])
+    )
+    check_run = draft_check_agent(admin.id, fake_check, order_type="check")
+    check_report = format_draft_check_report(check_run)
+    assert "检查通过" in check_report, check_report
 
-    adj_res = agent.check_draft("adjustment", {
-        "warehouse": "项目二仓",
-        "adjustment_type": "loss",
-        "items": [{"material_code": "M1", "quantity": -2}],
-    })
-    assert adj_res.success
-    assert not any(i.field == "reason" for i in adj_res.data["issues"])
+    fake_adj = types.SimpleNamespace(
+        warehouse="项目二仓",
+        adjustment_type="loss",
+        items=[types.SimpleNamespace(material_id=1, quantity=-2)],
+    )
+    adj_run = draft_check_agent(admin.id, fake_adj, order_type="adjustment")
+    adj_report = format_draft_check_report(adj_run)
+    assert "检查通过" in adj_report, adj_report
 
 
 def test_p2_1_p2_2_p2_3_p2_4_p2_9_p2_15_labels_meta_audit_and_templates():
@@ -651,8 +657,9 @@ def test_p2_1_p2_2_p2_3_p2_4_p2_9_p2_15_labels_meta_audit_and_templates():
     # Mobile in_out_detail returns Chinese transaction type label
     r_rpt = client.get(f"/api/mobile/report/in_out_detail?warehouse_id={wh.id}", headers=h)
     assert r_rpt.status_code == 200
-    txn_types = {row["transaction_type"] for row in r_rpt.get_json()["data"]["items"]}
-    assert "revert_adjustment_in" not in txn_types
+    labels = {row["transaction_type_label"] for row in r_rpt.get_json()["data"]["items"]}
+    assert "反提交盘盈调整" in labels
+    assert "revert_adjustment_in" not in labels
 
     # Web routes checks
     _login_web(client, admin)
@@ -666,7 +673,7 @@ def test_p2_1_p2_2_p2_3_p2_4_p2_9_p2_15_labels_meta_audit_and_templates():
     db.session.add(ck_del)
     db.session.commit()
     ck_del_id = ck_del.id
-    r_del = client.post(f"/check/{ck_del_id}/delete")
+    r_del = document_post(client, f"/check/{ck_del_id}/delete")
     assert r_del.status_code == 200
     assert app_module.OperationAudit.query.filter_by(operation="delete_check", target_id=ck_del_id).first() is not None
 
