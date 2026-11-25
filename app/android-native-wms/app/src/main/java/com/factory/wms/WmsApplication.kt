@@ -48,7 +48,8 @@ class WmsApplication : Application(), ImageLoaderFactory {
         }
         // P-01 / P-03（2026-11-24）：将启动期磁盘 IO 统一移入 Dispatchers.IO 后台预热，
         // 不阻塞主线程冷启动。
-        warmUpBackgroundServices()
+        warmUpOfflineQueue()
+        appScope.launch { cleanupStaleCameraCache() }
         // 异常信息仅保存在本机，由用户选择复制并反馈；启动时不自动上传。
     }
 
@@ -107,7 +108,7 @@ class WmsApplication : Application(), ImageLoaderFactory {
      * 3. 预热离线队列单例（触发 Room 后台打开、复位 syncing、注册网络监听）；
      * 4. 清理超过 24 小时的临时相机缓存文件。
      */
-    private fun warmUpBackgroundServices() {
+    private fun warmUpOfflineQueue() {
         appScope.launch {
             try {
                 runCatching { appUpdates.recover() }.onFailure {
@@ -125,7 +126,6 @@ class WmsApplication : Application(), ImageLoaderFactory {
             // 若有残留安装会话，beginInstall() 已持有门闩，syncPending() 会安全等待安装结束。
             runCatching { repository.offlineQueue?.syncPending() }
                 .onFailure { Log.w(TAG, "离线队列预热失败（不影响启动）: ${it.message}") }
-            cleanupStaleCameraCache()
         }
     }
 
