@@ -2,6 +2,7 @@
 {% from '_document_print_menu.html' import document_print_menu %}
 {% import '_list_macros.html' as list_macros %}
 {% block title %}库存盘点{% endblock %}
+{% block body_class %}{% if current_user.role not in ['admin', 'warehouse'] %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block content %}
 {% set can_edit = current_user.role in ['admin', 'warehouse'] %}
@@ -66,7 +67,7 @@
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
                 {% if filters.status or filters.search or filters.date_start or filters.date_end %}
-                <a href="/check{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                <a href="/check{% if filters.warehouse_id %}?warehouse_id={{ filters.warehouse_id }}{% if request.args.get('embedded') == '1' %}&embedded=1{% endif %}{% elif request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
         </form>
@@ -244,11 +245,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // 全选/反选
     const selectAll = document.getElementById('selectAll');
     if (selectAll) {
+        const syncSelectAll = function() {
+            const enabled = Array.from(document.querySelectorAll('.itemCheck')).filter(function(item) { return !item.disabled; });
+            const checkedCount = enabled.filter(function(item) { return item.checked; }).length;
+            selectAll.checked = enabled.length > 0 && checkedCount === enabled.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < enabled.length;
+        };
         selectAll.addEventListener('click', function() {
             const itemChecks = document.querySelectorAll('.itemCheck');
             itemChecks.forEach(function(item) {
                 if (!item.disabled) item.checked = selectAll.checked;
             });
+            selectAll.indeterminate = false;
+        });
+        document.querySelectorAll('.itemCheck').forEach(function(item) {
+            item.addEventListener('change', syncSelectAll);
         });
     }
 
@@ -256,22 +267,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const delBtns = document.querySelectorAll('.delBtn');
     delBtns.forEach(function(btn) {
         btn.addEventListener('click', async function() {
+            if (this.disabled) return;
             let id = this.getAttribute('data-id');
-            const confirmed = await showConfirm('确认删除该盘点单？', { title: '删除盘点单' });
-            if(!confirmed) return;
-            
-            WMS.api.postRaw('/check/'+id+'/delete')
-            .then(res => {
+            let navigating = false;
+            this.disabled = true;
+            try {
+                const confirmed = await showConfirm('确认删除该盘点单？', { title: '删除盘点单' });
+                if(!confirmed) return;
+
+                const res = await WMS.api.postRaw('/check/'+id+'/delete');
                 if(res.status == 'success') {
                     showToast('盘点单已删除，正在刷新列表…', 'success');
                     setTimeout(function(){ location.reload(); }, 650);
+                    navigating = true;
                 } else {
                     showToast(res.msg || '删除失败', 'danger', 3600);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 showToast('删除失败：' + error.message, 'danger', 3600);
-            });
+            } finally {
+                if (!navigating) this.disabled = false;
+            }
         });
     });
 
@@ -279,49 +295,59 @@ document.addEventListener('DOMContentLoaded', function() {
     const revertBtns = document.querySelectorAll('.revertBtn');
     revertBtns.forEach(function(btn) {
         btn.addEventListener('click', async function() {
+            if (this.disabled) return;
             let id = this.getAttribute('data-id');
-            const confirmed = await showConfirm('重新开放盘点录入？未过账的关联草稿会撤回，有过账历史的调整会保留。已入账的调整须先撤销库存调整。', { title: '撤销盘点完成' });
-            if(!confirmed) return;
+            let navigating = false;
+            this.disabled = true;
+            try {
+                const confirmed = await showConfirm('重新开放盘点录入？未过账的关联草稿会撤回，有过账历史的调整会保留。已入账的调整须先撤销库存调整。', { title: '撤销盘点完成' });
+                if(!confirmed) return;
 
-            WMS.api.postRaw('/check/'+id+'/revert')
-            .then(res => {
+                const res = await WMS.api.postRaw('/check/'+id+'/revert');
                 if(res.status == 'success') {
                     showToast(res.msg || '反提交成功', 'success');
                     setTimeout(function(){ location.reload(); }, 650);
+                    navigating = true;
                 } else {
                     showToast(res.msg || '反提交失败', 'danger', 3600);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 showToast('反提交失败：' + error.message, 'danger', 3600);
-            });
+            } finally {
+                if (!navigating) this.disabled = false;
+            }
         });
     });
 
     const batchDeleteBtn = document.getElementById('batchDeleteBtn');
     if (batchDeleteBtn) {
         batchDeleteBtn.addEventListener('click', async function() {
+            if (this.disabled) return;
             const checkedItems = document.querySelectorAll('.itemCheck:checked');
             let ids = Array.from(checkedItems).map(function(item) { return item.value; });
             if(ids.length == 0){
                 showToast('请先选择要删除的盘点单', 'warning');
                 return;
             }
-            const confirmed = await showConfirm('确认删除选中的 '+ids.length+' 个盘点单？', { title: '批量删除盘点单' });
-            if(!confirmed) return;
-            
-            WMS.api.postRaw('/check/batch_delete', {ids: ids})
-            .then(res => {
+            let navigating = false;
+            this.disabled = true;
+            try {
+                const confirmed = await showConfirm('确认删除选中的 '+ids.length+' 个盘点单？', { title: '批量删除盘点单' });
+                if(!confirmed) return;
+
+                const res = await WMS.api.postRaw('/check/batch_delete', {ids: ids});
                 if(res.status == 'success'){
                     showToast(res.msg || '盘点单删除成功，正在刷新列表…', 'success');
                     setTimeout(function(){ location.reload(); }, 650);
+                    navigating = true;
                 } else {
                     showToast(res.msg || '删除失败', 'danger', 3600);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 showToast('删除失败：' + error.message, 'danger', 3600);
-            });
+            } finally {
+                if (!navigating) this.disabled = false;
+            }
         });
     }
 
@@ -329,22 +355,27 @@ document.addEventListener('DOMContentLoaded', function() {
     const copyBtns = document.querySelectorAll('.copyBtn');
     copyBtns.forEach(function(btn) {
         btn.addEventListener('click', async function() {
+            if (this.disabled) return;
             let id = this.getAttribute('data-id');
-            const confirmed = await showConfirm('确认复制该盘点单？', { title: '复制盘点单' });
-            if(!confirmed) return;
-            
-            WMS.api.postRaw('/check/'+id+'/copy')
-            .then(res => {
+            let navigating = false;
+            this.disabled = true;
+            try {
+                const confirmed = await showConfirm('确认复制该盘点单？', { title: '复制盘点单' });
+                if(!confirmed) return;
+
+                const res = await WMS.api.postRaw('/check/'+id+'/copy');
                 if(res.status == 'success'){
                     showToast('盘点单已复制，正在刷新列表…', 'success');
                     setTimeout(function(){ location.reload(); }, 650);
+                    navigating = true;
                 } else {
                     showToast(res.msg || '复制失败', 'danger', 3600);
                 }
-            })
-            .catch(error => {
+            } catch (error) {
                 showToast('复制失败：' + error.message, 'danger', 3600);
-            });
+            } finally {
+                if (!navigating) this.disabled = false;
+            }
         });
     });
 
@@ -387,6 +418,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const submitButton = this.querySelector('button[type="submit"]');
             if (submitButton.disabled) return;
             const formData = new FormData(this);
+            if (typeof formData.get === 'function' && formData.get('scope') === 'category' && !String(formData.get('category_id') || '').trim()) {
+                showToast('请从下拉列表选择盘点分类', 'warning');
+                return;
+            }
             submitButton.disabled = true;
 
             WMS.api.postRaw('{{ url_for("add_check") }}', formData)

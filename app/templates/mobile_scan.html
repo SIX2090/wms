@@ -170,10 +170,10 @@
             {% endif %}
 
             {% if mode == 'check' %}
-            {# 盘点区域（可选）：物料分多处时按"物料+区域"分行记录，汇总自动合计 #}
+            {# 盘点区域：开启库位管理时必填；未开启时可选，用于同一物料按多处分行记录 #}
             <div class="mobile-scan-field">
-                <label class="mobile-scan-label" for="scanAreaInput">盘点区域/货架（可选）</label>
-                <input id="scanAreaInput" class="form-control" type="text" autocomplete="off" placeholder="如 A1 / 原料区；同一物料多处各填一次">
+                <label class="mobile-scan-label" for="scanAreaInput">{% if location_management_enabled %}盘点库位/区域（必填）{% else %}盘点区域/货架（可选）{% endif %}</label>
+                <input id="scanAreaInput" class="form-control" type="text" autocomplete="off" {% if location_management_enabled %}required{% endif %} placeholder="如 A1 / 原料区；同一物料多处各填一次">
             </div>
             {# FEATURE-2026-09-05-004：行级差异原因，盘出差异时当场备注 #}
             <div class="mobile-scan-field">
@@ -291,6 +291,7 @@
 
     var mode = shell.dataset.mode || 'query';
     var canWrite = shell.dataset.canWrite === '1';
+    var locationManagementEnabled = {{ 'true' if location_management_enabled else 'false' }};
     var scanCode = document.getElementById('scanCode');
     var lookupBtn = document.getElementById('lookupBtn');
     var scanStatus = document.getElementById('scanStatus');
@@ -769,11 +770,17 @@
     }
 
     scanCode.addEventListener('input', function() {
+        pendingScanRequestId = null;
         lookupVersion++;
         selectedMaterial = null;
         materialCard.hidden = true;
         matchList.hidden = true;
         if (printLabelBtn) printLabelBtn.hidden = true;
+    });
+    [quantityInput, warehouseInput, locationInput, scanAreaInput, scanReasonInput, targetInput, remarkInput].forEach(function(el) {
+        if (!el) return;
+        el.addEventListener('input', function() { pendingScanRequestId = null; });
+        el.addEventListener('change', function() { pendingScanRequestId = null; });
     });
     lookupBtn.addEventListener('click', lookupMaterial);
     scanCode.addEventListener('keydown', function(event) {
@@ -924,10 +931,14 @@
     }
 
     if (mode === 'check' && checkOrderSelect) {
-        checkOrderSelect.addEventListener('change', refreshCheckProgress);
+        checkOrderSelect.addEventListener('change', function() {
+            pendingScanRequestId = null;
+            refreshCheckProgress();
+        });
     }
 
     if (warehouseInput) warehouseInput.addEventListener('change', function () {
+        pendingScanRequestId = null;
         lookupVersion++;
         selectedMaterial = null;
         materialCard.hidden = true;
@@ -936,7 +947,7 @@
         if ((scanCode.value || '').trim()) lookupMaterial();
     });
 
-    if (mode === 'check' && warehouseInput) {
+    if (mode === 'check' && warehouseInput && canWrite) {
         warehouseInput.addEventListener('change', function () {
             lastCheckWh = null;
             checkOrderSelect.value = '';
@@ -976,6 +987,11 @@
                     setStatus(checkOrderTip && !checkOrderTip.classList.contains('d-none')
                         ? '该仓库暂无进行中的盘点单，请先在电脑端「盘点管理」创建'
                         : '请选择盘点单', 'error');
+                    return;
+                }
+                if (locationManagementEnabled && scanAreaInput && !(scanAreaInput.value || '').trim()) {
+                    setStatus('库位管理已启用，请填写盘点库位/区域', 'error');
+                    scanAreaInput.focus();
                     return;
                 }
             }

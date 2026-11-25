@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}{{ page_title or '库存调整单' }}{% endblock %}
+{% block body_class %}{% if current_user.role not in ['admin', 'warehouse'] %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block extra_css %}
 <style>
@@ -306,7 +307,7 @@
                         <select class="form-select" name="warehouse_id" {% if readonly %}disabled{% endif %} required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.id }}" {% if (adjustment and adjustment.warehouse == warehouse.name) or (not adjustment and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if (adjustment and ((adjustment_warehouse_id is defined and adjustment_warehouse_id == warehouse.id) or adjustment.warehouse == warehouse.name)) or (not adjustment and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -527,6 +528,7 @@ function copyRowAfter(row) {
     if (row.nextElementSibling) {
         document.getElementById('adjustmentTableBody').insertBefore(target, row.nextElementSibling);
     }
+    renumberRows();
     target.dataset.materialId = row.dataset.materialId || '';
     target.querySelector('.material-code').value = row.querySelector('.material-code').value;
     target.querySelector('.material-name').value = row.querySelector('.material-name').value;
@@ -714,8 +716,8 @@ function submitForm(completeAfterSave) {
             items: result.items
         };
 
-        const saveBtn = document.querySelector('.footer-bar .btn-primary');
-        if (saveBtn) saveBtn.disabled = true;
+        const actionBtns = Array.from(document.querySelectorAll('button[data-document-action="submitAdjustment"], button[data-document-action="completeAdjustment"]'));
+        actionBtns.forEach(function(btn) { btn.disabled = true; });
         return WMS.api.postRaw('/adjustment/add', data)
         .then(function(res) {
             if (res.status !== 'success') {
@@ -754,7 +756,9 @@ function submitForm(completeAfterSave) {
             }
         })
         .finally(function() {
-            if (saveBtn) saveBtn.disabled = false;
+            if (!submitForm.savedId) {
+                actionBtns.forEach(function(btn) { btn.disabled = false; });
+            }
         });
     }).finally(submitForm.keepSavedLocked);
 }
@@ -915,16 +919,24 @@ document.addEventListener('click', function(e) {
     }
 });
 
-async function revertAdjustment() {
-    if (!(await showConfirm(adjustmentConfirmation(true), {title:'撤销库存调整', okText:'确认冲回'}))) return;
-    try {
-        await WMS.api.post('/adjustment/' + {{ order_id|tojson }} + '/revert', {});
-        location.reload();
-    } catch (error) { showToast(error.message || '反提交失败', 'danger'); }
+function revertAdjustment() {
+    return WMS.runDocumentAction('revertAdjustment', async function() {
+        if (!(await showConfirm(adjustmentConfirmation(true), {title:'撤销库存调整', okText:'确认冲回'}))) return;
+        try {
+            await WMS.api.post('/adjustment/' + {{ order_id|tojson }} + '/revert', {});
+            location.reload();
+        } catch (error) { showToast(error.message || '反提交失败', 'danger'); }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
     WMS.materialCache.bindWarehouse(materials);
+    if (!readonly && !document.querySelector('[name="order_id"]').value) {
+        const defaultWh = WMS.materialCache.warehouseFromForm();
+        if (defaultWh) {
+            WMS.materialCache.refresh(materials, defaultWh).catch(function() {});
+        }
+    }
     existingItems.forEach(function(item) {
         createRow(item);
     });

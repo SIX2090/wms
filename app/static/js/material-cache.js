@@ -35,9 +35,30 @@
                 });
                 if (page >= pages) break;
             }
+            // Preserve already-referenced draft materials (e.g. recently deactivated items)
+            // so existing rows remain savable after a cache refresh.
+            var preserved = [];
+            if (typeof document !== 'undefined' && typeof document.querySelectorAll === 'function') {
+                var usedCodes = new Set();
+                document.querySelectorAll('.material-code').forEach(function(input) {
+                    var code = String(input.value || '').trim().toLowerCase();
+                    if (code) usedCodes.add(code);
+                });
+                if (usedCodes.size) {
+                    target.forEach(function(material) {
+                        if (!material || material.id == null) return;
+                        var codeKey = String(material.code || '').trim().toLowerCase();
+                        if (usedCodes.has(codeKey) && !seen.has(String(material.id))) {
+                            seen.add(String(material.id));
+                            preserved.push(material);
+                        }
+                    });
+                }
+            }
             // Commit only a complete latest result, keeping the array identity used by the page.
             target.length = 0;
             found.forEach(function(material) { target.push(material); });
+            preserved.forEach(function(material) { target.push(material); });
             return true;
         } catch (error) {
             if (current()) throw error;
@@ -60,7 +81,10 @@
         if (field.dataset) field.dataset.stockScopeBound = 'true';
         field.addEventListener('change', async function() {
             var warehouse = warehouseFromForm();
-            if (!warehouse) return;
+            if (!warehouse) {
+                document.querySelectorAll('.material-stock').forEach(function(input) { input.value = ''; });
+                return;
+            }
             document.querySelectorAll('.material-stock').forEach(function(input) { input.value = ''; });
             try {
                 if (!await refresh(target, warehouse)) return;
@@ -80,6 +104,10 @@
                         if (difference && actual && system) difference.value = actual.value === '' ? '' : (Number(actual.value) - Number(system.value)).toFixed(2);
                     }
                 });
+                if (typeof global.updateCheckTotals === 'function' && typeof document.querySelectorAll === 'function') {
+                    var checkRows = document.querySelectorAll('#docTableBody tr');
+                    if (checkRows && checkRows.length) global.updateCheckTotals(checkRows);
+                }
             } catch (error) {
                 if (typeof global.showToast === 'function') global.showToast('仓库库存刷新失败，请重试：' + error.message, 'danger');
             }

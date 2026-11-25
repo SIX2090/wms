@@ -3539,3 +3539,27 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：排查全部 `enterBusiness()`/`awaitAndEnterBusiness()` 调用点、`AuthUiState` 构造点、`AppNavGraph` 路由与测试消费者、R8 `proguard-rules.pro` 保留规则及后端 `/api/mobile/location/options` 响应字段。
 - 回归：新增 `AuditBatch1ColdStartAndSyncVmTest` 与 `AuditBatch2FixesAndCoverageTest`，覆盖冷启动零建库、Android 默认工厂及真实 `AppNavGraph` 登录/免闪屏恢复、残留安装会话与离线补传竞态、启动窗口延迟广播补派发、跨账号 `busy` 隔离、52 页库位拉取与增长报错、`StocktakeRecordViewModel`、`CrashReporter`、`NetworkMonitor` 及 URL/语音降级；Python 静态 Android 契约与规则门禁全通过。
 - 生效确认：仅涉及 Android 客户端与测试，生产 WMS 服务端无需重启；待目标 SHA 全部 CI 工作流绿灯并发布 APK `3.9.48 (72)` 后由现场真机实测验收。
+
+### BUG-2026-11-25-004: 盘点单与库存调整单后端三账、并发写锁及引用完整性缺陷
+
+- 根因：调整单仅改表头切换盘盈/盘亏时未同步已有明细符号与库存校验；`save_check_table` 缺少对负/非数值实盘数量的后端兜底校验；`merge_material_duplicates` 未拦截两物料同处盘点单或草稿调整单的合并；`_acquire_order_write_lock` 将 `g.native_request` 存在误判为外部已持写锁，导致 `/api/stocktake` 跳过 `BEGIN IMMEDIATE` 与 `populate_existing`；反提交调整单仍可改日期或换仓，仓库更名后普通反提交回退到 `warehouse_id=NULL`；调整单保存未按物料/库位聚合多行盘亏库存；`_create_adjustment_drafts_from_check_scan` 重复扣减账面且未填库位，且 `validate_stocktake_adjustment` 未校验 `check_scan` 来源；仓库和用户删除未拦截盘点/扫码/调整引用；`_outbound_txn_condition` 将负向反冲流水误算作出库；盘点删单缺 `OperationAudit`、删明细未清 `batch_item_id`/`frozen_at`、导入全错行遗留空盘点单、新增行未拦截停用物料。
+- 修复：同步表头切换盘盈/盘亏后的明细符号并聚合校验总仓与库位库存；`save_check_table` 接入 `StockDocumentItemInput` 校验并在新建成功时输出 `X-WMS-Document-Revision`；`merge_material_duplicates` 拦截共处盘点/草稿调整单；`_acquire_order_write_lock` 仅在 `native_state.get('atomic')` 为真时委托外部事务；有历史流水的反提交调整单禁止改日期/换仓，普通反提交优先回写原有效流水仓库 ID；修复 `_create_adjustment_drafts_from_check_scan` 与 `validate_stocktake_adjustment`；仓库/用户删除补齐盘点/扫码/调整引用检查；`_outbound_txn_condition` 排除 `_REVERSAL_TXN_TYPES`；补齐删盘点 `OperationAudit`、删明细清理与导入空单清除、停用物料拦截及中文状态/流水标签。
+- 同类点已排查：排查全部盘点/调整/扫码写入口、仓库与用户删除拦截表、出入库报表反冲口径及 `REPORT_REFERENCE_LINKS`。
+- 回归：新增 `tests/test_stocktake_adjustment_audit_fixes_20261125.py` 覆盖上述全部 P0/P1/P2 后端路径；本地受 Antigravity 隐藏桌面限制无法运行 Windows LPAC AppContainer pytest，未绕过 `verify_db_guard.py`，完整隔离 Flask/SQLAlchemy 回归由官方 Linux Docker CI（`WMS CI` / `WMS AI Verification`）验收。
+- 生效确认：待确认（同批涉及模板改动，生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-25-005: 手机端（H5/Android）与 AI 助手盘点/调整库位校验、作废归属及草稿创建缺陷（Android 3.9.48→3.9.49）
+
+- 根因：扫码盘点作废仅验角色未验盘点人归属，不同仓管员可互撤记录；库位管理开启时 H5/Native 盘点及 Android 未强制填写库位，且 `ScanViewModel.loadLocationOptions` 仅凭 `stocktakeRestoreStarted` 门控导致未恢复草稿时不拉库位；`ScanViewModel.updateStocktakeArea` 输入中即时 `trim()` 吞空格，草稿落盘失败未回滚 `pendingSubmissionId`；`StocktakeRecordViewModel` 分页未去重且详情行 key 可能碰撞；`mobile_scan.html` 修改表单不重置 `pendingScanRequestId`、只读账号仍请求盘点单列表；`/api/mobile/stocktake/list` 忽略 `warehouse_id` 且多张调整单状态判定不完整；`_ai_check_draft`、`_ai_create_check_draft`、`_ai_create_adjustment_draft`、`_ai_create_confirmed_document_draft` 与 `DraftCheckAgent` 在字段校验、`frozen_at`、确认台非默认仓及特殊物料编码解析上存在错判或丢失。
+- 修复：`_void_check_scan` 强制校验管理员或原盘点人（跨人返回 403）、过滤 `status != 'void'` 并清理 `batch_item_id`；H5/Native 盘点开启库位时强制库位或回退默认库位，补写 `OperationLog`、捕获锁冲突 409、修复 `warehouse_id` 筛选与部分待提交调整状态、统一使用中文流水类型标签并在语音意图前执行 `login_user`；Android（`3.9.49 / 73`）支持 `loadLocationOptions(force = true)`、保留输入空格、回滚失败的 `pendingSubmissionId` 并对盘点记录分页去重；修复 AI 盘点/调整草稿检查与确认台创建。
+- 同类点已排查：排查 H5 `mobile.py`/`mobile_scan.html`、原生 `native_api.py`、Android `ScanViewModel`/`StocktakeRecordViewModel` 及 AI 确认台草稿全链路。
+- 回归：新增 Kotlin 单元测试 `StocktakeAuditFixTest.kt`（由 `Android APK Build` 实跑）与 `tests/test_stocktake_adjustment_audit_fixes_20261125.py` 相关用例。
+- 生效确认：待确认（服务端涉及模板改动需重启 WMS 服务生效；Android 端待 CI 发布 `3.9.49 (73)` 后真机安装验收）。
+
+### BUG-2026-11-25-006: 盘点单与库存调整单网页表单、工具栏、打印及导入模板缺陷
+
+- 根因：盘点表头为 14 列而 `tfoot` 合并列错位且 `app.js` 列重排会对含 `colspan` 的汇总行移位；详情排序未将盘点四列识别为数值；`app.js` 全局栏在 `/check/add` 点打印误开库存报表、在 `/adjustment/<id>` 点导出触发缺 `warehouse_id` 列表导出、`deleteCurrent`/`openAdd` 丢失 `embedded=1`；`material-cache.js` 刷新覆盖草稿已有停用物料且未清零空仓库存或同步盘点多行净差异；`quick-select.js` 手工改写分类文本不清空隐藏 ID；盘点/调整列表及表单存在缺防重点击、非写角色仍注入全局栏、清除筛选丢仓库、调整新增页不加载默认仓库存、首行无原因未回退单头备注、导入忽略 `warnings`、调整打印显示伪造 `金额合计：0.00` 及英文来源码、盘点打印与导入模板缺仓库/库位列等问题。
+- 修复：修正 `document_table_form.html` `tfoot` 列对齐、必填仓库校验、保存后同步 `savedWarehouseId` 与 `document-revision` 前缀及复制行重算；修正 `app.js` `tfoot[colspan]` 重排保护、盘点数值排序、嵌入参数保留及新增/详情页全局打印/导出按钮过滤；强化 `material-cache.js` 草稿物料保留与多行净差异刷新及 `quick-select.js` 隐藏 ID 清理；补齐 `check.html`/`adjustment.html`/`adjustment_add.html` 防重、角色隐藏全局栏、筛选保留仓库、默认仓库存加载与导入警告提示；修正调整单打印、盘点打印、Excel 打印列及 `/export/template/check`。
+- 同类点已排查：核对全仓共享 `document_table_form.html`、`app.js`、`material-cache.js`、`quick-select.js` 及全部既有 Node VM 契约测试消费点。
+- 回归：本地执行 Node.js 真实 VM 测试及 Jinja2/语法/A9/A11/防裸 fetch 门禁全通过，并随完整 CI 套件回归验证。
+- 生效确认：待确认（涉及多处模板与静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。

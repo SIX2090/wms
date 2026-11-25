@@ -451,6 +451,11 @@
             scheduleSearch();   // 拼音上屏后再按最终文本检索一次
         });
         input.addEventListener('input', function () {
+            var idSel = input.getAttribute('data-ks-id');
+            if (idSel) {
+                var hid = document.querySelector(idSel);
+                if (hid) hid.value = '';
+            }
             invalidate();
             if (composing) return;   // 组合态下按临时拼音串检索只会抖动候选
             scheduleSearch();

@@ -79,7 +79,7 @@ DOC_EXCEL_PRINT_TYPES = {
                     ('物料名称', 'material.name', 20), ('规格', 'material.spec', 14),
                     ('单位', 'material.unit.name', 6), ('账面库存', 'system_stock', 10),
                     ('本行实盘', 'actual_stock', 10), ('物料实盘合计', 'count_total', 12), ('物料净差异', 'difference', 10),
-                    ('差异原因', 'reason', 16)],
+                    ('差异原因', 'reason', 16), ('库位/区域', 'area', 12)],
         'totals': (),
     },
     'transfer': {

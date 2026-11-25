@@ -8,6 +8,7 @@
 {% endfor -%}
 {%- endmacro %}
 {% block title %}库存调整{% endblock %}
+{% block body_class %}{% if current_user.role not in ['admin', 'warehouse'] %}wms-no-global-actionbar{% endif %}{% endblock %}
 
 {% block content %}
 {% set can_edit = current_user.role in ['admin','warehouse'] %}
@@ -79,7 +80,7 @@
             <div class="col-md-2 d-flex gap-2">
                 <button type="submit" class="btn btn-primary btn-sm flex-fill"><i class="bi bi-search"></i> 筛选</button>
                 {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.adjustment_type %}
-                <a href="/adjustment{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
+                <a href="/adjustment{% if filters.warehouse_id %}?warehouse_id={{ filters.warehouse_id }}{% if request.args.get('embedded') == '1' %}&embedded=1{% endif %}{% elif request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
                 {% endif %}
             </div>
         </form>
@@ -131,7 +132,7 @@
                         </td>
                         <td class="text-end">{{ "%.2f"|format(total_quantity if total_quantity >= 0 else -total_quantity) }}</td>
                         <td class="text-end">{{ adjustment.items|length }}</td>
-                        <td>{{ first_item.reason if first_item else (adjustment.remark or '') }}</td>
+                        <td>{{ first_item.reason if (first_item and first_item.reason) else (adjustment.remark or '') }}</td>
                         <td>{{ adjustment.operator.username if adjustment.operator else '-' }}</td>
                         <td>
                             {% if adjustment.status == 'pending' %}
@@ -199,37 +200,63 @@ document.querySelectorAll('.sortable-header').forEach(function(th) {
 
 document.querySelectorAll('.completeBtn').forEach(function(btn) {
     btn.addEventListener('click', async function() {
-        const id = this.dataset.id;
-        const confirmed = await showConfirm(this.dataset.summary, {title: '确认调整库存', okText: '确认入账'});
-        if (!confirmed) return;
-        WMS.api.postRaw('/adjustment/' + id + '/complete')
-        .then(res => {
+        const button = this;
+        if (button.disabled || button.dataset.actionPending === '1') return;
+        const id = button.dataset.id;
+        const wasDisabled = button.disabled;
+        let navigating = false;
+        button.dataset.actionPending = '1';
+        button.disabled = true;
+        try {
+            const confirmed = await showConfirm(button.dataset.summary, {title: '确认调整库存', okText: '确认入账'});
+            if (!confirmed) return;
+            const res = await WMS.api.postRaw('/adjustment/' + id + '/complete');
             if (res.status === 'success') {
                 showToast(res.msg || '调整完成', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
+                navigating = true;
             } else {
                 showToast(res.msg || '操作失败', 'danger', 3600);
             }
-        })
-        .catch(err => showToast('操作失败：' + err.message, 'danger', 3600));
+        } catch (err) {
+            showToast('操作失败：' + err.message, 'danger', 3600);
+        } finally {
+            if (!navigating) {
+                delete button.dataset.actionPending;
+                button.disabled = wasDisabled;
+            }
+        }
     });
 });
 
 document.querySelectorAll('.delBtn').forEach(function(btn) {
     btn.addEventListener('click', async function() {
-        const id = this.dataset.id;
-        const confirmed = await showConfirm('确认删除该库存调整单？', {title: '删除库存调整单'});
-        if (!confirmed) return;
-        WMS.api.postRaw('/adjustment/' + id + '/delete')
-        .then(res => {
+        const button = this;
+        if (button.disabled || button.dataset.actionPending === '1') return;
+        const id = button.dataset.id;
+        const wasDisabled = button.disabled;
+        let navigating = false;
+        button.dataset.actionPending = '1';
+        button.disabled = true;
+        try {
+            const confirmed = await showConfirm('确认删除该库存调整单？', {title: '删除库存调整单'});
+            if (!confirmed) return;
+            const res = await WMS.api.postRaw('/adjustment/' + id + '/delete');
             if (res.status === 'success') {
                 showToast('删除成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
+                navigating = true;
             } else {
                 showToast(res.msg || '删除失败', 'danger', 3600);
             }
-        })
-        .catch(err => showToast('删除失败：' + err.message, 'danger', 3600));
+        } catch (err) {
+            showToast('删除失败：' + err.message, 'danger', 3600);
+        } finally {
+            if (!navigating) {
+                delete button.dataset.actionPending;
+                button.disabled = wasDisabled;
+            }
+        }
     });
 });
 
@@ -264,25 +291,36 @@ document.querySelectorAll('.revertBtn').forEach(function(btn) {
     });
 });
 
-function batchAdjustmentDelete() {
+async function batchAdjustmentDelete() {
+    if (batchAdjustmentDelete.pending) return;
     const ids = Array.from(document.querySelectorAll('#adjustmentTable .check-item:checked')).map(function(cb) { return cb.value; });
     if (!ids.length) {
         showToast('请选择要删除的库存调整单', 'warning');
         return;
     }
-    showConfirm('确认删除选中的库存调整单？已撤回单据的库存流水会保留。', {title: '批量删除库存调整单'}).then(function(confirmed) {
+    const triggerBtn = document.querySelector('button[onclick="batchAdjustmentDelete()"]');
+    let navigating = false;
+    batchAdjustmentDelete.pending = true;
+    if (triggerBtn) triggerBtn.disabled = true;
+    try {
+        const confirmed = await showConfirm('确认删除选中的库存调整单？已撤回单据的库存流水会保留。', {title: '批量删除库存调整单'});
         if (!confirmed) return;
-        WMS.api.postRaw('/adjustment/batch_delete', {ids: ids})
-        .then(function(res) {
-            if (res.status === 'success') {
-                showToast(res.msg || '删除成功', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast(res.msg || '删除失败', 'danger', 5000);
-            }
-        })
-        .catch(function(err) { showToast('删除失败：' + err.message, 'danger', 5000); });
-    });
+        const res = await WMS.api.postRaw('/adjustment/batch_delete', {ids: ids});
+        if (res.status === 'success') {
+            showToast(res.msg || '删除成功', 'success');
+            setTimeout(function(){ location.reload(); }, 650);
+            navigating = true;
+        } else {
+            showToast(res.msg || '删除失败', 'danger', 5000);
+        }
+    } catch (err) {
+        showToast('删除失败：' + err.message, 'danger', 5000);
+    } finally {
+        if (!navigating) {
+            batchAdjustmentDelete.pending = false;
+            if (triggerBtn) triggerBtn.disabled = false;
+        }
+    }
 }
 
 async function submitDocumentImport(formId, fileId) {
@@ -305,6 +343,11 @@ async function submitDocumentImport(formId, fileId) {
         .then(function(res) {
             if (res.status === 'success') {
                 refreshing = true;
+                if (res.warnings) {
+                    return showConfirm((res.msg || '导入成功') + '\n' + res.warnings, {
+                        title: '调整单导入结果', okText: '知道了', cancelText: '关闭'
+                    }).then(function() { location.reload(); });
+                }
                 showToast(res.msg || '导入成功', 'success', 3600);
                 setTimeout(function(){ location.reload(); }, 900);
             } else {

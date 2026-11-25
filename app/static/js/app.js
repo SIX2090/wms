@@ -1194,6 +1194,7 @@ function setupDynamicDetailColumnControls(config) {
         const savedOrder = readOrder();
         reorderRow(headerRow, savedOrder);
         table.querySelectorAll('tbody tr, tfoot tr').forEach(function(row) {
+            if (row.closest('tfoot') && row.querySelector('[colspan]')) return;
             reorderRow(row, savedOrder);
         });
         syncFooterLabel();
@@ -1861,6 +1862,7 @@ const WMS_ACTION_MODULES = {
         tableId: 'adjustmentTable',
         deleteUrl: '/adjustment/batch_delete',
         detailDeleteUrl: '/adjustment/{id}/delete',
+        detailPrintUrl: '/adjustment/{id}/print_options',
         exportUrl: '/adjustment/export',
         importUrl: '/adjustment/import',
         templateUrl: '/export/template/adjustment'
@@ -2154,7 +2156,7 @@ function openAdd(module) {
         openUrl(preserveEmbeddedUrl(module.addUrl + '?type=' + addTypes[businessType]));
         return;
     }
-    openUrl(module.addUrl || module.listUrl);
+    openUrl(typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(module.addUrl || module.listUrl) : (module.addUrl || module.listUrl));
 }
 
 // BUG-2026-10-24-015: a toast is lost on navigation after a saved document fails to complete.
@@ -2289,7 +2291,8 @@ async function deleteCurrent(module) {
     }
     // Preserve the exact confirmed target even if the page changes its selection/module.
     var target = { deleteUrl: module.deleteUrl, detailDeleteUrl: module.detailDeleteUrl };
-    var listUrl = module.listUrl || window.location.pathname;
+    var rawListUrl = module.listUrl || window.location.pathname;
+    var listUrl = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(rawListUrl) : rawListUrl;
     return runWmsDeleteAction(async function(navigate) {
         var confirmed = await showConfirm('确定删除选中的 ' + ids.length + ' 条记录吗？', { title: '删除确认' });
         if (!confirmed) return;
@@ -2313,7 +2316,7 @@ function printCurrent(module) {
         window.open(buildModuleUrl(module.detailPrintUrl, id), '_blank');
         return;
     }
-    if (module.printListUrl) {
+    if (module.printListUrl && !/\/add\/?$/.test(window.location.pathname)) {
         // BUG-2026-10-20-003：显式区分列表清单与已发生统计，不丢当前筛选。
         if (module.key === 'in_order' || module.key === 'out_order') {
             var listPrint = new URL(module.printListUrl, window.location.origin);
@@ -3731,8 +3734,10 @@ function insertGlobalActionBar() {
         buttons = trimWmsActionbarDividers(buttons.filter(function(item) {
             // A read-only detail is not a save target; modal forms must not be submitted.
             if (item.key === 'save' && (!isFormPage() || document.querySelector('form.readonly-mask') || pageHasOwnButton(['保存', '保存草稿'], bar))) return false;
-            // New documents have no saved record for the generic delete action.
+            // New documents have no saved record for the generic delete/print/export actions.
             if (item.key === 'delete' && (/\/add\/?$/.test(window.location.pathname) || document.querySelector('form[data-wms-no-delete]'))) return false;
+            if (item.key === 'print' && /\/add\/?$/.test(window.location.pathname)) return false;
+            if (item.key === 'export' && (/\/add\/?$/.test(window.location.pathname) || !module.detailExportUrl)) return false;
             if (item.key === 'add' && /\/\d+\/?$/.test(window.location.pathname) && pageHasOwnButton(['再建一张', '新增'], bar)) return false;
             if (item.key === 'settings' && !module.printTemplateUrl && pageHasOwnListAction('settings', bar)) return false;
             return true;
@@ -3793,6 +3798,7 @@ function setupDetailRowSorting(table) {
     const headers = Array.from(table.tHead.rows[table.tHead.rows.length - 1].cells);
     const excluded = new Set(['seq', 'row_no', 'chk', 'selection', 'action', 'actions', 'label']);
     const numberLabels = new Set(['数量', '当前库存', '系统库存', '实际库存', '差异', '调整数量', '用量',
+        '冻结账面', '本行实盘', '物料实盘合计', '物料净差异',
         '单价', '金额', '成本', '期初余额', '采购数量', '已下推', '已入库', '申请数量', '已采购',
         '已出库', '未出库', '本次出库', '未税单价', '未税金额', '税率', '税额', '含税单价', '含税金额',
         '待入库', '未下推', '本次入库', '本次下推', '预估单价', '预估金额', '已发数量', '已收数量',

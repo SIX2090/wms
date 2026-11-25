@@ -365,10 +365,10 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                     <tfoot>
                         <tr>
                             {% if doc_type == 'check' %}
-                            <td colspan="8" class="text-end">合计：</td>
+                            <td colspan="7" class="text-end">合计：</td>
                             <td class="text-end" id="totalQty" data-column-key="actual_stock">0.00</td>
-                            {# INV-BATCH-001-D：有盘点归属列时尾部补一列，保证与表头对齐 #}
-                            <td colspan="{{ 4 if (can_save and order_id) else (3 if (can_save or order_id) else 2) }}"></td>
+                            {# INV-BATCH-001-D：尾部列数与表头(物料实盘合计/净差异/库位/差异原因 + 可选盘点归属/操作)严格对齐 #}
+                            <td colspan="{{ 6 if (can_save and order_id) else (5 if (can_save or order_id) else 4) }}"></td>
                             {% elif doc_type == 'transfer' %}
                             <td colspan="6" class="text-end">合计：</td>
                             <td class="text-end" id="totalQty" data-column-key="quantity">0.00</td>
@@ -716,6 +716,7 @@ function copyRowAfter(row) {
         target.dataset.counted = row.dataset.counted || 'false';
         target.querySelector('.line-area').value = row.querySelector('.line-area').value;
         target.querySelector('.line-reason').value = row.querySelector('.line-reason').value;
+        calcTotal();
     } else {
         target.querySelector('.line-qty') && (target.querySelector('.line-qty').value = row.querySelector('.line-qty')?.value || '');
         target.querySelector('.line-price') && (target.querySelector('.line-price').value = row.querySelector('.line-price')?.value || '');
@@ -777,6 +778,7 @@ function updateCheckTotals(rows) {
         badge.textContent = '有差异 ' + differences + ' 个物料';
     }
 }
+window.updateCheckTotals = updateCheckTotals;
 function calcTotal() {
     if (docType === 'check') {
         const tbody = document.getElementById('docTableBody');
@@ -946,6 +948,12 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
+    if (docType === 'check' && !data.header.warehouse_id) {
+        showToast('请选择仓库', 'warning');
+        const warehouseField = document.querySelector('[name="warehouse_id"]');
+        if (warehouseField && typeof warehouseField.focus === 'function') warehouseField.focus();
+        return;
+    }
     if (docType === 'check' && data.order_id) {
         const warehouseField = document.querySelector('[name="warehouse_id"]');
         const savedWarehouseId = warehouseField?.dataset?.savedWarehouseId;
@@ -968,6 +976,16 @@ function submitForm(completeAfterSave) {
             }
             document.querySelector('[name="order_id"]').value = res.id;
             if (res.order_no) document.querySelector('[name="order_no"]').value = res.order_no;
+            if (docType === 'check') {
+                const warehouseField = document.querySelector('[name="warehouse_id"]');
+                if (warehouseField && warehouseField.dataset && data.header.warehouse_id) {
+                    warehouseField.dataset.savedWarehouseId = data.header.warehouse_id;
+                }
+            }
+            const revMeta = document.querySelector('meta[name="document-revision"]');
+            if (revMeta && typeof revMeta.getAttribute === 'function' && !revMeta.getAttribute('data-prefixes') && typeof revMeta.setAttribute === 'function') {
+                revMeta.setAttribute('data-prefixes', '/' + docType + '/');
+            }
             if (!completeAfterSave || !completeUrl) {
                 submitForm.completed = true;
                 showToast('保存成功', 'success');
