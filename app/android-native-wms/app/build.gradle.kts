@@ -58,8 +58,9 @@ android {
         // 3.9.45(69): accept print receipts, restore material details and fix opening-stock paging.
         // 3.9.46(70): read-only opening stock by warehouse for non-writing roles.
         // 3.9.47(71): cold-start IO/gate fixes, SyncStatusViewModel, location paging, scanner 720p, and audit coverage.
-        versionCode = 71
-        versionName = "3.9.47"
+        // 3.9.48(72): harden AppUpdateManager startup broadcast/lock, Sherpa lifecycle/copy sync, auth no-flash restore, SyncStatusViewModel busy isolation.
+        versionCode = 72
+        versionName = "3.9.48"
         // 2026-10-30：按用户要求暂时隐藏语音 UI，保留底层实现以便后续恢复。
         buildConfigField("boolean", "VOICE_UI_ENABLED", "false")
 

@@ -2,6 +2,7 @@ package com.factory.wms.ui.navigation
 
 import com.factory.wms.BuildConfig
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Box
@@ -165,6 +166,16 @@ fun AppNavGraph(navController: NavHostController = rememberNavController()) {
     var stockQueryPrefillCode by remember { mutableStateOf<String?>(null) }
 
     val authState by authViewModel.uiState.collectAsState()
+
+    // 会话异步恢复期间先渲染纯背景占位，避免已登录用户冷启动闪现一下登录页。
+    if (authState.isRestoringSession) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(com.factory.wms.ui.theme.Background)
+        )
+        return
+    }
 
     // 会话异步恢复时保留 NavHost 的启动目的地，避免重建已恢复的返回栈。
     val startDestination = remember { if (authState.isLoggedIn) Screen.Home.route else Screen.Login.route }

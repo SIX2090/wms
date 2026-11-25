@@ -25,25 +25,29 @@ internal class UpdateBusinessGate {
 
     @Synchronized fun isStartupRecoveryPending(): Boolean = startupRecoveryPending
 
+    /** 等待启动恢复结束（供 IO 线程调用，不抢占 writers）。 */
+    @Synchronized fun awaitStartupRecovery(timeoutMs: Long = 2000L) {
+        if (!startupRecoveryPending || timeoutMs <= 0L) return
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (startupRecoveryPending) {
+            val remaining = deadline - System.currentTimeMillis()
+            if (remaining <= 0L) break
+            try {
+                (this as Object).wait(remaining)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                break
+            }
+        }
+    }
+
     /**
      * 业务写入/离线补传入场检查：
      * 若启动期后台 appUpdates.recover() 尚未完成，短暂等待至其结束唤醒，
      * 既确保残留安装会话必然先拿到 beginInstall()，又不误伤无残留会话时的正常业务提交。
      */
     @Synchronized fun enterBusiness(waitForStartupRecoveryMs: Long = 2000L): Boolean {
-        if (startupRecoveryPending && waitForStartupRecoveryMs > 0L) {
-            val deadline = System.currentTimeMillis() + waitForStartupRecoveryMs
-            while (startupRecoveryPending) {
-                val remaining = deadline - System.currentTimeMillis()
-                if (remaining <= 0L) break
-                try {
-                    (this as Object).wait(remaining)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
-            }
-        }
+        awaitStartupRecovery(waitForStartupRecoveryMs)
         if (installing || startupRecoveryPending) return false
         writers++
         return true

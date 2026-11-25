@@ -1085,7 +1085,9 @@ class WmsRepository(
                     defaultLocation = last.defaultLocation
                 }
                 val pageItems = last.items.orEmpty()
-                check(pageItems.isNotEmpty() || page == expectedTotalPages) { "库位分页第 $page 页返回空数据，无法确认列表完整" }
+                check(pageItems.isNotEmpty() || page == expectedTotalPages) {
+                    "库位列表在拉取期间发生变化（第 $page 页为空），请重试获取完整库位列表"
+                }
                 items.addAll(pageItems)
             }
             last.copy(

@@ -355,6 +355,7 @@ class AuditBatch2FixesAndCoverageTest {
         val base = "http://192.168.1.10:8080"
         assertEquals("http://192.168.1.10:8080/static/uploads/a.jpg", resolveImageUrl("/static/uploads/a.jpg", base))
         assertEquals("http://192.168.1.10:8080/static/uploads/a.jpg", resolveImageUrl("static/uploads/a.jpg", base))
+        assertEquals("http://192.168.1.10:8080/photo.jpg?t=12:30", resolveImageUrl("photo.jpg?t=12:30", base))
         assertEquals("https://cdn.example.com/a.jpg", resolveImageUrl("https://cdn.example.com/a.jpg", base))
         assertEquals("http://192.168.1.10:8080/img.png", resolveImageUrl("http://192.168.1.10:8080/img.png", base))
         assertEquals("", resolveImageUrl("http://evil.example.com/steal.png", base))

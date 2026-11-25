@@ -60,6 +60,9 @@ import kotlinx.coroutines.launch
 /** 每个物料最多支持的档案图片数（与后端一致）。 */
 private const val MAX_IMAGES = 5
 
+/** RFC 3986 URI scheme 前缀（如 https:/file:/javascript:），避免把相对路径查询串里的冒号误判成协议。 */
+private val URL_SCHEME_REGEX = Regex("^[A-Za-z][A-Za-z0-9+.-]*:")
+
 /**
  * 把后端返回的相对 url（如 /static/uploads/...xx.jpg）拼成可加载的绝对地址。
  * S-06（2026-11-24）：绝对 URL 仅允许 https:// 或与当前服务器同源的 http://，
@@ -68,10 +71,7 @@ private const val MAX_IMAGES = 5
 internal fun resolveImageUrl(url: String?, baseUrl: String = RetrofitClient.getBaseUrl()): String {
     val trimmed = url?.trim().orEmpty()
     if (trimmed.isBlank() || trimmed.startsWith("//")) return ""
-    val colonIndex = trimmed.indexOf(':')
-    val slashIndex = trimmed.indexOf('/')
-    val hasScheme = colonIndex > 0 && (slashIndex == -1 || colonIndex < slashIndex)
-    if (hasScheme) {
+    if (URL_SCHEME_REGEX.containsMatchIn(trimmed)) {
         val parsed = trimmed.toHttpUrlOrNull() ?: return ""
         if (parsed.scheme == "https") return trimmed
         val base = baseUrl.trim().toHttpUrlOrNull() ?: return ""

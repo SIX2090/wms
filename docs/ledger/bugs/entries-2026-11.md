@@ -3528,3 +3528,14 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：盘点详情、列表、报表、打印、导出、移动端及 Android 读取同一盘点主表，实际删除后统一不可查。调整单撤销、删除及库存报表沿用现有流水口径。
 - 回归：完整模拟调整过账、冲回、移除，再单删或批量删除盘点。核对删除前勾选状态、明细删除、历史来源解绑及库存量。覆盖尚未移除、跨仓和跨库位相抵、关联扫码及直接流水阻断。
 - 生效确认：待部署及人工验收。
+
+### BUG-2026-11-25-003: Android 原生端全面审计缺陷收口与并发加固（3.9.47→3.9.48）
+
+- 根因：冷启动阶段在主线程同步执行 Room 建库、EncryptedSharedPreferences 初始化、崩溃文件读取及更新租约恢复；`GlobalQueueStatus` 与 `PendingNativeWriteStatus` 在 Composable 内直接构造 `WmsRepository`；库位分页拉取缺完整性校验与默认库位保留；相机分析未限 720p；离线语音异步化与更新恢复迁至后台线程后存在并发写文件、启动窗口丢广播、跨会话 `busy` 标志误清及已登录冷启动闪登录页隐患。
+- 修复：
+  1. 冷启动主线程零磁盘 IO：`WmsRepository` 改为惰性双检建库，`AuthViewModel` 在切线程前捕获 `expected` 并在 `Dispatchers.IO` 还原凭据，配合 `isRestoringSession` 占位消除已登录用户冷启动闪登录页；`MainActivity` 异步读取/清理 `last_crash.txt`；`WmsApplication` 置位 `businessUpdateGate` 启动屏障后于后台恢复更新、预热离线队列并清理相机缓存。
+  2. 更新与离线语音并发加固：`AppUpdateManager` 以 `stateLock` 统一保护会话与前台状态，并在启动恢复窗口暂存系统 `PackageInstaller` 广播于恢复后按序补派发，消除丢广播与重复 `foreground()` 调用；`SherpaVoiceSttEngine` 改用单飞锁 + 临时文件原子重命名拷贝模型，并用 `lifecycleLock` + `startGeneration` 同步 `start()`/`stop()`/`destroy()` 防止 `AudioRecord` 与原生对象泄漏。
+  3. 架构与安全细节：新增 `SyncStatusViewModel`（保留 `public constructor(Application)` 供 Android 默认工厂反射实例化），统一管理队列与待核实写请求并按 `sessionGeneration` 隔离 `busy` 状态；`getLocationOptions` 支持完整多页拉取、保留首个非空默认库位并在中途页数变化时显式失败；`ScannerDialog` 改用 `1280x720` 优先回退策略；`resolveImageUrl` 改用 RFC 3986 scheme 正则校验；补齐 `data_extraction_rules.xml`、`fullBackupContent="false"` 及麦克风权限前置说明弹窗；清零主源码 Kotlin 废弃警告。
+- 同类点已排查：排查全部 `enterBusiness()`/`awaitAndEnterBusiness()` 调用点、`AuthUiState` 构造点、`AppNavGraph` 路由与测试消费者、R8 `proguard-rules.pro` 保留规则及后端 `/api/mobile/location/options` 响应字段。
+- 回归：新增 `AuditBatch1ColdStartAndSyncVmTest` 与 `AuditBatch2FixesAndCoverageTest`，覆盖冷启动零建库、Android 默认工厂及真实 `AppNavGraph` 登录/免闪屏恢复、残留安装会话与离线补传竞态、启动窗口延迟广播补派发、跨账号 `busy` 隔离、52 页库位拉取与增长报错、`StocktakeRecordViewModel`、`CrashReporter`、`NetworkMonitor` 及 URL/语音降级；Python 静态 Android 契约与规则门禁全通过。
+- 生效确认：仅涉及 Android 客户端与测试，生产 WMS 服务端无需重启；待目标 SHA 全部 CI 工作流绿灯并发布 APK `3.9.48 (72)` 后由现场真机实测验收。

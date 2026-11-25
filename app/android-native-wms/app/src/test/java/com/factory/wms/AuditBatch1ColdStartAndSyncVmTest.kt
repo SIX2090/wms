@@ -2,6 +2,8 @@ package com.factory.wms
 
 import android.app.Application
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageInstaller
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -29,10 +31,12 @@ import com.factory.wms.ui.theme.WmsTheme
 import com.factory.wms.ui.viewmodel.auth.AuthViewModel
 import com.factory.wms.ui.viewmodel.sync.SyncStatusViewModel
 import com.factory.wms.update.AppUpdateManager
+import com.factory.wms.update.UpdateBusinessGate
 import com.factory.wms.update.UpdateInstaller
 import com.factory.wms.update.UpdateRelease
 import com.factory.wms.update.businessUpdateGate
 import com.google.gson.Gson
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -165,7 +169,19 @@ class AuditBatch1ColdStartAndSyncVmTest {
                     AppNavGraph()
                 }
             }
-            compose.waitForIdle()
+            // 等待 AuthViewModel 在 IO 线程完成初始会话恢复后展示登录页
+            val loginDeadline = System.currentTimeMillis() + 5000L
+            var loginVisible = false
+            while (System.currentTimeMillis() < loginDeadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.waitForIdle()
+                if (compose.onAllNodesWithText("连接设置").fetchSemanticsNodes().isNotEmpty()) {
+                    loginVisible = true
+                    break
+                }
+                Thread.sleep(20)
+            }
+            assertTrue("未登录状态下会话恢复结束后应展示登录页", loginVisible)
             // 展开连接设置并填入本地 MockWebServer 地址
             compose.onNodeWithText("连接设置").performScrollTo().performClick()
             compose.onNodeWithText("服务器地址").performScrollTo().performTextReplacement(baseUrl)
@@ -391,6 +407,182 @@ class AuditBatch1ColdStartAndSyncVmTest {
             assertNull(vm.pendingWriteUiState.value.message)
         } finally {
             closeWmsTestViewModels(listOf(vm))
+        }
+    }
+
+    @Test
+    fun syncStatusViewModelOldSessionVerifyDoesNotClearNewSessionBusyFlag() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        val sessionA = RetrofitClient.SessionSnapshot("https://a.example/", "tok-a", 1L, 10)
+        val sessionB = RetrofitClient.SessionSnapshot("https://b.example/", "tok-b", 2L, 20)
+        var currentSession = sessionA
+        val gateA = CompletableDeferred<Result<String>>()
+        val gateB = CompletableDeferred<Result<String>>()
+        val vm = SyncStatusViewModel(
+            application = app,
+            queueProvider = { null },
+            loadPendingWrites = { emptyList() },
+            verifyPendingWrite = { id ->
+                if (id == "req-a") gateA.await() else gateB.await()
+            },
+            sessionSnapshotProvider = { currentSession },
+            ioDispatcher = dispatcher
+        )
+        try {
+            vm.bindSession(sessionA)
+            vm.verify(sessionA, "req-a")
+            assertTrue(vm.pendingWriteUiState.value.busy)
+
+            currentSession = sessionB
+            vm.bindSession(sessionB)
+            vm.verify(sessionB, "req-b")
+            assertTrue(vm.pendingWriteUiState.value.busy)
+
+            // 旧账号核实结束，不得误清当前新账号的 busy 锁
+            gateA.complete(Result.success("旧账号结果"))
+            advanceUntilIdle()
+            assertTrue("旧账号 finally 不得清除新账号 busy 状态", vm.pendingWriteUiState.value.busy)
+            assertNull("旧账号结果不得写入新账号 message", vm.pendingWriteUiState.value.message)
+
+            gateB.complete(Result.success("新账号已核实"))
+            advanceUntilIdle()
+            assertFalse(vm.pendingWriteUiState.value.busy)
+            assertEquals("新账号已核实", vm.pendingWriteUiState.value.message)
+        } finally {
+            closeWmsTestViewModels(listOf(vm))
+        }
+    }
+
+    @Test
+    fun deferredInstallResultBroadcastDuringStartupRecoveryIsDeliveredAfterRecover() {
+        val isolatedGate = UpdateBusinessGate()
+        val prefs = app.getSharedPreferences("app_update", Context.MODE_PRIVATE)
+        prefs.edit()
+            .putInt("session", 88)
+            .putString("nonce", "nonce-88")
+            .putLong("started", System.currentTimeMillis())
+            .commit()
+
+        var sessionAlive = true
+        val fakeInstaller = object : UpdateInstaller {
+            override fun permitted() = true
+            override fun create(release: UpdateRelease) = 88
+            override fun commit(sessionId: Int, apk: File, nonce: String) {}
+            override fun exists(sessionId: Int) = sessionAlive && sessionId == 88
+            override fun abandon(sessionId: Int) { sessionAlive = false }
+        }
+        val testScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val manager = AppUpdateManager(
+            context = app,
+            installer = fakeInstaller,
+            gate = isolatedGate,
+            scope = testScope,
+            io = Dispatchers.IO
+        )
+        try {
+            isolatedGate.beginStartupRecovery()
+            val broadcast = Intent("${app.packageName}.UPDATE_RESULT.nonce-88").apply {
+                putExtra("wms_nonce", "nonce-88")
+                putExtra(PackageInstaller.EXTRA_SESSION_ID, 88)
+                putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_SUCCESS)
+            }
+            // 模拟系统广播先于后台 recover() 到达
+            manager.receive(broadcast)
+
+            manager.recover()
+            isolatedGate.endStartupRecovery()
+            manager.onStartupRecoveryFinished()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertFalse("启动窗口暂存的成功广播补派发后应退出 installing 态", manager.state.value.installing)
+            assertTrue("应展示安装已完成文案", manager.state.value.message.contains("安装已完成"))
+            assertTrue("补派发释放门闩后业务写入应恢复可用", isolatedGate.enterBusiness(0L))
+            isolatedGate.leaveBusiness()
+        } finally {
+            testScope.cancel()
+        }
+    }
+
+    @Test
+    @Suppress("UNCHECKED_CAST")
+    fun savedSessionRestoresDirectlyToHomeWithoutFlashingLogin() {
+        val server = MockWebServer()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/api/warehouses") -> MockResponse().setBody(
+                        """{"status":"success","data":{"items":[{"id":1,"code":"WH1","name":"一号仓","is_default":true}]}}"""
+                    )
+                    path.startsWith("/api/mobile/dashboard") -> MockResponse().setBody(
+                        """{"status":"success","data":{"today_in_orders":1,"today_in_quantity":10.0,"today_out_orders":0,"today_out_quantity":0.0,"pending_in_orders":0,"pending_out_orders":0,"alert_count":0,"warehouse":"一号仓","warehouse_id":1}}"""
+                    )
+                    else -> MockResponse().setBody("""{"status":"success","data":{}}""")
+                }
+            }
+        }
+        server.start()
+        val baseUrl = server.url("/").toString()
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup().visible()
+        try {
+            val auth = ViewModelProvider(controller.get())[AuthViewModel::class.java]
+            val waitInitDeadline = System.currentTimeMillis() + 3000L
+            while (auth.uiState.value.isRestoringSession && System.currentTimeMillis() < waitInitDeadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(10)
+            }
+            val uiStateField = AuthViewModel::class.java.getDeclaredField("_uiState").apply { isAccessible = true }
+            val stateFlow = uiStateField.get(auth) as kotlinx.coroutines.flow.MutableStateFlow<com.factory.wms.ui.viewmodel.auth.AuthUiState>
+
+            // 1. 会话仍在 IO 恢复中：AppNavGraph 仅展示背景占位，绝不闪现登录页
+            stateFlow.value = com.factory.wms.ui.viewmodel.auth.AuthUiState(isRestoringSession = true)
+            controller.get().setContent {
+                WmsTheme(darkTheme = false) {
+                    AppNavGraph()
+                }
+            }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.waitForIdle()
+            assertTrue(
+                "会话恢复完成前不应闪现登录页",
+                compose.onAllNodesWithText("登录工作台").fetchSemanticsNodes().isEmpty()
+            )
+            assertTrue(
+                "会话恢复完成前不应提前挂载首页",
+                compose.onAllNodesWithText("开始作业").fetchSemanticsNodes().isEmpty()
+            )
+
+            // 2. 模拟 IO 恢复完成并写回有效登录态：直接落到首页且全程未出现登录页
+            RetrofitClient.setSession(baseUrl, "tok-restored", 77)
+            stateFlow.value = com.factory.wms.ui.viewmodel.auth.AuthUiState(
+                isLoggedIn = true,
+                username = "keeper",
+                role = "warehouse",
+                baseUrl = baseUrl,
+                isRestoringSession = false
+            )
+            var sawLoginScreen = false
+            var reachedHome = false
+            val deadline = System.currentTimeMillis() + 5000L
+            while (System.currentTimeMillis() < deadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.waitForIdle()
+                if (compose.onAllNodesWithText("登录工作台").fetchSemanticsNodes().isNotEmpty()) {
+                    sawLoginScreen = true
+                }
+                if (compose.onAllNodesWithText("开始作业").fetchSemanticsNodes().isNotEmpty()) {
+                    reachedHome = true
+                    break
+                }
+                Thread.sleep(20)
+            }
+            assertFalse("已保存有效会话时冷启动不应闪现登录页", sawLoginScreen)
+            assertTrue("已保存有效会话时应直接进入首页", reachedHome)
+        } finally {
+            disposeComposeActivity(controller)
+            RetrofitClient.setSession("", null, null)
+            server.shutdown()
         }
     }
 

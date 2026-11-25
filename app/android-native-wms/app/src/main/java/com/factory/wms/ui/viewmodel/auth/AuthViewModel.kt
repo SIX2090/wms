@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -19,14 +20,15 @@ data class AuthUiState(
     val username: String = "",
     val role: String = "",
     val baseUrl: String = "",
-    val error: String? = null
+    val error: String? = null,
+    val isRestoringSession: Boolean = false
 )
 
 class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = WmsRepository(application)
 
-    private val _uiState = MutableStateFlow(AuthUiState())
+    private val _uiState = MutableStateFlow(AuthUiState(isRestoringSession = true))
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     init {
@@ -38,10 +40,11 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             // 会话还原属于"尽力而为"：失败时保持默认的未登录状态，让用户走正常登录流程，
             // 绝不能因本地缓存问题导致 App 打不开。
             try {
+                // 在切线程前捕获初始会话快照，避免覆盖切线程窗口内触发的新登录。
+                val expected = RetrofitClient.sessionSnapshot()
                 // P-02（2026-11-24）：Keystore / EncryptedSharedPreferences 初始化与凭据读取迁至 IO 线程，
                 // 避免冷启动在主线程同步阻塞。
                 val restored = withContext(Dispatchers.IO) {
-                    val expected = RetrofitClient.sessionSnapshot()
                     val token = repository.getSavedToken()
                     val baseUrl = repository.getSavedBaseUrl()
                     val username = repository.getUsername()
@@ -61,19 +64,26 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
                     // 必须把持久化在 EncryptedSharedPreferences 的 token 重新注入内存，
                     // 否则重启后首个请求不带 Authorization → 401 → 拦截器触发登出清凭据，
                     // 用户每次点图标都被迫重新登录。
-                    _uiState.value = _uiState.value.copy(
-                        isLoggedIn = true,
-                        username = restored.first,
-                        role = restored.second,
-                        baseUrl = restored.third
-                    )
+                    _uiState.update { state ->
+                        if (state.isLoggedIn) state
+                        else state.copy(
+                            isLoggedIn = true,
+                            username = restored.first,
+                            role = restored.second,
+                            baseUrl = restored.third
+                        )
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.w(
                     "AuthVM",
                     "会话还原失败，降级为未登录: ${e.javaClass.simpleName}: ${e.message}"
                 )
-                _uiState.value = _uiState.value.copy(isLoggedIn = false)
+                if (!_uiState.value.isLoggedIn) {
+                    _uiState.value = _uiState.value.copy(isLoggedIn = false)
+                }
+            } finally {
+                _uiState.update { it.copy(isRestoringSession = false) }
             }
         }
         // Observe 401 unauthorized events from the token interceptor
@@ -91,26 +101,32 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
 
     fun login(username: String, password: String, baseUrl: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.update { it.copy(isLoading = true, error = null, isRestoringSession = false) }
             val result = repository.login(username, password, baseUrl)
             result.fold(
                 onSuccess = { data ->
                     // 登录成功，复位 401 事件门闩，允许下次令牌失效再次触发
                     AuthEventBus.reset()
-                    _uiState.value = _uiState.value.copy(
-                        isLoggedIn = true,
-                        isLoading = false,
-                        username = username,
-                        role = data.user.role ?: "",
-                        baseUrl = baseUrl,
-                        error = null
-                    )
+                    _uiState.update {
+                        it.copy(
+                            isLoggedIn = true,
+                            isLoading = false,
+                            username = username,
+                            role = data.user.role ?: "",
+                            baseUrl = baseUrl,
+                            error = null,
+                            isRestoringSession = false
+                        )
+                    }
                 },
                 onFailure = { e ->
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = e.message
-                    )
+                    _uiState.update {
+                        it.copy(
+                            isLoading = false,
+                            error = e.message,
+                            isRestoringSession = false
+                        )
+                    }
                 }
             )
         }

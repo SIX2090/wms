@@ -42,12 +42,8 @@ internal data class PendingNativeWriteUiState(
  */
 class SyncStatusViewModel internal constructor(
     application: Application,
-    private val queueProvider: () -> OfflineQueueManager? = {
-        runCatching { WmsRepository(application).offlineQueue }.getOrNull()
-    },
-    private val loadPendingWrites: suspend () -> List<PendingNativeWrite> = {
-        WmsRepository(application).pendingNativeWrites()
-    },
+    private val queueProvider: () -> OfflineQueueManager?,
+    private val loadPendingWrites: suspend () -> List<PendingNativeWrite>,
     private val verifyPendingWrite: suspend (String) -> Result<String> = { requestId ->
         WmsRepository(application).verifyPendingNativeWrite(requestId)
     },
@@ -60,7 +56,15 @@ class SyncStatusViewModel internal constructor(
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : AndroidViewModel(application) {
 
-    constructor(app: Application) : this(application = app)
+    constructor(app: Application) : this(app, lazy { WmsRepository(app) })
+
+    private constructor(app: Application, repo: Lazy<WmsRepository>) : this(
+        application = app,
+        queueProvider = { runCatching { repo.value.offlineQueue }.getOrNull() },
+        loadPendingWrites = { repo.value.pendingNativeWrites() },
+        verifyPendingWrite = { requestId -> repo.value.verifyPendingNativeWrite(requestId) },
+        acknowledgePendingWrite = { operation, requestId -> repo.value.acknowledgeNativeWrite(operation, requestId) }
+    )
 
     internal val queueUiState: StateFlow<GlobalQueueUiState>
         get() = _queueUiState.asStateFlow()
@@ -130,47 +134,69 @@ class SyncStatusViewModel internal constructor(
     }
 
     internal fun verify(session: RetrofitClient.SessionSnapshot, requestId: String) {
-        if (_pendingWriteUiState.value.busy) return
-        _pendingWriteUiState.update { it.copy(busy = true) }
+        val current = _pendingWriteUiState.value
+        if (session.generation != activeSessionGeneration) return
+        if (current.sessionGeneration == session.generation && current.busy) return
+        _pendingWriteUiState.update { state ->
+            if (state.sessionGeneration == session.generation) state.copy(busy = true) else state
+        }
         viewModelScope.launch {
             try {
                 val result = withContext(ioDispatcher) { verifyPendingWrite(requestId) }
                 if (session.generation == sessionSnapshotProvider().generation &&
                     session.generation == activeSessionGeneration
                 ) {
-                    _pendingWriteUiState.update {
-                        it.copy(message = result.getOrElse { err -> err.message ?: "核实未完成，原记录已保留" })
+                    _pendingWriteUiState.update { state ->
+                        if (state.sessionGeneration == session.generation) {
+                            state.copy(message = result.getOrElse { err -> err.message ?: "核实未完成，原记录已保留" })
+                        } else {
+                            state
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } finally {
-                _pendingWriteUiState.update { it.copy(busy = false) }
+                _pendingWriteUiState.update { state ->
+                    if (state.sessionGeneration == session.generation) state.copy(busy = false) else state
+                }
             }
         }
     }
 
     internal fun acknowledge(session: RetrofitClient.SessionSnapshot, operation: String, requestId: String) {
-        if (_pendingWriteUiState.value.busy) return
-        _pendingWriteUiState.update { it.copy(busy = true) }
+        val current = _pendingWriteUiState.value
+        if (session.generation != activeSessionGeneration) return
+        if (current.sessionGeneration == session.generation && current.busy) return
+        _pendingWriteUiState.update { state ->
+            if (state.sessionGeneration == session.generation) state.copy(busy = true) else state
+        }
         viewModelScope.launch {
             try {
                 withContext(ioDispatcher) { acknowledgePendingWrite(operation, requestId) }
                 if (session.generation == sessionSnapshotProvider().generation &&
                     session.generation == activeSessionGeneration
                 ) {
-                    _pendingWriteUiState.update {
-                        it.copy(message = "已结束此请求，可以开始新单；请勿再次录入同一笔业务")
+                    _pendingWriteUiState.update { state ->
+                        if (state.sessionGeneration == session.generation) {
+                            state.copy(message = "已结束此请求，可以开始新单；请勿再次录入同一笔业务")
+                        } else {
+                            state
+                        }
                     }
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 if (session.generation == activeSessionGeneration) {
-                    _pendingWriteUiState.update { it.copy(message = error.message) }
+                    _pendingWriteUiState.update { state ->
+                        if (state.sessionGeneration == session.generation) state.copy(message = error.message) else state
+                    }
                 }
             } finally {
-                _pendingWriteUiState.update { it.copy(busy = false) }
+                _pendingWriteUiState.update { state ->
+                    if (state.sessionGeneration == session.generation) state.copy(busy = false) else state
+                }
             }
         }
     }

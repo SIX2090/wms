@@ -34,15 +34,17 @@ class SherpaVoiceSttEngine(
     private val modelDirOverride: File? = null
 ) : VoiceSttEngine {
 
-    private var listener: VoiceSttListener? = null
-    private var runtime: SherpaRuntime? = null
+    @Volatile private var listener: VoiceSttListener? = null
+    @Volatile private var runtime: SherpaRuntime? = null
     @Volatile private var modelDir: File? = null
 
+    private val lifecycleLock = Any()
     private val capturing = AtomicBoolean(false)
     private val preparingModel = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
     private var startThread: Thread? = null
+    private var startGeneration: Long = 0L
     @Volatile private var started = false
 
     override fun isAvailable(): Boolean {
@@ -95,63 +97,102 @@ class SherpaVoiceSttEngine(
             listener?.onError(SttError.EngineUnavailable)
             return
         }
-        started = true
-        // P-07（2026-11-24）：模型复制（若尚未就绪）与 SherpaRuntime 初始化统一在后台线程执行，
-        // 避免 ~70MB 磁盘拷贝与 ONNX 建图阻塞主线程。
-        startThread = Thread({
+        val gen = synchronized(lifecycleLock) {
+            if (started) return
+            started = true
+            ++startGeneration
+        }
+        // P-07（2026-11-24）：模型复制（单飞原子落盘）与 SherpaRuntime 初始化统一在后台线程执行，
+        // 避免 ~70MB 磁盘拷贝与 ONNX 建图阻塞主线程；与 stop/destroy 共享 lifecycleLock 防止资源泄漏。
+        val thread = Thread({
             try {
                 val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
                 if (required.any { !File(dir, it).isFile }) {
                     copyModelFromAssets(dir)
                 }
-                if (!started) return@Thread
+                val stillActiveAfterCopy = synchronized(lifecycleLock) { started && startGeneration == gen }
+                if (!stillActiveAfterCopy) return@Thread
                 if (required.any { !File(dir, it).isFile }) {
-                    started = false
+                    synchronized(lifecycleLock) {
+                        if (startGeneration == gen) started = false
+                    }
                     listener?.onError(SttError.EngineUnavailable)
                     return@Thread
                 }
                 val created = SherpaRuntime.create(appContext, dir, config)
-                if (!started) {
-                    created?.destroy()
-                    return@Thread
-                }
                 if (created == null) {
-                    started = false
+                    synchronized(lifecycleLock) {
+                        if (startGeneration == gen) started = false
+                    }
                     listener?.onError(SttError.EngineUnavailable)
                     return@Thread
                 }
-                runtime = created
-                startAudioCapture()
+                val attached = synchronized(lifecycleLock) {
+                    if (!started || startGeneration != gen) {
+                        false
+                    } else {
+                        runtime = created
+                        startAudioCapture()
+                        true
+                    }
+                }
+                if (!attached) {
+                    created.destroy()
+                }
             } catch (t: Throwable) {
                 Log.e(TAG, "sherpa-onnx start failed", t)
-                started = false
-                runtime?.destroy()
-                runtime = null
+                synchronized(lifecycleLock) {
+                    if (startGeneration == gen) {
+                        started = false
+                        runtime?.destroy()
+                        runtime = null
+                    }
+                }
                 listener?.onError(SttError.Unknown)
+            } finally {
+                synchronized(lifecycleLock) {
+                    if (startGeneration == gen) startThread = null
+                }
             }
-        }, "sherpa-stt-start").also { it.start() }
+        }, "sherpa-stt-start")
+        synchronized(lifecycleLock) {
+            if (started && startGeneration == gen) {
+                startThread = thread
+                thread.start()
+            }
+        }
     }
 
     override fun stop() {
-        if (!started) return
-        started = false
-        stopAudioCapture()
-        // 拿到当前流式已解码的最终文本作为结果；如果什么都没有就推空列表
-        val finalText = try {
-            runtime?.pollFinal().orEmpty()
-        } catch (t: Throwable) {
-            Log.w(TAG, "pollFinal failed", t)
-            ""
+        val finalText = synchronized(lifecycleLock) {
+            if (!started) return
+            started = false
+            startGeneration++
+            startThread?.interrupt()
+            startThread = null
+            stopAudioCapture()
+            // 拿到当前流式已解码的最终文本作为结果；如果什么都没有就推空列表
+            try {
+                runtime?.pollFinal().orEmpty()
+            } catch (t: Throwable) {
+                Log.w(TAG, "pollFinal failed", t)
+                ""
+            }
         }
         listener?.onResult(if (finalText.isEmpty()) emptyList() else listOf(finalText))
     }
 
     override fun destroy() {
-        started = false
-        stopAudioCapture()
-        runtime?.destroy()
-        runtime = null
-        listener = null
+        synchronized(lifecycleLock) {
+            started = false
+            startGeneration++
+            startThread?.interrupt()
+            startThread = null
+            stopAudioCapture()
+            runtime?.destroy()
+            runtime = null
+            listener = null
+        }
     }
 
     override fun setListener(listener: VoiceSttListener?) {
@@ -253,20 +294,29 @@ class SherpaVoiceSttEngine(
      * 非 sherpa 构建（SHERPA_ENABLED=false）或 APK 未打包模型时返回 false，
      * 由调用方走 fallback，不抛异常。
      */
-    private fun copyModelFromAssets(dir: File): Boolean {
+    private fun copyModelFromAssets(dir: File): Boolean = synchronized(MODEL_COPY_LOCK) {
         if (!BuildConfig.SHERPA_ENABLED) return false
         val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
+        if (required.all { File(dir, it).isFile }) return true
         val assetBase = BuildConfig.SHERPA_MODEL_DIR.trim('/')
         return try {
             dir.mkdirs()
             required.all { name ->
+                val target = File(dir, name)
+                if (target.isFile) return@all true
+                val tmp = File(dir, "$name.tmp")
                 try {
                     appContext.assets.open("$assetBase/$name").use { input ->
-                        File(dir, name).outputStream().use { output -> input.copyTo(output) }
+                        tmp.outputStream().use { output -> input.copyTo(output) }
+                    }
+                    if (!tmp.renameTo(target)) {
+                        tmp.copyTo(target, overwrite = true)
+                        tmp.delete()
                     }
                     Log.i(TAG, "sherpa-onnx model installed from assets: $name")
                     true
                 } catch (t: Throwable) {
+                    runCatching { tmp.delete() }
                     Log.w(TAG, "sherpa-onnx asset model file missing/copied failed: $name (${t.message})")
                     false
                 }
@@ -279,6 +329,7 @@ class SherpaVoiceSttEngine(
 
     companion object {
         private const val TAG = "SherpaVoiceSttEngine"
+        private val MODEL_COPY_LOCK = Any()
         // sherpa-onnx 的核心类全限定名，用于反射探测运行时是否已挂入
         const val RUNTIME_CLASS_FQCN = "com.k2fsa.sherpa.onnx.OnlineRecognizer"
 

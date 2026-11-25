@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
@@ -43,10 +42,13 @@ internal class AppUpdateManager(
     private val directory = File(context.filesDir, "app_updates")
     private val apk get() = File(directory, "update.apk")
     private val mutex = Mutex()
+    private val stateLock = Any()
     private val mutable = MutableStateFlow(UpdateUiState())
     val state = mutable.asStateFlow()
     private var foreground = false
     private var activity: android.app.Activity? = null
+    private var pendingForegroundResume = false
+    private val deferredBroadcasts = mutableListOf<Intent>()
     private var confirmation: Intent? = null
     private var target: UpdateRelease? = null
     private var sessionId = -1
@@ -59,23 +61,29 @@ internal class AppUpdateManager(
     /** Called before queue warmup, so a surviving session cannot race replay. */
     fun recover() {
         File(directory, "update.apk.part").delete()
-        target = runCatching { UpdateRelease.parse(prefs.getString("target", "")!!) }.getOrNull()
-        val release = target
-        if (release != null && version >= release.versionCode) {
+        val parsedTarget = runCatching { UpdateRelease.parse(prefs.getString("target", "")!!) }.getOrNull()
+        if (parsedTarget != null && version >= parsedTarget.versionCode) {
             clearSession()
             apk.delete()
             prefs.edit().remove("target").apply()
-            target = null
+            synchronized(stateLock) { target = null }
             mutable.value = UpdateUiState("更新完成，当前版本 ${BuildConfig.VERSION_NAME}")
             return
         }
-        sessionId = prefs.getInt("session", -1)
-        nonce = prefs.getString("nonce", "") ?: ""
-        startedAt = prefs.getLong("started", 0)
-        if (sessionId >= 0) {
-            ownsGate = gate.beginInstall()
-            check(ownsGate) { "无法恢复更新安装状态" }
-            if (sessionAlive() != false) {
+        val savedSession = prefs.getInt("session", -1)
+        val savedNonce = prefs.getString("nonce", "") ?: ""
+        val savedStartedAt = prefs.getLong("started", 0)
+        synchronized(stateLock) {
+            target = parsedTarget
+            sessionId = savedSession
+            nonce = savedNonce
+            startedAt = savedStartedAt
+        }
+        if (savedSession >= 0) {
+            val acquired = gate.beginInstall()
+            synchronized(stateLock) { ownsGate = acquired }
+            check(acquired) { "无法恢复更新安装状态" }
+            if (sessionAlive(savedSession) != false) {
                 mutable.value = UpdateUiState("正在恢复安装状态", ready = true, installing = true)
                 monitorSession()
                 return
@@ -83,39 +91,73 @@ internal class AppUpdateManager(
         }
         run {
             clearSession()
-            if (release != null && apk.exists()) {
-                autoInstall = false // After a process death, recheck first, then explicit retry.
+            if (parsedTarget != null && apk.exists()) {
+                synchronized(stateLock) { autoInstall = false } // After a process death, recheck first, then explicit retry.
                 mutable.value = UpdateUiState("更新包已保留，点安装更新继续", ready = true)
             }
         }
     }
 
     fun foreground(activity: android.app.Activity?) {
-        this.activity = activity
-        foreground = activity != null
-        if (!foreground) return
-        if (gate.isStartupRecoveryPending()) return
-        confirmation?.let { launchConfirmation(it); return }
-        if (sessionId >= 0) return
+        val pendingConfirmation: Intent?
+        val shouldCheck: Boolean
+        val shouldInstall: Boolean
+        synchronized(stateLock) {
+            this.activity = activity
+            foreground = activity != null
+            if (!foreground) {
+                pendingForegroundResume = false
+                return
+            }
+            if (gate.isStartupRecoveryPending()) {
+                pendingForegroundResume = true
+                return
+            }
+            pendingForegroundResume = false
+            pendingConfirmation = confirmation
+            shouldCheck = pendingConfirmation == null && sessionId < 0
+            shouldInstall = shouldCheck && target != null
+        }
+        if (pendingConfirmation != null) {
+            launchConfirmation(pendingConfirmation)
+            return
+        }
+        if (!shouldCheck) return
         check(false)
-        if (target != null && apk.exists()) installIfReady()
+        if (shouldInstall && apk.exists()) installIfReady()
     }
 
-    /** 后台启动恢复完成后，切回主线程补执行前台检查/安装恢复。 */
+    /** 后台启动恢复完成后，切回主线程补派发启动期间暂存的安装结果广播，并按需补执行前台检查/安装恢复。 */
     internal fun onStartupRecoveryFinished() {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            val current = activity
-            if (foreground && current != null) {
-                foreground(current)
+            val queued = synchronized(stateLock) {
+                if (deferredBroadcasts.isEmpty()) emptyList()
+                else deferredBroadcasts.toList().also { deferredBroadcasts.clear() }
+            }
+            queued.forEach { handleReceive(it) }
+            val resumeActivity = synchronized(stateLock) {
+                if (pendingForegroundResume && foreground) {
+                    pendingForegroundResume = false
+                    activity
+                } else {
+                    null
+                }
+            }
+            if (resumeActivity != null) {
+                foreground(resumeActivity)
             }
         }
     }
 
     fun check(manual: Boolean = true) {
         scope.launch {
+            if (gate.isStartupRecoveryPending()) {
+                withContext(io) { gate.awaitStartupRecovery() }
+                if (gate.isStartupRecoveryPending()) return@launch
+            }
             if (!mutex.tryLock()) return@launch
             try {
-                if (sessionId >= 0) return@launch
+                if (synchronized(stateLock) { sessionId >= 0 }) return@launch
                 val last = prefs.getLong("last_check", 0)
                 if (!manual && last > 0 && now() >= last && now() - last < 6 * 60 * 60 * 1000L) return@launch
                 mutable.value = UpdateUiState("正在检查更新", busy = true)
@@ -127,7 +169,7 @@ internal class AppUpdateManager(
                     return@launch
                 }
                 release.validate(context.packageName, version, Build.VERSION.SDK_INT)
-                target = release
+                synchronized(stateLock) { target = release }
                 prefs.edit().putString("target", release.toJson()).apply()
                 withContext(io) {
                     check(directory.isDirectory || directory.mkdirs()) { "无法创建更新目录" }
@@ -138,7 +180,7 @@ internal class AppUpdateManager(
                     }
                     verify(apk, release)
                 }
-                autoInstall = true
+                synchronized(stateLock) { autoInstall = true }
                 mutable.value = UpdateUiState("${release.versionName} 已准备好", ready = true)
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
@@ -154,46 +196,72 @@ internal class AppUpdateManager(
         }
     }
 
-    fun install() { autoInstall = true; installIfReady(requestPermission = true) }
+    fun install() {
+        synchronized(stateLock) { autoInstall = true }
+        installIfReady(requestPermission = true)
+    }
 
     private fun installIfReady(requestPermission: Boolean = false) {
-        if (!foreground || !autoInstall || sessionId >= 0 || !mutable.value.ready) return
+        if (gate.isStartupRecoveryPending()) return
+        val canStart = synchronized(stateLock) { foreground && autoInstall && sessionId < 0 }
+        if (!canStart || !mutable.value.ready) return
         if (!installer.permitted()) {
             mutable.value = mutable.value.copy(message = "更新已下载，请允许 WMS 安装应用后继续")
             if (requestPermission) runCatching {
-                activity?.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                val host = synchronized(stateLock) { activity }
+                host?.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                     Uri.parse("package:${context.packageName}")))
             }.onFailure { mutable.value = mutable.value.copy(message = "无法打开安装设置，请在系统设置中允许 WMS 安装应用") }
             return
         }
         scope.launch {
+            if (gate.isStartupRecoveryPending()) {
+                withContext(io) { gate.awaitStartupRecovery() }
+                if (gate.isStartupRecoveryPending()) return@launch
+            }
             if (!mutex.tryLock()) return@launch
             var committed = false
             try {
-                val release = target ?: return@launch
+                val release = synchronized(stateLock) { target } ?: return@launch
                 // Verify again after cache/process changes, before acquiring the business lease.
                 withContext(io) { verify(apk, release) }
-                if (!foreground || !autoInstall || !gate.beginInstall()) {
+                val readyForLease = synchronized(stateLock) { foreground && autoInstall && sessionId < 0 }
+                if (!readyForLease || !gate.beginInstall()) {
                     mutable.value = mutable.value.copy(message = "更新已就绪，等待当前业务操作结束")
                     return@launch
                 }
-                ownsGate = true
-                sessionId = installer.create(release)
-                nonce = UUID.randomUUID().toString()
-                startedAt = now()
-                check(prefs.edit().putInt("session", sessionId).putString("nonce", nonce)
-                    .putLong("started", startedAt).commit()) { "无法保存安装会话" }
+                synchronized(stateLock) { ownsGate = true }
+                val createdSessionId = installer.create(release)
+                val createdNonce = UUID.randomUUID().toString()
+                val createdStartedAt = now()
+                synchronized(stateLock) {
+                    sessionId = createdSessionId
+                    nonce = createdNonce
+                    startedAt = createdStartedAt
+                }
+                check(prefs.edit().putInt("session", createdSessionId).putString("nonce", createdNonce)
+                    .putLong("started", createdStartedAt).commit()) { "无法保存安装会话" }
                 mutable.value = UpdateUiState("正在安装更新，当前内容已保留", ready = true, installing = true)
-                withContext(io) { installer.commit(sessionId, apk, nonce) }
+                withContext(io) { installer.commit(createdSessionId, apk, createdNonce) }
                 committed = true
                 monitorSession()
             } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
                 cancelSession("安装未完成：${e.message ?: "请重试"}")
             } finally {
-                if (!committed && sessionId < 0 && ownsGate) { gate.endInstall(); ownsGate = false }
+                val releaseLease = synchronized(stateLock) {
+                    if (!committed && sessionId < 0 && ownsGate) {
+                        ownsGate = false
+                        true
+                    } else {
+                        false
+                    }
+                }
+                if (releaseLease) gate.endInstall()
                 mutex.unlock()
-                if (!ownsGate && autoInstall && foreground && mutable.value.ready && !committed) {
+                val shouldRetry = synchronized(stateLock) { !ownsGate && autoInstall && foreground } &&
+                    mutable.value.ready && !committed
+                if (shouldRetry) {
                     delay(1000)
                     installIfReady()
                 }
@@ -202,21 +270,41 @@ internal class AppUpdateManager(
     }
 
     fun receive(intent: Intent) {
+        val deferred = synchronized(stateLock) {
+            if (gate.isStartupRecoveryPending()) {
+                deferredBroadcasts.add(Intent(intent))
+                true
+            } else {
+                false
+            }
+        }
+        if (deferred) return
+        handleReceive(intent)
+    }
+
+    private fun handleReceive(intent: Intent) {
         val id = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
-        if (sessionId < 0 || id != sessionId || intent.getStringExtra("wms_nonce") != nonce ||
-            intent.action != "${context.packageName}.UPDATE_RESULT.$nonce") return
+        val matched = synchronized(stateLock) {
+            sessionId >= 0 && id == sessionId &&
+                intent.getStringExtra("wms_nonce") == nonce &&
+                intent.action == "${context.packageName}.UPDATE_RESULT.$nonce"
+        }
+        if (!matched) return
         when (intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val next = intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
                 if (next == null) { cancelSession("系统未提供安装确认，请重试"); return }
-                confirmation = next
+                val isFg = synchronized(stateLock) {
+                    confirmation = next
+                    foreground
+                }
                 mutable.value = mutable.value.copy(message = "请确认安装更新；也可取消后继续使用")
-                if (foreground) launchConfirmation(next)
+                if (isFg) launchConfirmation(next)
             }
             PackageInstaller.STATUS_SUCCESS -> {
                 clearSession()
-                autoInstall = false
+                synchronized(stateLock) { autoInstall = false }
                 mutable.value = UpdateUiState("安装已完成，下次打开将核对新版本")
             }
             else -> cancelSession("安装已取消或失败，当前版本仍可使用，可点安装更新重试")
@@ -224,51 +312,76 @@ internal class AppUpdateManager(
     }
 
     private fun launchConfirmation(intent: Intent) {
-        runCatching { activity?.startActivity(intent) }.onSuccess { confirmation = null }
+        val host = synchronized(stateLock) { activity } ?: return
+        runCatching { host.startActivity(intent) }
+            .onSuccess { synchronized(stateLock) { confirmation = null } }
             .onFailure { cancelSession("无法打开安装确认，当前版本仍可使用") }
     }
 
     private fun monitorSession() {
-        if (monitor?.isActive == true) return
-        val observed = sessionId
-        monitor = scope.launch {
-            while (sessionId == observed && observed >= 0) {
+        val observed = synchronized(stateLock) {
+            if (monitor?.isActive == true) return
+            sessionId
+        }
+        if (observed < 0) return
+        val job = scope.launch {
+            while (synchronized(stateLock) { sessionId == observed } && observed >= 0) {
                 delay(1000)
-                if (sessionAlive() == false) {
+                if (sessionAlive(observed) == false) {
                     clearSession()
-                    autoInstall = false
+                    synchronized(stateLock) { autoInstall = false }
                     mutable.value = UpdateUiState("安装会话已结束，请核对版本或重试", ready = apk.exists())
-                } else if (now() - startedAt >= 120_000L || now() < startedAt) {
-                    cancelSession("安装等待已超时，已保留更新包，可重新安装")
+                } else {
+                    val started = synchronized(stateLock) { startedAt }
+                    if (now() - started >= 120_000L || now() < started) {
+                        cancelSession("安装等待已超时，已保留更新包，可重新安装")
+                    }
                 }
             }
+        }
+        synchronized(stateLock) {
+            if (sessionId == observed) monitor = job else job.cancel()
         }
     }
 
     private fun cancelSession(message: String) {
-        autoInstall = false
+        val activeSession = synchronized(stateLock) {
+            autoInstall = false
+            sessionId
+        }
         // Do not release writes while a still-live install can complete later.
-        if (sessionId >= 0) {
-            runCatching { installer.abandon(sessionId) }
-            if (sessionAlive() != false) {
+        if (activeSession >= 0) {
+            runCatching { installer.abandon(activeSession) }
+            if (sessionAlive(activeSession) != false) {
                 mutable.value = mutable.value.copy(message = "安装状态尚未核对，请先在系统界面完成或取消安装；必要时重启手机")
-                if (startedAt == 0L) startedAt = now() - 120_000
+                synchronized(stateLock) {
+                    if (startedAt == 0L) startedAt = now() - 120_000
+                }
                 monitorSession()
                 return
             }
         }
         clearSession()
-        mutable.value = UpdateUiState(message, ready = apk.exists() && target != null)
+        val hasTarget = synchronized(stateLock) { target != null }
+        mutable.value = UpdateUiState(message, ready = apk.exists() && hasTarget)
     }
 
     private fun clearSession() {
-        sessionId = -1
-        monitor?.cancel()
-        monitor = null
-        confirmation = null
+        val jobToCancel: Job?
+        val shouldReleaseGate: Boolean
+        synchronized(stateLock) {
+            sessionId = -1
+            jobToCancel = monitor
+            monitor = null
+            confirmation = null
+            shouldReleaseGate = ownsGate
+            ownsGate = false
+        }
+        jobToCancel?.cancel()
         prefs.edit().remove("session").remove("nonce").remove("started").apply()
-        if (ownsGate) { gate.endInstall(); ownsGate = false }
+        if (shouldReleaseGate) gate.endInstall()
     }
 
-    private fun sessionAlive(): Boolean? = runCatching { installer.exists(sessionId) }.getOrNull()
+    private fun sessionAlive(id: Int = synchronized(stateLock) { sessionId }): Boolean? =
+        runCatching { installer.exists(id) }.getOrNull()
 }
