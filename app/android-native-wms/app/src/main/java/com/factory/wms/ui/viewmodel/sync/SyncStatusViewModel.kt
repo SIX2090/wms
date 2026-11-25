@@ -42,29 +42,19 @@ internal data class PendingNativeWriteUiState(
  */
 class SyncStatusViewModel internal constructor(
     application: Application,
-    private val queueProvider: () -> OfflineQueueManager?,
-    private val loadPendingWrites: suspend () -> List<PendingNativeWrite>,
-    private val verifyPendingWrite: suspend (String) -> Result<String> = { requestId ->
-        WmsRepository(application).verifyPendingNativeWrite(requestId)
-    },
-    private val acknowledgePendingWrite: suspend (String, String) -> Unit = { operation, requestId ->
-        WmsRepository(application).acknowledgeNativeWrite(operation, requestId)
-    },
+    private val queueProvider: (() -> OfflineQueueManager?)? = null,
+    private val loadPendingWrites: (suspend () -> List<PendingNativeWrite>)? = null,
+    private val verifyPendingWrite: (suspend (String) -> Result<String>)? = null,
+    private val acknowledgePendingWrite: (suspend (String, String) -> Unit)? = null,
     private val sessionSnapshotProvider: () -> RetrofitClient.SessionSnapshot = {
         RetrofitClient.sessionSnapshot()
     },
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : AndroidViewModel(application) {
 
-    constructor(app: Application) : this(app, lazy { WmsRepository(app) })
+    constructor(app: Application) : this(application = app)
 
-    private constructor(app: Application, repo: Lazy<WmsRepository>) : this(
-        application = app,
-        queueProvider = { runCatching { repo.value.offlineQueue }.getOrNull() },
-        loadPendingWrites = { repo.value.pendingNativeWrites() },
-        verifyPendingWrite = { requestId -> repo.value.verifyPendingNativeWrite(requestId) },
-        acknowledgePendingWrite = { operation, requestId -> repo.value.acknowledgeNativeWrite(operation, requestId) }
-    )
+    private val defaultRepository: WmsRepository by lazy { WmsRepository(application) }
 
     internal val queueUiState: StateFlow<GlobalQueueUiState>
         get() = _queueUiState.asStateFlow()
@@ -83,7 +73,11 @@ class SyncStatusViewModel internal constructor(
 
     init {
         viewModelScope.launch {
-            val queue = withContext(ioDispatcher) { runCatching { queueProvider() }.getOrNull() }
+            val queue = withContext(ioDispatcher) {
+                runCatching {
+                    if (queueProvider != null) queueProvider.invoke() else defaultRepository.offlineQueue
+                }.getOrNull()
+            }
             queueManager = queue
             if (queue == null) {
                 _queueUiState.value = GlobalQueueUiState(snapshot = null, readError = true)
@@ -119,7 +113,9 @@ class SyncStatusViewModel internal constructor(
         pendingLoadJob?.cancel()
         pendingLoadJob = viewModelScope.launch {
             try {
-                val result = withContext(ioDispatcher) { loadPendingWrites() }
+                val result = withContext(ioDispatcher) {
+                    if (loadPendingWrites != null) loadPendingWrites.invoke() else defaultRepository.pendingNativeWrites()
+                }
                 if (generation == sessionSnapshotProvider().generation && generation == activeSessionGeneration) {
                     _pendingWriteUiState.update { it.copy(rows = result, readError = false) }
                 }
@@ -142,7 +138,10 @@ class SyncStatusViewModel internal constructor(
         }
         viewModelScope.launch {
             try {
-                val result = withContext(ioDispatcher) { verifyPendingWrite(requestId) }
+                val result = withContext(ioDispatcher) {
+                    if (verifyPendingWrite != null) verifyPendingWrite.invoke(requestId)
+                    else defaultRepository.verifyPendingNativeWrite(requestId)
+                }
                 if (session.generation == sessionSnapshotProvider().generation &&
                     session.generation == activeSessionGeneration
                 ) {
@@ -173,7 +172,10 @@ class SyncStatusViewModel internal constructor(
         }
         viewModelScope.launch {
             try {
-                withContext(ioDispatcher) { acknowledgePendingWrite(operation, requestId) }
+                withContext(ioDispatcher) {
+                    if (acknowledgePendingWrite != null) acknowledgePendingWrite.invoke(operation, requestId)
+                    else defaultRepository.acknowledgeNativeWrite(operation, requestId)
+                }
                 if (session.generation == sessionSnapshotProvider().generation &&
                     session.generation == activeSessionGeneration
                 ) {
