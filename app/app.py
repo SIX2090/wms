@@ -27546,6 +27546,7 @@ def _render_check_form(check=None):
         header={
             'remark': check.remark if check else '',
             'warehouse': getattr(check, 'warehouse', '') if check else '',
+            'warehouse_id': resolve_inventory_warehouse_id(check.warehouse) if check else None,
         },
         materials=materials,
         units=_document_units_json(),

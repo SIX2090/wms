@@ -228,6 +228,34 @@ def test_t5_h5_scan_submit_symmetric():
     assert InventoryCheckScan.query.one().check_id == batch.id
 
 
+@_pytest.mark.parametrize('platform', ['native', 'h5'])
+def test_scan_rechecks_warehouse_after_batch_lock(monkeypatch, platform):
+    from app import InventoryCheck, InventoryCheckItem, InventoryCheckScan
+
+    source, target, _ = _seed_scene()
+    client = _make_client()
+    headers = _bearer(client)
+    batch = _seed_check_order(source.name, 'CK-STALE-SCAN')
+    acquire = app_module._acquire_order_write_lock
+
+    def lock_after_warehouse_change(model, order_id, *args, **kwargs):
+        locked, ok = acquire(model, order_id, *args, **kwargs)
+        if ok and model is InventoryCheck:
+            # The lock returns the newest row, after a concurrent warehouse correction.
+            locked.warehouse = target.name
+        return locked, ok
+
+    monkeypatch.setattr(app_module, '_acquire_order_write_lock', lock_after_warehouse_change)
+    if platform == 'native':
+        response = _post_stocktake(client, headers, source.name,
+                                   [{'material_code': 'M001', 'actual_stock': 58}], batch.id)
+    else:
+        response = _post_scan_submit(client, headers, source.name, 'M001', 58, batch.id)
+    assert response.status_code == 400, response.get_json()
+    assert '不一致' in response.get_json()['msg']
+    assert InventoryCheckScan.query.count() == InventoryCheckItem.query.count() == 0
+
+
 def test_t6_check_orders_listing():
     """T6: 盘点单列表接口：全量 / 按仓库过滤 / 仅 pending。"""
     _seed_scene()

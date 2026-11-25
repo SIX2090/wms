@@ -341,6 +341,18 @@ def _stage_inventory_check_audit(check, operation, previous_status, *, created=(
     )
 
 
+def _check_warehouse_snapshot(check, items):
+    from services.document_stock_audit import snapshot_audit_row
+
+    return {
+        'status': check.status,
+        'warehouse': check.warehouse,
+        'frozen_at': check.frozen_at,
+        'items': [snapshot_audit_row(row) for row in sorted(items, key=lambda row: row.id)],
+        'moves_inventory': False,
+    }
+
+
 # no-test:reason=路由注册辅助函数，能力由 check_* 各路由测试覆盖
 def register_check_routes(app):
     @app.route('/check')
@@ -438,13 +450,15 @@ def register_check_routes(app):
         from datetime import date, datetime
         from flask_login import current_user
         from sqlalchemy.orm import selectinload
-        from app import (InventoryCheck, InventoryCheckItem, InventoryCheckScanItem,
+        from app import (AdjustmentOrder, InventoryCheck, InventoryCheckItem, InventoryCheckScan,
+                         InventoryCheckScanItem, StockTransaction,
                          _acquire_order_write_lock, _clean_int,
                          _material_from_payload, _parse_form_date, api_error,
                          generate_order_no, get_default_warehouse,
                          get_warehouse_stock_quantities, log_operation,
                          location_management_enabled, parse_float_value, round_to_2_decimals,
-                         resolve_inventory_warehouse_id, validate_inventory_warehouse)
+                         validate_inventory_warehouse)
+        from services.document_stock_audit import stage_order_audit
         data = request.get_json(silent=True) or {}
         order_id = _clean_int(data.get('order_id'))
         check_no = (data.get('order_no') or data.get('check_no') or '').strip()
@@ -471,8 +485,6 @@ def register_check_routes(app):
         warehouse = wh_obj.name
         # W1：盘点「系统库存」按仓库级口径取数（与库存查询/库存报表一致），
         # 此前取全局 material.stock，多仓库下 A+B 合计会把盘盈盘亏算错。
-        warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
-
         try:
             if order_id:
                 check = db.session.get(InventoryCheck, order_id)
@@ -502,9 +514,33 @@ def register_check_routes(app):
                     check = InventoryCheck(check_no=check_no, status='pending', operator_id=current_user.id)
                     db.session.add(check)
 
-            if check.items and resolve_inventory_warehouse_id(check.warehouse) != wh_obj.id:
-                db.session.rollback()
-                return api_error('盘点明细已冻结账面，不能更换仓库；请新建盘点单')
+            previous_warehouse = _resolve_check_warehouse((check.warehouse or '').strip()) if order_id else None
+            changing_warehouse = bool(order_id and (previous_warehouse is None or previous_warehouse.id != wh_obj.id))
+            refreeze = changing_warehouse and bool(check.items or check.frozen_at)
+            old_snapshot = None
+            if changing_warehouse:
+                if refreeze and previous_warehouse is None:
+                    return api_error('原盘点仓库无法唯一确认，请先核实历史归属')
+                if refreeze and _clean_int(header.get('warehouse_change_from_id')) != previous_warehouse.id:
+                    return api_error('盘点单仓库已变化或换仓未经确认，请刷新后重新选择并确认', 409)
+                scans = InventoryCheckScan.query.filter_by(check_id=check.id)
+                if scans.filter(db.or_(InventoryCheckScan.status.is_(None),
+                                       InventoryCheckScan.status != 'void')).first():
+                    return api_error('盘点单有有效的扫码盘点记录，请先在原仓处理这些记录，再更换仓库')
+                if AdjustmentOrder.query.filter(
+                    db.or_(db.and_(AdjustmentOrder.source_type == 'check', AdjustmentOrder.source_id == check.id),
+                           db.and_(AdjustmentOrder.source_type == 'check_scan',
+                                   AdjustmentOrder.source_id.in_(scans.with_entities(InventoryCheckScan.id)))),
+                    db.or_(AdjustmentOrder.status.is_(None), AdjustmentOrder.status != 'cancelled'),
+                ).first():
+                    return api_error('盘点单有关联调整单尚未撤回，请先处理调整单再更换仓库')
+                if StockTransaction.query.filter_by(reference_type='check', reference_id=check.id).first():
+                    return api_error('这张历史盘点单有直接库存流水，不能更换仓库')
+                old_snapshot = _check_warehouse_snapshot(check, check.items)
+
+            warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
+            if refreeze:
+                check.frozen_at = datetime.now()
             check.check_no = check_no
             check.date = _parse_form_date(data.get('date'), check.date if order_id else date.today())
             check.remark = (header.get('remark') or '').strip()
@@ -523,13 +559,14 @@ def register_check_routes(app):
             # - 已有行（按物料匹配）保留 system_stock 冻结值，仅更新实盘/原因；
             # - 新增行取当前仓库级账面（视为该行首次录入时点的基准）；
             # - 提交集之外的旧行删除（全量提交语义与旧版一致）；
-            # - 首次写入明细时设置 frozen_at，一经设置不再变更。
+            # - 首次写入明细时设置 frozen_at，确认更换仓库时才重新冻结。
             existing_items = {item.id: item for item in check.items}
             legacy_rows = {}
             frozen_by_material = {}
             for item in sorted(check.items, key=lambda row: row.id):
                 legacy_rows.setdefault((item.material_id, (item.area or '').strip()), []).append(item)
-                frozen_by_material.setdefault(item.material_id, item.system_stock)
+                if not refreeze:
+                    frozen_by_material.setdefault(item.material_id, item.system_stock)
             claimed_ids = set()
             retained_ids = set()
             saved_rows = []
@@ -568,12 +605,13 @@ def register_check_routes(app):
                     if row.material_id != material.id:
                         row = None
                 if row is not None:
-                    # 已有行：冻结账面保留，只更新实盘/原因/差异
+                    # 同仓保留冻结账面，确认换仓时使用目标仓账面。
                     retained_ids.add(row.id)
+                    was_counted = row.has_actual_count
                     actual = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock)) if has_actual else row.actual_stock
-                    cleared = 'line_id' in item_data and not has_actual and bool(
-                        row.counted_at or row.counted_by or row.actual_stock != row.system_stock)
-                    changed = has_actual and (row.counted_at is None or actual != row.actual_stock)
+                    cleared = 'line_id' in item_data and not has_actual and was_counted
+                    changed = has_actual and (actual != row.actual_stock or
+                                              (not was_counted if refreeze else row.counted_at is None))
                     if (row.area or '') != area or changed or cleared:
                         InventoryCheckScanItem.query.filter_by(batch_item_id=row.id).update({'batch_item_id': None})
                     row.area = area
@@ -584,6 +622,14 @@ def register_check_routes(app):
                         row.actual_stock = actual
                         row.counted_by = current_user.id
                         row.counted_at = datetime.now()
+                    if refreeze:
+                        row.system_stock = round_to_2_decimals(warehouse_stock_map.get(material.id, 0) or 0)
+                        if cleared or not (was_counted or has_actual):
+                            row.actual_stock = row.system_stock
+                        elif not (row.counted_by or row.counted_at):
+                            # 某些旧单仅靠账实差判断已盘，换仓后也保留这次实盘。
+                            row.counted_by = current_user.id
+                            row.counted_at = check.frozen_at
                     row.difference = round_to_2_decimals(row.actual_stock - row.system_stock)
                     row.reason = (item_data.get('reason') or item_data.get('remark') or '').strip()
                 else:
@@ -614,6 +660,12 @@ def register_check_routes(app):
                 check.frozen_at = datetime.now()
 
             db.session.flush()
+            if old_snapshot is not None:
+                stage_order_audit(
+                    'change_check_warehouse', check, target_type='check', target_name=check.check_no,
+                    old=old_snapshot, new=_check_warehouse_snapshot(check, saved_rows),
+                    reason='更正盘点仓库并重新冻结目标仓账面',
+                )
             response = {'status': 'success', 'msg': '保存成功', 'id': check.id,
                         'order_no': check.check_no, 'line_ids': [row.id for row in saved_rows]}
             stage_document_response(response)

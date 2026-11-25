@@ -1425,10 +1425,6 @@ def register_native_api_routes(app):
                 return api_json_error(f'盘点单不存在：{check_id}，请刷新盘点单列表后重选', 400)
             if batch.status != 'pending':
                 return api_json_error(f'盘点单 {batch.check_no} 已完结，请重新选择进行中的盘点单', 400)
-            if (batch.warehouse or '').strip() != warehouse:
-                return api_json_error(
-                    f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
-                    f'与所选盘点仓库「{warehouse}」不一致，请重新选择', 400)
             locked_batch, lock_ok = _acquire_order_write_lock(
                 InventoryCheck, batch.id, 'pending',
                 selectinload(InventoryCheck.items))
@@ -1436,6 +1432,11 @@ def register_native_api_routes(app):
                 return api_json_error(
                     f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试', 400)
             batch = locked_batch
+            if (batch.warehouse or '').strip() != warehouse:
+                message = (f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
+                           f'与所选盘点仓库「{warehouse}」不一致，请重新选择')
+                db.session.rollback()
+                return api_json_error(message, 400)
             check = InventoryCheckScan(
                 check_no=generate_order_no('CS'),
                 date=date.today(),

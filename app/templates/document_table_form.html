@@ -233,12 +233,15 @@ body.cb-form-actionbar .doc-header [data-wms-save-complete] { display:none !impo
                 <div class="col-md-3">
                     <div class="mb-2">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
-                        <select class="form-select" name="warehouse_id" {% if readonly %}disabled{% endif %} required>
+                        <select class="form-select" name="warehouse_id"{% if order_id %} data-saved-warehouse-id="{{ header.warehouse_id or '' }}"{% endif %} {% if readonly %}disabled{% endif %} required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
                             <option value="{{ warehouse.id }}" {% if header.warehouse_id == warehouse.id or header.warehouse == warehouse.name or (not header.warehouse and not header.warehouse_id and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
+                        {% if order_id and not readonly %}
+                        <div class="form-text">更换仓库后，请先保存草稿并核对新仓账面。</div>
+                        {% endif %}
                     </div>
                 </div>
                 {% endif %}
@@ -943,6 +946,19 @@ function submitForm(completeAfterSave) {
         header: collectHeader(),
         items: result.items
     };
+    if (docType === 'check' && data.order_id) {
+        const warehouseField = document.querySelector('[name="warehouse_id"]');
+        const savedWarehouseId = warehouseField?.dataset?.savedWarehouseId;
+        if (savedWarehouseId && data.header.warehouse_id && savedWarehouseId !== data.header.warehouse_id) {
+            if (completeAfterSave) {
+                showToast('请先保存换仓草稿，核对新仓账面和差异后再完成盘点', 'warning');
+                return;
+            }
+            const target = warehouseField.selectedOptions?.[0]?.textContent.trim() || '所选仓库';
+            if (!confirm('更换盘点仓库为「' + target + '」？保存会按新仓当前库存重新冻结账面。请确认实盘数量属于新仓，已核对盘点后的出入库及库位/区域。')) return;
+            data.header.warehouse_change_from_id = savedWarehouseId;
+        }
+    }
     if (!beginDocumentAction()) return;
     return WMS.api.postRaw(saveUrl, data)
         .then(res => {

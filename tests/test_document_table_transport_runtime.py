@@ -98,6 +98,25 @@ function mutex(){const count=calls.length,confirmed=confirms;invoke('submitForm(
 function protocol(index,kind){const call=calls[index];assert.equal(call.options.method,'POST');assert.equal(call.options.credentials,'same-origin');assert.equal(call.options.headers['X-CSRFToken'],'fixture-token');if(kind==='revert'){assert.equal(call.body,undefined);assert.equal(call.url,'/'+p.doc+'/7/revert');}else {assert.equal(call.options.headers['Content-Type'],'application/json');if(kind==='complete'){assert.deepEqual(call.body,{force:false});assert.equal(call.url,'/'+p.doc+'/7/complete');}else if(kind==='force'){assert.deepEqual(call.body,p.doc==='check'?{force:true,confirmation_token:'synthetic-risk-token'}:{force:true});assert.equal(call.url,'/'+p.doc+'/7/complete');}else {assert.equal(call.url,'/'+p.doc+'/save_table');assert.equal(call.body.order_id,'7');assert.equal(call.body.order_no,'FIXTURE-7');assert.equal(call.body.date,'2026-10-22');assert.equal(call.body.items[0].material_id,11);if(p.doc==='check'){assert.equal(call.body.items[0].actual_stock,3);assert.equal(call.body.header.warehouse_id,'1');}else{assert.equal(call.body.items[0].quantity,2);assert.equal(call.body.items[0].price,0);}if(p.doc==='transfer'){assert.equal(call.body.header.from_warehouse,'W1');assert.equal(call.body.header.to_warehouse,'W2');assert.equal(call.body.header.from_location,'Rack-1');assert.equal(call.body.header.to_location,'Rack-2');}if(p.doc==='requisition'){assert.equal(call.body.header.picker,'张三');assert.equal(call.body.header.production_order,'工单 & 1');}}}}
 (async()=>{
  if(p.mode==='denied'){invoke('submitForm(true)');invoke("runComplete('/bad',true,7)");invoke('completeDocument()');invoke('revertDocument()');await settle();assert.equal(calls.length,0);assert.equal(confirms,0);process.stdout.write('{}');return;}
+ if(p.mode==='warehouse-change'){
+  fields.warehouse_id.dataset={savedWarehouseId:'1'};
+  fields.warehouse_id.value='2';
+  invoke('submitForm(true)');
+  assert.equal(calls.length,0,'warehouse correction must be saved as a draft before completion');
+  assert.equal(confirms,0);
+  invoke('submitForm(false)');
+  assert.equal(confirms,1);
+  if(p.scenario==='cancel'){assert.equal(calls.length,0);return;}
+  assert.equal(calls.length,1);
+  assert.equal(calls[0].url,'/check/save_table');
+  assert.equal(calls[0].body.header.warehouse_id,'2');
+  assert.equal(calls[0].body.header.warehouse_change_from_id,'1');
+  await finish(0,'success');
+  assert.equal(calls.length,1);
+  timers.find(t=>t.delay===500).fn();
+  assert.equal(ctx.location.href,'/check/7');
+  return;
+ }
  const finishAction=p.doc==='requisition'?'submitForm(true)':'completeDocument()';
  const initial=p.mode==='save'?'submitForm(false)':p.mode==='revert'?'revertDocument()':finishAction;
  assert(p.actions.includes(initial),initial+' must have a real rendered button');invoke(initial);
@@ -144,6 +163,11 @@ def execute(doc, mode, scenario='success', role='admin'):
         doc=doc,mode=mode,scenario=scenario,script=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+scripts[0],actions=actions,
         api=(ROOT/'app/static/js/api.js').read_text(encoding='utf-8'))),capture_output=True,text=True,encoding='utf-8',timeout=20)
     assert result.returncode==0,result.stdout+result.stderr
+
+
+@pytest.mark.parametrize('scenario', ['success', 'cancel'])
+def test_check_warehouse_correction_requires_confirmation_and_separate_save(scenario):
+    execute('check', 'warehouse-change', scenario)
 
 
 @pytest.mark.parametrize('doc,mode', [('bom','save'),('requisition','complete'),('check','force'),('transfer','revert')])
