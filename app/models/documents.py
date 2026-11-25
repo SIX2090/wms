@@ -664,7 +664,7 @@ class AdjustmentOrder(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')
     source_type = db.Column(db.String(50))  # Source type: check/manual
     source_id = db.Column(db.Integer)  # Source ID
-    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
+    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled/deleted
     reversed = db.Column(db.Boolean, default=False)  # Reversed flag
     reversal_order_id = db.Column(db.Integer)  # Reversal order ID
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID

@@ -531,7 +531,7 @@ def register_check_routes(app):
                     db.or_(db.and_(AdjustmentOrder.source_type == 'check', AdjustmentOrder.source_id == check.id),
                            db.and_(AdjustmentOrder.source_type == 'check_scan',
                                    AdjustmentOrder.source_id.in_(scans.with_entities(InventoryCheckScan.id)))),
-                    db.or_(AdjustmentOrder.status.is_(None), AdjustmentOrder.status != 'cancelled'),
+                    db.or_(AdjustmentOrder.status.is_(None), AdjustmentOrder.status.notin_(('cancelled', 'deleted'))),
                 ).first():
                     return api_error('盘点单有关联调整单尚未撤回，请先处理调整单再更换仓库')
                 if StockTransaction.query.filter_by(reference_type='check', reference_id=check.id).first():

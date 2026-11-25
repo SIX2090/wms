@@ -3,6 +3,8 @@ from datetime import datetime
 from io import BytesIO
 from types import SimpleNamespace
 
+import re
+
 import pytest
 from openpyxl import load_workbook
 
@@ -70,6 +72,65 @@ def test_validate_stocktake_adjustment(scene):
     assert document_post(client, f'/check/{check}/delete', json={}).json['status'] == 'error'
     assert _complete(client, check, confirm=True)['status'] == 'success'
     assert w.AdjustmentOrder.query.filter_by(status='pending').count() == 1
+
+
+@pytest.mark.parametrize('batch', [False, True], ids=['single', 'batch'])
+def test_delete_withdrawn_adjustment_preserves_ledger_and_allows_new_draft(scene, batch):
+    client, _, wh, material = scene
+    check = _count(client, wh, material, [{'actual_stock': 110}])
+    assert _complete(client, check)['status'] == 'success'
+    order = w.AdjustmentOrder.query.one()
+    order_id, number = order.id, order.adjustment_no
+    assert document_post(client, f'/adjustment/{order_id}/complete', json={}).json['status'] == 'success'
+    assert document_post(client, f'/adjustment/{order_id}/delete', json={}).json['status'] == 'error'
+    assert document_post(client, f'/adjustment/{order_id}/revert', json={}).json['status'] == 'success'
+    assert document_post(client, f'/check/{check}/revert', json={}).json['status'] == 'success'
+    assert order.status == 'cancelled'
+    flow_query = w.StockTransaction.query.filter_by(reference_type='adjustment', reference_id=order_id)
+    visible = client.get('/adjustment', query_string={'warehouse_id': wh.id}).get_data(as_text=True)
+    checkbox = re.search(r'class="check-item" value="' + str(order_id) + r'" [^>]*?>', visible)
+    assert checkbox is not None and 'disabled' not in checkbox[0]
+    assert f'delBtn" data-id="{order_id}"' in visible
+    assert 'data-wms-no-delete' not in client.get(f'/adjustment/{order_id}').get_data(as_text=True)
+    old_flows = [(row.id, row.quantity, row.warehouse_id) for row in flow_query.order_by(w.StockTransaction.id)]
+    assert sorted(qty for _, qty, _ in old_flows) == [-10, 10]
+
+    url = '/adjustment/batch_delete' if batch else f'/adjustment/{order_id}/delete'
+    payload = {'ids': [order_id, order_id]} if batch else {}
+    result = document_post(client, url, json=payload).json
+    assert result['status'] == 'success', result
+    if batch:
+        assert result['deleted'] == 1
+    assert document_post(client, url, json=payload).json['status'] == 'error'
+    assert w.db.session.get(w.AdjustmentOrder, order_id).status == 'deleted'
+    assert material.stock == 100
+    assert [(row.id, row.quantity, row.warehouse_id) for row in flow_query.order_by(w.StockTransaction.id)] == old_flows
+    assert w.OperationAudit.query.filter_by(operation='delete_adjustment', target_name=number).count() == 1
+
+    filters = {'warehouse_id': wh.id, 'search': number}
+    html = client.get('/adjustment', query_string=filters).get_data(as_text=True)
+    assert f'<tr data-id="{order_id}">' not in html and f'>{number}</a>' not in html
+    for suffix in ('', '/print', '/print_excel', '/print_options', '/print_preview'):
+        assert client.get(f'/adjustment/{order_id}{suffix}').status_code == 404
+    nav = client.get('/api/document_navigation/adjustment', query_string={'q': number})
+    assert number not in nav.get_data(as_text=True)
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    exported = client.get('/adjustment/export', query_string=filters)
+    assert exported.status_code == 200
+    with BytesIO(exported.data) as stream:
+        workbook = load_workbook(stream, read_only=True)
+        try:
+            assert not any(number in row for row in workbook.active.values)
+        finally:
+            workbook.close()
+    assert number not in client.get(f'/check/{check}').get_data(as_text=True)
+    with w.app.test_request_context():
+        assert w._report_reference_info('adjustment', order_id) == (number, '')
+    assert _complete(client, check, confirm=True)['status'] == 'success'
+    new_order = w.AdjustmentOrder.query.filter_by(status='pending').one()
+    assert new_order.id != order_id and new_order.adjustment_no != number
 
 
 def test_overlapping_stocktake_adjustment(scene):

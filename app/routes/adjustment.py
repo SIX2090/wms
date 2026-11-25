@@ -35,12 +35,35 @@ from services.web_document_idempotency import web_document_idempotent, stage_doc
 from utils import require_role
 
 
-def _adjustment_delete_error(adjustment):
+_DELETABLE_ADJUSTMENT_STATUSES = ('pending', 'cancelled')
+
+
+def _adjustment_delete_error(adjustment, *, has_history=None):
+    if adjustment.status == 'cancelled':
+        return None
+    if adjustment.status != 'pending':
+        return '只有草稿和已撤回的调整单可以删除'
     if adjustment.source_type in STOCKTAKE_SOURCES:
         return '盘点生成的调整单请在来源盘点单反提交后撤回'
-    if stocktake_adjustment_history(adjustment.id):
-        return '曾经过账的调整单须保留原单与库存流水'
+    if has_history is None:
+        has_history = stocktake_adjustment_history(adjustment.id)
+    if has_history:
+        return '这张草稿已有库存流水，须保留原单'
     return None
+
+
+def _stage_adjustment_deletion(adjustment, reason):
+    from services.document_stock_audit import stage_stock_document_snapshot
+
+    stage_stock_document_snapshot(adjustment, deleting=True, operation='delete_adjustment',
+                                  reason=reason, reference_type='adjustment', target_name=adjustment.adjustment_no)
+    if adjustment.status == 'cancelled':
+        # 保留单号、主键、来源仓和明细，供库存流水和历史仓库归属继续引用。
+        adjustment.status = 'deleted'
+    else:
+        for item in adjustment.items:
+            db.session.delete(item)
+        db.session.delete(adjustment)
 
 
 # no-test:reason=路由注册辅助函数，能力由 adjustment_* 各路由测试覆盖
@@ -66,7 +89,7 @@ def register_adjustment_routes(app):
         query = AdjustmentOrder.query.options(
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit)
-        )
+        ).filter(AdjustmentOrder.status.is_distinct_from('deleted'))
         query = _apply_status_date_filters(query, AdjustmentOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse:
@@ -109,8 +132,8 @@ def register_adjustment_routes(app):
         posted_ids = {row.reference_id for row in db.session.query(StockTransaction.reference_id).filter(
             StockTransaction.reference_type == 'adjustment',
             StockTransaction.reference_id.in_([order.id for order in adjustments])).distinct()}
-        deletable_ids = {order.id for order in adjustments if order.status == 'pending'
-                         and order.source_type not in STOCKTAKE_SOURCES and order.id not in posted_ids}
+        deletable_ids = {order.id for order in adjustments
+                         if _adjustment_delete_error(order, has_history=order.id in posted_ids) is None}
         return render_template('adjustment.html', adjustments=adjustments, pagination=pagination, filters=filters, sort_by=sort_by, sort_order=sort_order, per_page=per_page, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(), deletable_ids=deletable_ids)
 
     @app.route('/adjustment/add', methods=['GET'])
@@ -162,7 +185,7 @@ def register_adjustment_routes(app):
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit)
-        ).get_or_404(id)
+        ).filter(AdjustmentOrder.id == id, AdjustmentOrder.status.is_distinct_from('deleted')).first_or_404()
         materials = Material.query.options(joinedload(Material.unit)).order_by(Material.code.asc()).all()
         # BUG-2026-10-17-015-F07：编辑页按调整单仓库口径展示库存。
         adj_warehouse, _wh_err = validate_inventory_warehouse(adjustment.warehouse or '')
@@ -198,7 +221,8 @@ def register_adjustment_routes(app):
                              existing_items=[_serialize_adjustment_item_for_form(item, adj_stock_map) for item in adjustment.items],
                              readonly=readonly,
                              source_locked=source_locked, source_check=source_check, source_scan=source_scan,
-                             delete_blocked=readonly or stocktake_adjustment_history(adjustment.id),
+                             delete_blocked=(current_user.role not in ('admin', 'warehouse')
+                                             or _adjustment_delete_error(adjustment) is not None),
                              location_management_enabled=location_management_enabled(),
                              page_title=('查看库存调整单' if readonly else '编辑库存调整单'))
 
@@ -213,7 +237,7 @@ def register_adjustment_routes(app):
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit),
-        ).get_or_404(id)
+        ).filter(AdjustmentOrder.id == id, AdjustmentOrder.status.is_distinct_from('deleted')).first_or_404()
         type_label = '盘盈增加库存' if adjustment.adjustment_type == 'surplus' else '盘亏减少库存' if adjustment.adjustment_type == 'loss' else adjustment.adjustment_type
         rows = [
             _material_row_common(
@@ -654,28 +678,24 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_adjustment(id):
-        from app import (AdjustmentOrder, AdjustmentOrderItem,
-                         _acquire_order_write_lock, api_error, log_operation)
-        from services.document_stock_audit import stage_stock_document_snapshot
+        from app import AdjustmentOrder, _acquire_order_write_lock, api_error, log_operation
+
         adjustment = AdjustmentOrder.query.get_or_404(id)
-        if adjustment.status != 'pending':
-            return api_error('只有草稿状态的调整单可以删除')
+        if adjustment.status not in _DELETABLE_ADJUSTMENT_STATUSES:
+            return api_error('只有草稿和已撤回的调整单可以删除')
 
         try:
-            # 重新锁定并校验草稿状态，防止并发完成后仍被物理删除。
-            locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, 'pending')
+            # 只删除用户选中时的状态，避免并发过账、撤回或重复删除串单。
+            locked, ok = _acquire_order_write_lock(AdjustmentOrder, id, adjustment.status)
             if not ok:
-                return jsonify({'status': 'error', 'msg': '该调整单状态已变更；已完成单请先反提交后再删除'}), 409
+                return jsonify({'status': 'error', 'msg': '该调整单状态已变更，请刷新后重试'}), 409
             adjustment = locked
             error = _adjustment_delete_error(adjustment)
             if error:
                 db.session.rollback()
                 return api_error(error)
             number = adjustment.adjustment_no
-            stage_stock_document_snapshot(adjustment, deleting=True, operation='delete_adjustment',
-                                          reason='删除库存调整草稿', reference_type='adjustment', target_name=number)
-            AdjustmentOrderItem.query.filter_by(adjustment_order_id=id).delete()
-            db.session.delete(adjustment)
+            _stage_adjustment_deletion(adjustment, '删除库存调整单')
             db.session.commit()
             log_operation('删除库存调整单', f'调整单：{number}', 'adjustment', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
@@ -689,19 +709,16 @@ def register_adjustment_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_delete_adjustment():
-        from app import (AdjustmentOrder, AdjustmentOrderItem,
-                         _acquire_order_write_lock, api_error, log_operation)
-        from services.document_stock_audit import stage_stock_document_snapshot
+        from app import AdjustmentOrder, _acquire_order_write_lock, api_error, log_operation
+
         payload = request.get_json(silent=True) or {}
         ids = payload.get('ids') or request.form.getlist('ids')
-        ids = [int(item_id) for item_id in ids if str(item_id).isdigit()]
+        ids = list(dict.fromkeys(int(item_id) for item_id in ids if str(item_id).isdigit()))
         if not ids:
             return api_error('请选择要删除的库存调整单')
 
         adjustments = AdjustmentOrder.query.filter(AdjustmentOrder.id.in_(ids)).all()
-        blocked = [adjustment.adjustment_no for adjustment in adjustments if adjustment.status != 'pending']
-        if blocked:
-            return api_error('只能删除草稿调整单：' + '、'.join(blocked))
+        expected_statuses = {order.id: order.status for order in adjustments}
         for order in adjustments:
             error = _adjustment_delete_error(order)
             if error:
@@ -713,7 +730,8 @@ def register_adjustment_routes(app):
         for adjustment_id in ids:
             adjustment_no = None
             try:
-                locked, ok = _acquire_order_write_lock(AdjustmentOrder, adjustment_id, 'pending')
+                locked, ok = _acquire_order_write_lock(
+                    AdjustmentOrder, adjustment_id, expected_statuses.get(adjustment_id, ()))
                 if not ok or locked is None:
                     existing = AdjustmentOrder.query.get(adjustment_id)
                     adjustment_no = existing.adjustment_no if existing else f'ID:{adjustment_id}'
@@ -727,11 +745,7 @@ def register_adjustment_routes(app):
                     skipped.append(f'{adjustment_no}({error})')
                     db.session.rollback()
                     continue
-                stage_stock_document_snapshot(adjustment, deleting=True, operation='delete_adjustment',
-                                              reason='批量删除库存调整草稿', reference_type='adjustment',
-                                              target_name=adjustment_no)
-                AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment_id).delete()
-                db.session.delete(adjustment)
+                _stage_adjustment_deletion(adjustment, '批量删除库存调整单')
                 db.session.commit()
                 deleted_count += 1
             except Exception:
@@ -762,7 +776,7 @@ def register_adjustment_routes(app):
         query = AdjustmentOrder.query.options(
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit),
-        )
+        ).filter(AdjustmentOrder.status.is_distinct_from('deleted'))
         query = _apply_status_date_filters(query, AdjustmentOrder, status_filter, date_start, date_end)
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse_error:

@@ -57,6 +57,8 @@ def _make_doc_print_excel_view(flask_app, target_code, model_name):
         import app as app_module
         model = getattr(app_module, model_name)
         order = model.query.get_or_404(id)
+        if target_code == 'adjustment' and order.status == 'deleted':
+            abort(404)
         try:
             result = render_doc_excel_print(
                 target_code, order,

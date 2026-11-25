@@ -1670,7 +1670,7 @@ def register_native_api_routes(app):
             if scan_ids:
                 conds.append(db.and_(AdjustmentOrder.source_type == 'check_scan',
                                      AdjustmentOrder.source_id.in_(scan_ids)))
-            linked = AdjustmentOrder.query.filter(or_(*conds)).all()
+            linked = AdjustmentOrder.query.filter(or_(*conds), AdjustmentOrder.status.is_distinct_from('deleted')).all()
             for order in linked:
                 bucket = (adj_by_batch if order.source_type == 'check'
                           else adj_by_scan)

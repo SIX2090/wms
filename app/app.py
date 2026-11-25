@@ -10597,7 +10597,10 @@ def _ai_find_orders(message, limit=8):
     ]
     results = []
     for label, model, field, endpoint in configs:
-        for order in model.query.filter(field.ilike(like)).order_by(model.id.desc()).limit(limit).all():
+        query = model.query.filter(field.ilike(like))
+        if model is AdjustmentOrder:
+            query = query.filter(AdjustmentOrder.status.is_distinct_from('deleted'))
+        for order in query.order_by(model.id.desc()).limit(limit).all():
             payload = _ai_order_payload(label, order, endpoint) if endpoint not in {'subcontract_issue_list', 'subcontract_receive_list'} else {
                 'type': label,
                 'order_no': getattr(order, 'issue_no', '') or getattr(order, 'receive_no', ''),
@@ -18402,7 +18405,7 @@ def _ai_context_order_from_url(page_url):
         match = re.search(pattern, page_url or '')
         if match:
             order = model.query.get(int(match.group(1)))
-            if order:
+            if order and (module_key != 'adjustment' or order.status != 'deleted'):
                 return module_key, order, endpoint
     return None, None, None
 
@@ -26641,6 +26644,8 @@ def api_document_navigation(module_key):
     keyword = (request.args.get('q') or '').strip().lower()
     model = config['model']
     query = model.query
+    if module_key == 'adjustment':
+        query = query.filter(AdjustmentOrder.status.is_distinct_from('deleted'))
     if module_key in ('in_order', 'out_order'):
         current = db.session.get(model, current_id) if current_id else None
         business_type = ((current.business_type or ('采购入库' if module_key == 'in_order' else '领料单'))
@@ -27521,6 +27526,7 @@ def _build_check_batch_meta(check):
 def _render_check_form(check=None):
     can_edit = current_user.role in ('admin', 'warehouse')
     linked = (AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id)
+              .filter(AdjustmentOrder.status.is_distinct_from('deleted'))
               .order_by(AdjustmentOrder.id).all()) if check else []
     warehouse = validate_inventory_warehouse(check.warehouse)[0] if check and check.warehouse else get_default_warehouse()
     materials = _document_materials_json(warehouse, scoped=True)
@@ -27821,7 +27827,7 @@ def _create_adjustment_drafts_from_check(check):
     from services.stocktake import grouped_stocktake_counts, overlapping_stocktake_adjustment, stocktake_quantities
 
     existing = AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).filter(
-        AdjustmentOrder.status != 'cancelled').first()
+        AdjustmentOrder.status.notin_(('cancelled', 'deleted'))).first()
     if existing:
         return None, '该盘点单已生成库存调整单，请勿重复生成'
 
@@ -27886,7 +27892,8 @@ def _create_adjustment_drafts_from_check(check):
 
 def _create_adjustment_drafts_from_check_scan(check):
     """Create pending adjustment draft(s) from mobile/native stocktake differences."""
-    existing = AdjustmentOrder.query.filter_by(source_type='check_scan', source_id=check.id).all()
+    existing = (AdjustmentOrder.query.filter_by(source_type='check_scan', source_id=check.id)
+                .filter(AdjustmentOrder.status.is_distinct_from('deleted')).first())
     if existing:
         return None, '该扫码盘点单已生成库存调整单，请勿重复生成'
 
@@ -29411,6 +29418,8 @@ def _report_reference_info(reference_type, reference_id, fallback_no='', opening
         return fallback_no, ''
 
     number = getattr(doc, config['number'], None) or fallback_no or f'{reference_type}-{reference_id}'
+    if reference_type == 'adjustment' and doc.status == 'deleted':
+        return str(number), ''
     return str(number), _report_detail_url(config['endpoint'], doc.id)
 
 def _serialize_excel_value(column, row):

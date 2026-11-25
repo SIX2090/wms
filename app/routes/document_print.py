@@ -35,7 +35,7 @@ def _print_context(code,oid):
     from doc_print_excel import DOC_EXCEL_PRINT_TYPES
     from print_fill import template_file_abspath
     _,model,_=_DOCUMENTS[code];order=w.db.session.get(getattr(w,model),oid)
-    if order is None:
+    if order is None or (code == 'adjustment' and order.status == 'deleted'):
         from flask import abort
         abort(404)
     result=_base_context(code,oid)
