@@ -1,8 +1,11 @@
 """Exercise stocktake displays and document controls through the ordinary web routes."""
+from html import unescape
 from io import BytesIO
 import re
+from urllib.parse import parse_qs, urlsplit
 
 from openpyxl import Workbook, load_workbook
+import pytest
 
 import app as wms
 from tests.document_revision_client import document_post
@@ -31,6 +34,25 @@ def test_stocktake_list_creation_uses_filtered_warehouse(scene):
     order = wms.db.session.get(wms.InventoryCheck, created['id'])
     assert order.warehouse == filtered.name and order.status == 'pending'
     assert client.get(f'/check/{order.id}?embedded=1').status_code == 200
+
+
+@pytest.mark.parametrize('embedded', [None, '1'])
+def test_saved_stocktake_returns_to_its_warehouse_list(scene, embedded):
+    client, _, warehouse, material = scene
+    key = _count(client, warehouse, material, [{'actual_stock': 40}])
+    check = wms.db.session.get(wms.InventoryCheck, key)
+    query = {'embedded': embedded} if embedded else {}
+    detail = client.get(f'/check/{key}', query_string=query)
+    assert detail.status_code == 200
+    href = re.search(r'<a data-wms-back href="([^"]+)"', detail.get_data(as_text=True)).group(1)
+    destination = urlsplit(unescape(href))
+    assert destination.path == '/check'
+    assert parse_qs(destination.query) == {
+        'warehouse_id': [str(warehouse.id)], **({'embedded': ['1']} if embedded else {}),
+    }
+    listing = client.get(destination.geturl())
+    assert listing.status_code == 200 and check.check_no in listing.get_data(as_text=True)
+    assert check.check_no not in client.get('/check').get_data(as_text=True)
 
 
 def test_pallet_count_outputs_and_source_navigation(scene):
