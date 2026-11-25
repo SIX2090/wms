@@ -22,9 +22,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -272,7 +272,7 @@ fun InOutDetailReportScreen(
                         val filtered = uiState.keyword.isNotBlank() ||
                             uiState.direction != InOutDirection.ALL
                         WmsEmptyState(
-                            icon = Icons.Outlined.ReceiptLong,
+                            icon = Icons.AutoMirrored.Outlined.ReceiptLong,
                             title = if (filtered) "未找到匹配流水" else "该范围内无出入库流水",
                             subtitle = if (filtered) {
                                 "换个关键词或方向条件试试"

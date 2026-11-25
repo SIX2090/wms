@@ -39,29 +39,16 @@ class WmsApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         installCrashLogger()
-        // Recover an installation lease before any queued business request can start.
-        runCatching { appUpdates.recover() }.onFailure {
-            Log.w(TAG, "更新状态暂不可用，可继续使用当前版本", it)
-        }
+        // 主线程零 IO 置位启动恢复屏障：在任何 Activity/AuthViewModel/离线队列启动前，
+        // 阻止业务写入与离线补传抢占 businessUpdateGate，确保后台 appUpdates.recover()
+        // 必然先检查并接管残留安装会话。
+        com.factory.wms.update.businessUpdateGate.beginStartupRecovery()
         RetrofitClient.onUnauthorized = {
             AuthEventBus.notifyUnauthorized()
         }
-        // P2-A: 清理 cacheDir/camera/ 下超过 24 小时的临时拍照文件，
-        // 避免 FileProvider 缓存目录无限累积占用空间。
-        cleanupStaleCameraCache()
-        // AI-MOB-SCAN-UX-01：预热扫码反馈开关（默认开）。
-        // 扫码回调在相机分析线程上要求"立刻"出反馈，不能在那时做磁盘 IO，
-        // 故在进程启动时读一次进内存，之后同步判断。
-        ScanFeedback.warmUp(this)
-        // BUG-2026-09-12-011：预热离线待提交队列。
-        //
-        // OfflineQueueManager 挂载在 WmsRepository.offlineQueue（by lazy），其 init 块
-        // 负责两件必须发生的事：① 复位进程被杀残留的 syncing 记录；② 注册网络恢复监听。
-        // 若只在扫码页（ScanViewModel 首次访问）才触发，则用户"断网提交后没再打开扫码页"
-        // 时这两件事都不会发生 —— 数据躺在库里既不补传也无人复位，
-        // 离线队列对用户承诺的"联网后自动提交"就是空的。
-        // 进程启动即预热，使该承诺与用户后续操作路径无关。
-        warmUpOfflineQueue()
+        // P-01 / P-03（2026-11-24）：将启动期磁盘 IO 统一移入 Dispatchers.IO 后台预热，
+        // 不阻塞主线程冷启动。
+        warmUpBackgroundServices()
         // 异常信息仅保存在本机，由用户选择复制并反馈；启动时不自动上传。
     }
 
@@ -114,16 +101,31 @@ class WmsApplication : Application(), ImageLoaderFactory {
     }
 
     /**
-     * 后台预热离线队列单例（不阻塞主线程）。
-     *
-     * 只做"拿到实例"这一件事：实例化本身极轻（仅建对象），真正的磁盘复位与网络注册
-     * 在 [WmsRepository.offlineQueue] 的 init 里以协程方式异步执行。
-     * 单例由 `synchronized` 保证幂等，重复调用无副作用。
+     * 后台预热启动期磁盘依赖（不阻塞主线程）：
+     * 1. 先恢复更新安装租约，保证早于离线队列的任意业务请求；
+     * 2. 预热扫码反馈开关（SharedPreferences）；
+     * 3. 预热离线队列单例（触发 Room 后台打开、复位 syncing、注册网络监听）；
+     * 4. 清理超过 24 小时的临时相机缓存文件。
      */
-    private fun warmUpOfflineQueue() {
+    private fun warmUpBackgroundServices() {
         appScope.launch {
-            runCatching { repository.offlineQueue }
+            try {
+                runCatching { appUpdates.recover() }.onFailure {
+                    Log.w(TAG, "更新状态暂不可用，可继续使用当前版本", it)
+                }
+            } finally {
+                com.factory.wms.update.businessUpdateGate.endStartupRecovery()
+                runCatching { appUpdates.onStartupRecoveryFinished() }
+                    .onFailure { Log.w(TAG, "恢复前台更新状态失败: ${it.message}") }
+            }
+            runCatching { ScanFeedback.warmUp(this@WmsApplication) }
+                .onFailure { Log.w(TAG, "扫码反馈开关预热失败: ${it.message}") }
+            // 启动恢复屏障释放后触发一次离线队列预热与补传：
+            // 若无残留安装会话，此前因屏障延后的补传将立即执行；
+            // 若有残留安装会话，beginInstall() 已持有门闩，syncPending() 会安全等待安装结束。
+            runCatching { repository.offlineQueue?.syncPending() }
                 .onFailure { Log.w(TAG, "离线队列预热失败（不影响启动）: ${it.message}") }
+            cleanupStaleCameraCache()
         }
     }
 

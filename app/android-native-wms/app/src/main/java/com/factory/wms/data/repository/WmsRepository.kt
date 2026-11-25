@@ -43,22 +43,38 @@ class WmsRepository(
 
     private val api: WmsApiService
         get() = RetrofitClient.apiService
-    // BUG-2026-09-13-023：本地数据层（Room）失败不应导致 App 无法启动。
-    // 本类由 AppNavGraph 组合期的 11 个 ViewModel 同时构造，构造期抛异常 = 闪退。
-    // 本地库存物料缓存、操作日志可重建，离线待传队列不可重建；打开失败保留原库。
-    // 故降级为"无本地缓存"继续运行；离线队列在 db 为空时不可用（降级为直连模式）。
-    private val db: AppDatabase? = try {
-        AppDatabase.getDatabase(context)
-    } catch (e: Exception) {
-        android.util.Log.w(
-            "WmsRepo",
-            "本地数据库不可用，已降级为无本地缓存: ${e.javaClass.simpleName}: ${e.message}"
-        )
-        null
+    // BUG-2026-09-13-023 / P-01（2026-11-24）：本地数据层（Room）惰性初始化且失败可降级。
+    // 1. 若进程尚未打开 Room，构造期不触发磁盘打开（db 保持 null），由 WmsApplication 在 IO 线程预热
+    //    或首次访问 DAO 时按需打开；若已有现成单例则纯内存复用（兼容既有测试反射校验 db 字段）。
+    // 2. 本地库存物料缓存、操作日志可重建，离线待传队列不可重建；打开失败保留原库并降级为无本地缓存。
+    @Volatile
+    private var db: AppDatabase? = AppDatabase.existingInstanceOrNull()
+    private val dbLock = Any()
+    @Volatile
+    private var dbInitialized: Boolean = db != null
+
+    private fun database(): AppDatabase? {
+        if (dbInitialized) return db
+        return synchronized(dbLock) {
+            if (dbInitialized) return@synchronized db
+            val opened = try {
+                AppDatabase.getDatabase(context)
+            } catch (e: Exception) {
+                android.util.Log.w(
+                    "WmsRepo",
+                    "本地数据库不可用，已降级为无本地缓存: ${e.javaClass.simpleName}: ${e.message}"
+                )
+                null
+            }
+            db = opened
+            dbInitialized = true
+            opened
+        }
     }
-    private val materialDao = db?.materialDao()
-    private val operationLogDao = db?.operationLogDao()
-    private val pendingOperationDao = db?.pendingOperationDao()
+
+    private val materialDao get() = database()?.materialDao()
+    private val operationLogDao get() = database()?.operationLogDao()
+    private val pendingOperationDao get() = database()?.pendingOperationDao()
 
     /**
      * AI-MOB-OFFLINE-01：离线待提交作业队列。
@@ -750,7 +766,7 @@ class WmsRepository(
         preferredId: String? = null,
         crossinline call: suspend (RetrofitClient.SessionSnapshot, String, String) -> Result<T>): Result<T> {
         val gate = com.factory.wms.update.businessUpdateGate
-        if (!gate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
+        if (!gate.awaitAndEnterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
         try {
             ensureSession()
             val session = RetrofitClient.sessionSnapshot()
@@ -780,13 +796,13 @@ class WmsRepository(
     }
 
     /** Only an explicit user action can send a stored body; login and startup never replay it. */
-    suspend fun verifyPendingNativeWrite(requestId: String): Result<String> {
+    suspend fun verifyPendingNativeWrite(requestId: String): Result<String> = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         val gate = com.factory.wms.update.businessUpdateGate
-        if (!gate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后核实"))
+        if (!gate.enterBusiness()) return@withContext Result.failure(BusinessException("正在安装更新，请稍后核实"))
         try {
             val session = RetrofitClient.sessionSnapshot()
             val intent = pendingNativeWrites().singleOrNull { it.requestId == requestId }
-                ?: return Result.failure(BusinessException("原请求不属于当前账号，或已核实，请刷新"))
+                ?: return@withContext Result.failure(BusinessException("原请求不属于当前账号，或已核实，请刷新"))
             val boundApi = RetrofitClient.apiServiceFor(session)
             val gson = Gson()
             val result: Result<Any> = when {
@@ -808,13 +824,13 @@ class WmsRepository(
                 val number = listOf("order_no", "check_no").firstNotNullOfOrNull { field ->
                     data[field]?.takeUnless { it.isJsonNull }?.asString
                 }
-                return Result.success("原请求已核实${number?.let { "：$it" }.orEmpty()}；返回原页再次点提交将读取原回执，不会重建")
+                return@withContext Result.success("原请求已核实${number?.let { "：$it" }.orEmpty()}；返回原页再次点提交将读取原回执，不会重建")
             }
-            val failure = result.exceptionOrNull()!!
+            val failure = result.exceptionOrNull() ?: IllegalStateException("核实失败")
             if ((failure as? BusinessException)?.safeToEdit == true) finishNativeWrite(session, intent)
-            return Result.failure(failure)
+            Result.failure(failure)
         } catch (cancelled: CancellationException) { throw cancelled
-        } catch (error: Exception) { return Result.failure(error)
+        } catch (error: Exception) { Result.failure(error)
         } finally { gate.leaveBusiness() }
     }
 
@@ -887,7 +903,7 @@ class WmsRepository(
     ): Result<SubmitResult> {
         // 原始请求、出库预检及失败暂存共用同一身份快照，不能在挂起后借用新账号。
         val updateGate = com.factory.wms.update.businessUpdateGate
-        if (!updateGate.enterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
+        if (!updateGate.awaitAndEnterBusiness()) return Result.failure(BusinessException("正在安装更新，请稍后重试；当前内容已保留"))
         try {
         val session = boundSession ?: RetrofitClient.sessionSnapshot()
         return try {
@@ -1050,16 +1066,32 @@ class WmsRepository(
 
     suspend fun getLocationOptions(warehouseCode: String): Result<LocationOptions> {
         return runCatching {
+            val first = safeCall { api.getLocationOptions(warehouseCode, 1) }.getOrThrow()
+            check(first.enabled != null && first.totalPages != null) { "库位配置响应不完整" }
+            val expectedTotalPages = first.totalPages
+            check(expectedTotalPages >= 0) { "库位分页数异常" }
+            if (first.enabled == false || expectedTotalPages == 0) {
+                return@runCatching first.copy(items = first.items.orEmpty().distinct())
+            }
             val items = mutableListOf<String>()
-            var page = 1
-            var last: LocationOptions
-            do {
+            items.addAll(first.items.orEmpty())
+            var defaultLocation = first.defaultLocation?.takeIf { it.isNotBlank() }
+            var last = first
+            for (page in 2..expectedTotalPages) {
                 last = safeCall { api.getLocationOptions(warehouseCode, page) }.getOrThrow()
                 check(last.enabled != null && last.totalPages != null) { "库位配置响应不完整" }
-                items.addAll(last.items.orEmpty())
-                page++
-            } while (page <= (last.totalPages ?: 0))
-            last.copy(items = items.distinct())
+                check(last.totalPages <= expectedTotalPages) { "库位分页总数在拉取期间增加，请重试获取完整库位列表" }
+                if (defaultLocation == null && !last.defaultLocation.isNullOrBlank()) {
+                    defaultLocation = last.defaultLocation
+                }
+                val pageItems = last.items.orEmpty()
+                check(pageItems.isNotEmpty() || page == expectedTotalPages) { "库位分页第 $page 页返回空数据，无法确认列表完整" }
+                items.addAll(pageItems)
+            }
+            last.copy(
+                items = items.distinct(),
+                defaultLocation = defaultLocation ?: last.defaultLocation
+            )
         }
     }
 

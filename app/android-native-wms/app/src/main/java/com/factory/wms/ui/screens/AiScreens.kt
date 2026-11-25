@@ -361,7 +361,7 @@ fun DocumentOcrScreen(
                             onClick = { warehouseMenuExpanded = true },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .menuAnchor(),
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable),
                             shape = RoundedCornerShape(14.dp)
                         ) {
                             Icon(

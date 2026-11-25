@@ -373,7 +373,7 @@ fun WmsOutlinedActionButton(
         shape = RoundedCornerShape(12.dp),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
-        border = ButtonDefaults.outlinedButtonBorder.copy(
+        border = ButtonDefaults.outlinedButtonBorder(enabled).copy(
             brush = androidx.compose.ui.graphics.SolidColor(color.copy(alpha = 0.35f))
         )
     ) {

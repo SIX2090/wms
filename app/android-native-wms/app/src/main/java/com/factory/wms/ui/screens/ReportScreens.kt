@@ -22,7 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ReceiptLong
+import androidx.compose.material.icons.automirrored.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -170,7 +170,7 @@ fun DailyReportScreen(
                     Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 }
                 uiState.report?.items?.isEmpty() != false -> item(key = "empty") {
-                    WmsEmptyState(icon = Icons.Outlined.ReceiptLong,
+                    WmsEmptyState(icon = Icons.AutoMirrored.Outlined.ReceiptLong,
                         title = "当日暂无${uiState.reportType.label}明细",
                         subtitle = emptyStateHint(uiState.report) ?: "可翻日期回看，或确认单据已在电脑端点「完成」")
                 }

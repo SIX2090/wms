@@ -75,8 +75,11 @@ def test_global_and_scan_status_share_account_scoped_projection():
     manager = read("data/repository/OfflineQueueManager.kt")
     assert "_displayState.value = queueDisplayState(rows, session)" in manager
     global_status = read("ui/components/GlobalQueueStatus.kt")
+    sync_vm = read("ui/viewmodel/sync/SyncStatusViewModel.kt")
     assert "snapshot.forSession(session)" in global_status
-    assert "queue.retryFailed()" in global_status
+    assert "syncViewModel.retryFailed()" in global_status
+    assert "queueManager?.retryFailed()" in sync_vm
+    assert "WmsRepository(" not in global_status
     scan = read("ui/viewmodel/scan/ScanViewModel.kt")
     assert "queue.displayState.collect" in scan
     assert "snapshot.forSession(RetrofitClient.sessionSnapshot())" in scan

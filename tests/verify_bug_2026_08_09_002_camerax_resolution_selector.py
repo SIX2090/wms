@@ -86,26 +86,26 @@ def test_t3_legacy_mutually_exclusive_apis_removed():
 
 
 def test_t4_resolution_selector_strategy_wiring():
-    """ResolutionSelector 必须使用 16:9 优先 + 最高可用分辨率策略"""
+    """ResolutionSelector 必须使用 16:9 优先 + 1280x720 自适应回退分辨率策略（P-08）。"""
     src = _source()
 
     # 构造 ResolutionSelector
     assert re.search(
         r"ResolutionSelector\.Builder\(\)\s*"
         r"\.setAspectRatioStrategy\([^)]*RATIO_16_9[^)]*\)"
-        r"\s*\.setResolutionStrategy\([^)]*HIGHEST_AVAILABLE_STRATEGY[^)]*\)"
+        r"\s*\.setResolutionStrategy\([\s\S]*?1280\s*,\s*720[\s\S]*?FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER[\s\S]*?\)"
         r"\s*\.build\(\)",
         src,
-    ), "ResolutionSelector 配置不完整：必须使用 16:9 比例 + 最高可用分辨率"
+    ), "ResolutionSelector 配置不完整：必须使用 16:9 比例 + 1280x720 回退分辨率策略"
 
     # 比例策略：16:9 优先 + 不支持时自动回退（_FALLBACK_AUTO_）
     assert "RATIO_16_9_FALLBACK_AUTO_STRATEGY" in src, (
         "比例策略应为 RATIO_16_9_FALLBACK_AUTO_STRATEGY（硬件不支持 16:9 时回退 4:3）"
     )
 
-    # 分辨率策略：硬件能给的最高分辨率
-    assert "HIGHEST_AVAILABLE_STRATEGY" in src, (
-        "分辨率策略应为 HIGHEST_AVAILABLE_STRATEGY（国产机多摄自动适配）"
+    # 分辨率策略：1280x720 + 自动回退，既适配国产多摄又避免超高像素帧发热
+    assert "FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER" in src, (
+        "分辨率策略应使用 FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER（国产机多摄自动适配）"
     )
 
     # ImageAnalysis.Builder 通过 .setResolutionSelector() 接入

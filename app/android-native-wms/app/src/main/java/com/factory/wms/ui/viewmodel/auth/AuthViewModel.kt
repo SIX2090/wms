@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.factory.wms.data.api.AuthEventBus
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.repository.WmsRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class AuthUiState(
     val isLoggedIn: Boolean = false,
@@ -36,23 +38,34 @@ class AuthViewModel(application: Application) : AndroidViewModel(application) {
             // 会话还原属于"尽力而为"：失败时保持默认的未登录状态，让用户走正常登录流程，
             // 绝不能因本地缓存问题导致 App 打不开。
             try {
-                val expected = RetrofitClient.sessionSnapshot()
-                val token = repository.getSavedToken()
-                val baseUrl = repository.getSavedBaseUrl()
-                val username = repository.getUsername()
-                val role = repository.getRole()
-                if (!baseUrl.isNullOrBlank() &&
-                    !repository.restoreSavedSession(expected)) return@launch
-                if (!token.isNullOrBlank() && !baseUrl.isNullOrBlank()) {
+                // P-02（2026-11-24）：Keystore / EncryptedSharedPreferences 初始化与凭据读取迁至 IO 线程，
+                // 避免冷启动在主线程同步阻塞。
+                val restored = withContext(Dispatchers.IO) {
+                    val expected = RetrofitClient.sessionSnapshot()
+                    val token = repository.getSavedToken()
+                    val baseUrl = repository.getSavedBaseUrl()
+                    val username = repository.getUsername()
+                    val role = repository.getRole()
+                    if (!baseUrl.isNullOrBlank() &&
+                        !repository.restoreSavedSession(expected)) {
+                        return@withContext null
+                    }
+                    if (!token.isNullOrBlank() && !baseUrl.isNullOrBlank()) {
+                        Triple(username ?: "", role ?: "", baseUrl)
+                    } else {
+                        null
+                    }
+                }
+                if (restored != null) {
                     // 自动登录的关键一步：进程被杀后 RetrofitClient.authToken 是内存态，
                     // 必须把持久化在 EncryptedSharedPreferences 的 token 重新注入内存，
                     // 否则重启后首个请求不带 Authorization → 401 → 拦截器触发登出清凭据，
                     // 用户每次点图标都被迫重新登录。
                     _uiState.value = _uiState.value.copy(
                         isLoggedIn = true,
-                        username = username ?: "",
-                        role = role ?: "",
-                        baseUrl = baseUrl
+                        username = restored.first,
+                        role = restored.second,
+                        baseUrl = restored.third
                     )
                 }
             } catch (e: Exception) {

@@ -94,10 +94,21 @@ internal class AppUpdateManager(
         this.activity = activity
         foreground = activity != null
         if (!foreground) return
+        if (gate.isStartupRecoveryPending()) return
         confirmation?.let { launchConfirmation(it); return }
         if (sessionId >= 0) return
         check(false)
         if (target != null && apk.exists()) installIfReady()
+    }
+
+    /** 后台启动恢复完成后，切回主线程补执行前台检查/安装恢复。 */
+    internal fun onStartupRecoveryFinished() {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            val current = activity
+            if (foreground && current != null) {
+                foreground(current)
+            }
+        }
     }
 
     fun check(manual: Boolean = true) {

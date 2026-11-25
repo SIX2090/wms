@@ -36,32 +36,42 @@ class SherpaVoiceSttEngine(
 
     private var listener: VoiceSttListener? = null
     private var runtime: SherpaRuntime? = null
-    private var modelDir: File? = null
+    @Volatile private var modelDir: File? = null
 
     private val capturing = AtomicBoolean(false)
+    private val preparingModel = AtomicBoolean(false)
     private var audioRecord: AudioRecord? = null
     private var captureThread: Thread? = null
+    private var startThread: Thread? = null
     @Volatile private var started = false
 
     override fun isAvailable(): Boolean {
-        // 1) 模型文件存在性（filesDir 缺失时先尝试从 APK assets 复制——
-        //    CI 构建已把模型打进 assets/sherpa-onnx/stream/，首次启动落盘到 filesDir）
+        // 1) 模型目录与类路径检测（P-07：绝不在主线程同步拷贝 ~70MB 模型文件）
         val dir = modelDirOverride ?: defaultModelDir()
         if (dir == null) {
             Log.i(TAG, "sherpa-onnx model dir not found: $dir")
             return false
         }
         val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
-        var missing = required.filter { !File(dir, it).isFile }
+        val missing = required.filter { !File(dir, it).isFile }
         if (missing.isNotEmpty()) {
-            Log.i(TAG, "sherpa-onnx model missing in filesDir ($missing)，尝试从 assets 复制")
-            if (copyModelFromAssets(dir)) {
-                missing = required.filter { !File(dir, it).isFile }
+            val bundled = runCatching {
+                appContext.assets.list("sherpa-onnx/stream")?.toSet().orEmpty()
+            }.getOrDefault(emptySet())
+            if (!required.all { it in bundled }) {
+                Log.w(TAG, "sherpa-onnx model missing files: $missing in $dir")
+                return false
             }
-        }
-        if (missing.isNotEmpty()) {
-            Log.w(TAG, "sherpa-onnx model missing files: $missing in $dir")
-            return false
+            // 仅在后台线程异步预拷贝，不阻塞当前（可能为主线程的）调用方
+            if (preparingModel.compareAndSet(false, true)) {
+                Thread({
+                    try {
+                        copyModelFromAssets(dir)
+                    } finally {
+                        preparingModel.set(false)
+                    }
+                }, "sherpa-model-copy").start()
+            }
         }
         // 2) 运行时类可加载（反射）
         if (!SherpaRuntime.probeClassloader()) {
@@ -81,22 +91,45 @@ class SherpaVoiceSttEngine(
             listener?.onError(SttError.EngineUnavailable)
             return
         }
-        try {
-            runtime = SherpaRuntime.create(appContext, modelDir!!, config)
-            if (runtime == null) {
-                // 反射初始化失败：典型场景是 AAR 与本地 SDK 不匹配（如缺少 JNI .so）
-                listener?.onError(SttError.EngineUnavailable)
-                return
-            }
-            started = true
-            startAudioCapture()
-        } catch (t: Throwable) {
-            Log.e(TAG, "sherpa-onnx start failed", t)
-            started = false
-            runtime?.destroy()
-            runtime = null
-            listener?.onError(SttError.Unknown)
+        val dir = modelDir ?: run {
+            listener?.onError(SttError.EngineUnavailable)
+            return
         }
+        started = true
+        // P-07（2026-11-24）：模型复制（若尚未就绪）与 SherpaRuntime 初始化统一在后台线程执行，
+        // 避免 ~70MB 磁盘拷贝与 ONNX 建图阻塞主线程。
+        startThread = Thread({
+            try {
+                val required = listOf("tokens.txt", "encoder.onnx", "decoder.onnx", "joiner.onnx")
+                if (required.any { !File(dir, it).isFile }) {
+                    copyModelFromAssets(dir)
+                }
+                if (!started) return@Thread
+                if (required.any { !File(dir, it).isFile }) {
+                    started = false
+                    listener?.onError(SttError.EngineUnavailable)
+                    return@Thread
+                }
+                val created = SherpaRuntime.create(appContext, dir, config)
+                if (!started) {
+                    created?.destroy()
+                    return@Thread
+                }
+                if (created == null) {
+                    started = false
+                    listener?.onError(SttError.EngineUnavailable)
+                    return@Thread
+                }
+                runtime = created
+                startAudioCapture()
+            } catch (t: Throwable) {
+                Log.e(TAG, "sherpa-onnx start failed", t)
+                started = false
+                runtime?.destroy()
+                runtime = null
+                listener?.onError(SttError.Unknown)
+            }
+        }, "sherpa-stt-start").also { it.start() }
     }
 
     override fun stop() {

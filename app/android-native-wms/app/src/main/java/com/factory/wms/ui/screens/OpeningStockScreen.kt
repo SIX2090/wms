@@ -16,6 +16,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -924,7 +926,7 @@ private fun YearRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一年", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上一年", tint = CardCyan) }
         Text(
             "${state.year}年",
             modifier = Modifier.weight(1f),
@@ -937,7 +939,7 @@ private fun YearRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一年", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下一年", tint = CardCyan) }
     }
 }
 
@@ -953,7 +955,7 @@ private fun MonthRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "上一月", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "上一月", tint = CardCyan) }
         Text(
             "${state.month + 1}月",
             modifier = Modifier.weight(1f),
@@ -966,7 +968,7 @@ private fun MonthRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "下一月", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "下一月", tint = CardCyan) }
     }
 }
 
@@ -984,7 +986,7 @@ private fun DayRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowLeft, "前一天", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "前一天", tint = CardCyan) }
         Text(
             "${state.day}日",
             modifier = Modifier.weight(1f),
@@ -997,7 +999,7 @@ private fun DayRow(state: DatePickerDialogState) {
             modifier = Modifier.size(48.dp),
             shape = RoundedCornerShape(10.dp),
             colors = IconButtonDefaults.filledIconButtonColors(containerColor = CardCyan.copy(alpha = 0.1f))
-        ) { Icon(Icons.Filled.KeyboardArrowRight, "后一天", tint = CardCyan) }
+        ) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "后一天", tint = CardCyan) }
     }
 }
 

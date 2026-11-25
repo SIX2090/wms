@@ -65,7 +65,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.factory.wms.ui.components.rememberCameraLauncherWithPermission
@@ -93,6 +93,7 @@ fun AssistantChatScreen(
     val voiceState by voiceViewModel.uiState.collectAsState()
     var input by rememberSaveable { mutableStateOf("") }
     var showClearConfirm by rememberSaveable { mutableStateOf(false) }
+    var showMicPermissionNotice by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -294,8 +295,10 @@ fun AssistantChatScreen(
                 scope.launch(Dispatchers.IO) {
                     // FIX-2026-10-07-011：同相册口径；2026-10-09 对齐相册/拍照压缩（1024px + JPEG 70%），降低 504
                     val bitmap = runCatching {
-                        context.contentResolver.openInputStream(clipUri!!)?.use { input ->
-                            BitmapFactory.decodeStream(input)
+                        clipUri?.let { uri ->
+                            context.contentResolver.openInputStream(uri)?.use { input ->
+                                BitmapFactory.decodeStream(input)
+                            }
                         }
                     }.getOrNull()
                     if (bitmap != null) {
@@ -492,7 +495,7 @@ fun AssistantChatScreen(
                                         if (granted) {
                                             voiceViewModel.startListening(context)
                                         } else {
-                                            micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                            showMicPermissionNotice = true
                                         }
                                     }
                                 },
@@ -611,6 +614,25 @@ fun AssistantChatScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = { voiceViewModel.stopListening() }) { Text("取消") }
+                }
+            )
+        }
+
+        // S-02（2026-11-24）：申请 RECORD_AUDIO 前明确告知用途与上传去向。
+        if (showMicPermissionNotice) {
+            AlertDialog(
+                onDismissRequest = { showMicPermissionNotice = false },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("麦克风权限说明", fontWeight = FontWeight.SemiBold) },
+                text = { Text("麦克风仅用于语音转文字输入，录音片段将上传至当前已配置的 WMS 服务器进行语音识别，不会在后台持续录音。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showMicPermissionNotice = false
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }) { Text("同意并继续") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMicPermissionNotice = false }) { Text("暂不使用") }
                 }
             )
         }

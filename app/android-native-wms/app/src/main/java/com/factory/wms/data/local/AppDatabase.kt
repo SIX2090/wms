@@ -27,6 +27,9 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        /** 纯内存返回已初始化的数据库实例（未初始化时返回 null，绝不触发磁盘打开）。 */
+        internal fun existingInstanceOrNull(): AppDatabase? = INSTANCE
+
         /**
          * 本地库含不可重建的离线单据。打开、升级、降级或损坏时一律保留原库，
          * 禁止自动删库或破坏性迁移；异常由 WmsRepository 捕获后降级为无缓存模式，

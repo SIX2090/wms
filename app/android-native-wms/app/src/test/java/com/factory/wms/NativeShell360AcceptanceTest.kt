@@ -89,7 +89,7 @@ class NativeShell360AcceptanceTest(private val scale: Float, private val dark: B
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             val layout = layouts.single()
             assertTrue("Tab label should use at most two lines: $label", layout.lineCount <= 2)
-            if (label.length == 2) assertEquals("Two-character tab should stay horizontal: $label", 1, layout.lineCount)
+            assertEquals("360dp tab label should stay single-line without orphan wrap: $label", 1, layout.lineCount)
             assertTrue(layout.getLineEnd(layout.lineCount - 1, visibleEnd = true) >= label.length)
             repeat(layout.lineCount) { assertFalse(layout.isLineEllipsized(it)) }
             val b = node.getUnclippedBoundsInRoot()

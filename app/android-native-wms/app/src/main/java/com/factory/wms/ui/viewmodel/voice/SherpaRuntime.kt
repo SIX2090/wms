@@ -163,10 +163,10 @@ internal class SherpaRuntime private constructor(
                 modelConfigCls,
                 recognizerConfigCls
             )
-            val recognizer = fromTransducer.invoke(null, modelConfig, recConfig)
+            val recognizer = fromTransducer.invoke(null, modelConfig, recConfig) ?: return null
 
             // recognizer.createStream() -> OnlineStream
-            val stream = recognizerCls.getMethod("createStream").invoke(recognizer)
+            val stream = recognizerCls.getMethod("createStream").invoke(recognizer) ?: return null
 
             SherpaRuntime(recognizer, stream)
         } catch (cnf: ClassNotFoundException) {

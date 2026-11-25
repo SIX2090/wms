@@ -31,14 +31,15 @@ def _read(path: Path) -> str:
 
 
 def test_repository_wraps_database_creation_in_try_catch():
-    """WmsRepository 构造期建库必须可失败：返回可空 db 而非抛异常。"""
+    """WmsRepository 惰性建库必须可失败：返回可空 db 而非抛异常（P-01 消除构造期主线程阻塞）。"""
     source = _read(REPOSITORY)
-    assert "private val db: AppDatabase? = try {" in source
+    assert "private var db: AppDatabase? = AppDatabase.existingInstanceOrNull()" in source
+    assert "private fun database(): AppDatabase?" in source
     assert "AppDatabase.getDatabase(context)" in source
-    # 可空 DAO：所有调用点必须走安全调用
-    assert "private val materialDao = db?.materialDao()" in source
-    assert "private val operationLogDao = db?.operationLogDao()" in source
-    assert "private val pendingOperationDao = db?.pendingOperationDao()" in source
+    # 可空 DAO：惰性获取且所有调用点必须走安全调用
+    assert "private val materialDao get() = database()?.materialDao()" in source
+    assert "private val operationLogDao get() = database()?.operationLogDao()" in source
+    assert "private val pendingOperationDao get() = database()?.pendingOperationDao()" in source
 
 
 def test_repository_cache_writes_never_throw():

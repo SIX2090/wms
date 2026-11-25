@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.*
@@ -256,7 +257,7 @@ internal fun HomeWorkbench(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text("退出", style = MaterialTheme.typography.labelLarge, color = OnPrimary)
-                    Icon(Icons.Outlined.Logout, contentDescription = "退出登录", tint = OnPrimary,
+                    Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = "退出登录", tint = OnPrimary,
                         modifier = Modifier.size(20.dp))
                 }
             }

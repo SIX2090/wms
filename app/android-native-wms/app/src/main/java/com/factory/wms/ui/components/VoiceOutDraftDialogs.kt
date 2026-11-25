@@ -8,8 +8,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Inventory2
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.*
@@ -368,7 +368,7 @@ private fun StrategiesLine(state: VoiceOutDraftUiState) {
     Spacer(Modifier.height(8.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(
-            Icons.Outlined.HelpOutline, null,
+            Icons.AutoMirrored.Outlined.HelpOutline, null,
             tint = OnSurfaceSecondary, modifier = Modifier.size(13.dp)
         )
         Spacer(Modifier.width(4.dp))

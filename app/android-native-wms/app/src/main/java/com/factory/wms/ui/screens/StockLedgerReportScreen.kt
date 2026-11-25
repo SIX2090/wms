@@ -29,7 +29,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.outlined.MenuBook
+import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -317,7 +317,7 @@ fun StockLedgerReportScreen(
                     uiState.selectedMaterial == null && !uiState.isLoading -> item {
                         // 引导空态：台账按单一物料查询，先选物料
                         WmsEmptyState(
-                            icon = Icons.Outlined.MenuBook,
+                            icon = Icons.AutoMirrored.Outlined.MenuBook,
                             title = "请先选择物料",
                             subtitle = "点击上方卡片搜索并选择物料，查看它的库存流水账",
                             modifier = Modifier.fillMaxWidth()
@@ -338,7 +338,7 @@ fun StockLedgerReportScreen(
                     }
                     uiState.queried && uiState.items.isEmpty() -> item {
                         WmsEmptyState(
-                            icon = Icons.Outlined.MenuBook,
+                            icon = Icons.AutoMirrored.Outlined.MenuBook,
                             title = "该范围内无库存流水",
                             subtitle = "可换个仓库/物料，或点「全部流水」扩大范围",
                             modifier = Modifier.fillMaxWidth()

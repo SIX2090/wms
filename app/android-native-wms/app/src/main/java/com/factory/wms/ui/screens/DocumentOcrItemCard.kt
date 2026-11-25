@@ -3,8 +3,8 @@ package com.factory.wms.ui.screens
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.CheckCircle
-import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -56,7 +56,7 @@ internal fun DocumentOcrItemCard(item: OcrItem, index: Int) {
             }
             Surface(shape = RoundedCornerShape(6.dp), color = background) {
                 Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(when (item.matched) { true -> Icons.Outlined.CheckCircle; false -> Icons.Outlined.Info; null -> Icons.Outlined.HelpOutline },
+                    Icon(when (item.matched) { true -> Icons.Outlined.CheckCircle; false -> Icons.Outlined.Info; null -> Icons.AutoMirrored.Outlined.HelpOutline },
                         null, tint = foreground, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(status, color = foreground, style = MaterialTheme.typography.bodyMedium, softWrap = true)

@@ -24,9 +24,11 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
@@ -35,16 +37,21 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.factory.wms.ui.navigation.AppNavGraph
 import com.factory.wms.ui.theme.WmsTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         runCatching { (application as WmsApplication).appUpdates.foreground(this) }
+            .onFailure { android.util.Log.w("MainActivity", "恢复更新监听失败: ${it.message}") }
     }
 
     override fun onPause() {
         runCatching { (application as WmsApplication).appUpdates.foreground(null) }
+            .onFailure { android.util.Log.w("MainActivity", "暂停更新监听失败: ${it.message}") }
         super.onPause()
     }
 
@@ -80,20 +87,23 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    // BUG-2026-09-14-028（第三根因攻坚，诊断桩，非业务改动）：
-                    // 3.8.1 仍冷启动闪退，说明真实根因从未被捕获（历轮修复均无 logcat）。
-                    // WmsApplication 的崩溃日志器已把堆栈写入 filesDir/crash/last_crash.txt，
-                    // 但 release 包在非 root 手机上无法用 adb 读取该文件。
-                    // 因此：若检测到上次崩溃的堆栈文件，先渲染本报告页（**不加载会崩的
-                    // AppNavGraph**），让用户截图/复制后发回，定位真凶后再修——不再盲改。
-                    var pendingCrash by remember { mutableStateOf(readPendingCrash()) }
+                    // BUG-2026-09-14-028 / P-03（2026-11-24）：
+                    // 在 IO 线程异步检查上次崩溃堆栈文件，避免组合期主线程同步磁盘 IO；
+                    // 检查完成前不加载 AppNavGraph，保留"有崩溃报告时不进入主界面"的安全保证。
+                    var crashChecked by remember { mutableStateOf(false) }
+                    var pendingCrash by remember { mutableStateOf<String?>(null) }
+                    val scope = rememberCoroutineScope()
+                    LaunchedEffect(Unit) {
+                        pendingCrash = withContext(Dispatchers.IO) { readPendingCrash() }
+                        crashChecked = true
+                    }
                     val crash = pendingCrash
                     if (crash != null) {
                         CrashReportScreen(crashText = crash, onDismiss = {
-                            clearPendingCrash()
                             pendingCrash = null
+                            scope.launch(Dispatchers.IO) { clearPendingCrash() }
                         })
-                    } else {
+                    } else if (crashChecked) {
                         AppNavGraph()
                     }
                 }

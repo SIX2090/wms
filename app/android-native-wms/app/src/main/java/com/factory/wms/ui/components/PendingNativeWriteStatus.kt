@@ -6,36 +6,28 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.factory.wms.data.api.RetrofitClient
 import com.factory.wms.data.model.PendingNativeWrite
-import com.factory.wms.data.repository.WmsRepository
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
+import com.factory.wms.ui.viewmodel.sync.SyncStatusViewModel
 
 /** User-owned unresolved writes are never submitted by startup, login, or this read-only collector. */
 @Composable
-internal fun PendingNativeWriteStatus(session: RetrofitClient.SessionSnapshot) {
-    val context = LocalContext.current.applicationContext
-    val repository = remember(context) { WmsRepository(context) }
-    val changes by WmsRepository.nativeWriteChanges.collectAsState()
-    var rows by remember(session.generation) { mutableStateOf<List<PendingNativeWrite>>(emptyList()) }
-    var readError by remember(session.generation) { mutableStateOf(false) }
+internal fun PendingNativeWriteStatus(
+    session: RetrofitClient.SessionSnapshot,
+    syncViewModel: SyncStatusViewModel = viewModel()
+) {
+    val state by syncViewModel.pendingWriteUiState.collectAsState()
     var showing by remember(session.generation) { mutableStateOf(false) }
-    var busy by remember(session.generation) { mutableStateOf(false) }
-    var message by remember(session.generation) { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    LaunchedEffect(session.generation, changes) {
-        try {
-            val result = repository.pendingNativeWrites()
-            if (session.generation == RetrofitClient.sessionSnapshot().generation) {
-                rows = result; readError = false
-            }
-        } catch (cancelled: CancellationException) { throw cancelled
-        } catch (_: Exception) { readError = true }
+    LaunchedEffect(session.generation) {
+        syncViewModel.bindSession(session)
     }
+    val rows = if (state.sessionGeneration == session.generation) state.rows else emptyList()
+    val readError = state.sessionGeneration == session.generation && state.readError
+    val busy = state.sessionGeneration == session.generation && state.busy
+    val message = if (state.sessionGeneration == session.generation) state.message else null
     if (rows.isEmpty() && !readError) return
     TextButton(onClick = { showing = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
         Text(if (readError) "待核实提交记录暂不可读，请保留当前内容" else "${rows.size} 条提交待核实，点击查看原请求")
@@ -47,27 +39,12 @@ internal fun PendingNativeWriteStatus(session: RetrofitClient.SessionSnapshot) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("原内容和请求号已保留。核实会按原请求查询或完成原提交，请勿重复录入。")
                 rows.forEach { row ->
-                    PendingNativeWriteDetails(row, busy, onVerify = {
-                            busy = true
-                            scope.launch {
-                                try {
-                                    val result = repository.verifyPendingNativeWrite(row.requestId)
-                                    if (session.generation == RetrofitClient.sessionSnapshot().generation)
-                                        message = result.getOrElse { it.message ?: "核实未完成，原记录已保留" }
-                                } finally { busy = false }
-                            }
-                        }, onAcknowledge = {
-                            busy = true
-                            scope.launch {
-                                try {
-                                    repository.acknowledgeNativeWrite(row.operation, row.requestId)
-                                    if (session.generation == RetrofitClient.sessionSnapshot().generation)
-                                        message = "已结束此请求，可以开始新单；请勿再次录入同一笔业务"
-                                } catch (cancelled: CancellationException) { throw cancelled
-                                } catch (error: Exception) { message = error.message
-                                } finally { busy = false }
-                            }
-                        })
+                    PendingNativeWriteDetails(
+                        row = row,
+                        busy = busy,
+                        onVerify = { syncViewModel.verify(session, row.requestId) },
+                        onAcknowledge = { syncViewModel.acknowledge(session, row.operation, row.requestId) }
+                    )
                 }
                 message?.let { Text(it) }
             }

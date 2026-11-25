@@ -507,9 +507,10 @@ internal fun WmsBottomBar(
                 softWrap = false).size.width
             maxOf(WmsDimens.TouchTargetMin, with(density) { natural.toDp() } + WmsDimens.SpaceSm)
         }
-        // At large font scales, equal slots keep short Chinese labels readable;
-        // the longer inventory label can wrap without encroaching on another tab.
-        val allocatedWeights = if (density.fontScale >= 1.8f) {
+        // 宽度足够时按标签实际宽度分配，避免 360dp/2x 下「查库存」被均分挤成单字换行；
+        // 仅在极窄屏总宽不足（如 320dp/2x）时退回均分，保护两字标签不折行。
+        val totalRequested = requestedWidths.fold(0.dp) { acc, w -> acc + w }
+        val allocatedWeights = if (density.fontScale >= 1.8f && totalRequested > maxWidth) {
             List(tabs.size) { 1f }
         } else {
             requestedWidths.map { it.value }

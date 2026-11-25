@@ -22,8 +22,6 @@ internal class AndroidUpdateInstaller(private val context: Context) : UpdateInst
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
         params.setAppPackageName(context.packageName)
         params.setSize(release.size)
-        if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(
-            PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
         return installer.createSession(params)
     }
 

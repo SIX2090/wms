@@ -10,6 +10,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
@@ -150,7 +153,7 @@ fun ProfileScreen(
             ProfileSectionCard("扫码设置") {
                 Text("用于连续扫码时的操作反馈", modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     style = MaterialTheme.typography.bodyMedium, color = OnSurfaceVariant)
-                ProfileToggleRow(icon = Icons.Outlined.VolumeUp, label = "扫码提示音",
+                ProfileToggleRow(icon = Icons.AutoMirrored.Outlined.VolumeUp, label = "扫码提示音",
                     description = "区分成功与失败", checked = scanSoundEnabled,
                     onCheckedChange = { value -> scanSoundEnabled = value; ScanFeedback.setSoundEnabled(context, value) })
                 ProfileToggleRow(icon = Icons.Outlined.Vibration, label = "扫码震动",
@@ -208,7 +211,7 @@ fun ProfileScreen(
                         isHint = true
                     )
                     ProfileRow(
-                        icon = Icons.Outlined.ArrowBack,
+                        icon = Icons.AutoMirrored.Outlined.ArrowBack,
                         label = "返回上一页",
                         value = "说“返回”",
                         isHint = true
@@ -251,7 +254,7 @@ fun ProfileScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        Icons.Outlined.Logout,
+                        Icons.AutoMirrored.Outlined.Logout,
                         null,
                         tint = Error,
                         modifier = Modifier.size(20.dp)

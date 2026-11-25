@@ -23,6 +23,8 @@ data class DailyReportData(
      * 用户此前只能看到「当日暂无明细」却不知原因。可空声明，UI 必须判空。
      */
     @SerializedName("warehouse") val warehouse: String? = null,
+    @SerializedName("warehouse_id") val warehouseId: Int? = null,
+    @SerializedName("all_warehouses") val allWarehouses: Boolean? = null,
     @SerializedName("server_today") val serverToday: String? = null,
     @SerializedName("diagnostics") val diagnostics: DailyReportDiagnostics? = null
 )

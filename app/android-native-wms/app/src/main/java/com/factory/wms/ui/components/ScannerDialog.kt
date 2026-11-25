@@ -33,7 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -214,13 +214,17 @@ fun ScannerDialog(
                                     it.setSurfaceProvider(view.surfaceProvider)
                                 }
 
-                                // BUG-2026-08-09-002: 旧写法同时调用 setTargetAspectRatio + setTargetResolution，
-                                // CameraX 1.3+ 抛 IllegalArgumentException，相机直接绑不上 → "摄像头不可用"。
-                                // 改用官方推荐的 ResolutionSelector：16:9 比例 + 最高可用分辨率，
-                                // 国产机多摄/不同分辨率自动适配，避免崩溃。
+                                // BUG-2026-08-09-002 / P-08（2026-11-24）：继续使用 CameraX 1.3+ ResolutionSelector
+                                // 避免旧互斥 API 崩溃；条码分析目标收敛到 1280x720（最接近高优先再低回退），
+                                // 兼顾识别清晰度、国产机多摄适配与单帧推理耗时/发热控制。
                                 val resolutionSelector = ResolutionSelector.Builder()
                                     .setAspectRatioStrategy(AspectRatioStrategy.RATIO_16_9_FALLBACK_AUTO_STRATEGY)
-                                    .setResolutionStrategy(ResolutionStrategy.HIGHEST_AVAILABLE_STRATEGY)
+                                    .setResolutionStrategy(
+                                        ResolutionStrategy(
+                                            android.util.Size(1280, 720),
+                                            ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                                        )
+                                    )
                                     .build()
 
                                 val imageAnalysis = ImageAnalysis.Builder()

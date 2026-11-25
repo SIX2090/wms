@@ -75,6 +75,7 @@ fun VoiceAssistantOverlay(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var pendingCommand by remember { mutableStateOf<VoiceCommand?>(null) }
+    var showMicPermissionNotice by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -134,7 +135,7 @@ fun VoiceAssistantOverlay(
                 if (granted) {
                     voiceViewModel.startListening(context)
                 } else {
-                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    showMicPermissionNotice = true
                 }
             },
             modifier = Modifier
@@ -193,6 +194,25 @@ fun VoiceAssistantOverlay(
                 },
                 confirmButton = {
                     TextButton(onClick = { voiceViewModel.stopListening() }) { Text("取消") }
+                }
+            )
+        }
+
+        // S-02（2026-11-24）：申请 RECORD_AUDIO 前明确告知用途与上传去向。
+        if (showMicPermissionNotice) {
+            AlertDialog(
+                onDismissRequest = { showMicPermissionNotice = false },
+                shape = RoundedCornerShape(20.dp),
+                title = { Text("麦克风权限说明", fontWeight = FontWeight.SemiBold) },
+                text = { Text("麦克风仅用于语音指令转文字，录音片段将上传至当前已配置的 WMS 服务器进行语音识别，不会在后台持续录音。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showMicPermissionNotice = false
+                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                    }) { Text("同意并继续") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showMicPermissionNotice = false }) { Text("暂不使用") }
                 }
             )
         }

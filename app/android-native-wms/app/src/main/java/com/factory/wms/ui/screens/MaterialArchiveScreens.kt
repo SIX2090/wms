@@ -54,17 +54,35 @@ import com.factory.wms.ui.components.WmsSectionHeader
 import com.factory.wms.ui.components.WmsTopBar
 import com.factory.wms.ui.theme.*
 import com.factory.wms.ui.viewmodel.archive.MaterialArchiveViewModel
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import kotlinx.coroutines.launch
 
 /** 每个物料最多支持的档案图片数（与后端一致）。 */
 private const val MAX_IMAGES = 5
 
-/** 把后端返回的相对 url（如 /static/uploads/...xx.jpg）拼成可加载的绝对地址。 */
-private fun resolveImageUrl(url: String?): String {
-    if (url.isNullOrBlank()) return ""
-    if (url.startsWith("http://") || url.startsWith("https://")) return url
-    val base = RetrofitClient.getBaseUrl().trimEnd('/')
-    return if (url.startsWith("/")) "$base$url" else "$base/$url"
+/**
+ * 把后端返回的相对 url（如 /static/uploads/...xx.jpg）拼成可加载的绝对地址。
+ * S-06（2026-11-24）：绝对 URL 仅允许 https:// 或与当前服务器同源的 http://，
+ * 拒绝跨源明文 http:// 及其他非 HTTP 协议，防止服务端下发异常外链。
+ */
+internal fun resolveImageUrl(url: String?, baseUrl: String = RetrofitClient.getBaseUrl()): String {
+    val trimmed = url?.trim().orEmpty()
+    if (trimmed.isBlank() || trimmed.startsWith("//")) return ""
+    val colonIndex = trimmed.indexOf(':')
+    val slashIndex = trimmed.indexOf('/')
+    val hasScheme = colonIndex > 0 && (slashIndex == -1 || colonIndex < slashIndex)
+    if (hasScheme) {
+        val parsed = trimmed.toHttpUrlOrNull() ?: return ""
+        if (parsed.scheme == "https") return trimmed
+        val base = baseUrl.trim().toHttpUrlOrNull() ?: return ""
+        val sameOrigin = parsed.scheme == base.scheme &&
+            parsed.host.equals(base.host, ignoreCase = true) &&
+            parsed.port == base.port
+        return if (sameOrigin) trimmed else ""
+    }
+    val base = baseUrl.trim().trimEnd('/')
+    if (base.isBlank()) return ""
+    return if (trimmed.startsWith("/")) "$base$trimmed" else "$base/$trimmed"
 }
 
 /**
