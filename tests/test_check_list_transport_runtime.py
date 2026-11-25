@@ -14,7 +14,7 @@ CASES = [(action, scenario) for action in ['delete', 'revert', 'batch', 'copy', 
          for scenario in ['success', 'business', 'http', 'html', 'invalid_json', 'null', 'invalid_body', 'expired401', 'expired419', 'network']]
 CASES += [(action, 'cancel') for action in ['delete', 'revert', 'batch', 'copy']]
 CASES += [('batch', 'empty'), ('import', 'empty')]
-CASES += [('import', 'book_warning')]
+CASES += [('import', 'book_warning'), ('add', 'missing_document')]
 
 
 def handler_for(action):
@@ -36,17 +36,20 @@ let sent=[],messages=[],timers=[],reloads=0,hidden=0,confirmed=0,notice,acknowle
 const fields={warehouse:'A',warehouse_id:'2',scope:'category',category_id:'4',remark:'新增备注 &+ 中',csrf_token:'form-csrf'};
 class FormData{constructor(form){this.fields=new Map(form?Object.entries(fields):[]);this.owner=form?.id;}append(k,v){this.fields.set(k,String(v));}entries(){return this.fields.entries();}}
 const file={files:p.scenario==='empty'?[]:[{name:'fixture.xlsx'}],value:'fixture.xlsx',disabled:false};const form={id:p.action==='add'?'addForm':'importForm',action:'/check/import'};
-const importButton={disabled:false};
+const importButton={disabled:false},createButton={disabled:false};form.querySelector=()=>createButton;
 const elements={checkImportFileButton:importButton,editId:{value:'7'},editRemark:{value:'修改 & + 中文 \n保留'},addModal:{},editModal:{},importForm:form,importFile:file};
 const ctx={FormData,Headers,document:{querySelector:()=>({content:'fixture-csrf'}),querySelectorAll:()=>p.scenario==='empty'?[]:[{value:'7'},{value:'8'}],getElementById:id=>elements[id]},
-showConfirm:(message,options)=>{confirmed++;if(p.scenario==='book_warning'){notice={message,options};return new Promise(resolve=>{acknowledge=resolve;});}return Promise.resolve(p.scenario!=='cancel');},confirm:()=>false,showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
+showConfirm:(message,options)=>{confirmed++;if(p.scenario==='book_warning'){notice={message,options};return new Promise(resolve=>{acknowledge=resolve;});}return Promise.resolve(p.scenario!=='cancel');},confirm:()=>false,showToast:(m,t)=>messages.push({m,t}),setTimeout:fn=>timers.push(fn),location:{href:'original',reload(){reloads++;}},preserveEmbeddedUrl:url=>url+'?embedded=1',bootstrap:{Modal:{getInstance:()=>({hide(){hidden++;}})}},
 fetch:(u,o)=>{sent.push({u,o});const status=scenario==='http'?400:scenario==='html'?503:scenario==='expired401'?401:scenario==='expired419'?419:200;
 const body=scenario==='null'?null:scenario==='invalid_body'?'unexpected value':{status:['business','http'].includes(scenario)?'error':'success',msg:'fixture explanation',id:17,redirect_url:'/check/17'};
+if(scenario==='missing_document')delete body.id;
 if(scenario==='book_warning')body.warnings='第2行：A仓的物料 M001 使用仓库账面 10.00（Excel 填写 999）';
 return scenario==='network'?Promise.reject(Error('offline')):Promise.resolve({ok:status===200,status,json:()=>['html','invalid_json'].includes(scenario)?Promise.reject(SyntaxError('not JSON')):Promise.resolve(body)});}};
 ctx.window=ctx;vm.createContext(ctx);vm.runInContext(p.api,ctx);vm.runInContext('var handler='+p.handler,ctx);
 async function invoke(){if(p.action==='import')ctx.handler('importForm','importFile');else if(['add','edit'].includes(p.action))ctx.handler.call(form,{preventDefault(){}});else await ctx.handler.call({getAttribute:()=>7});await new Promise(r=>setImmediate(r));}
-(async()=>{await invoke();
+(async()=>{const first=invoke();
+if(p.action==='add'&&p.scenario==='success')ctx.handler.call(form,{preventDefault(){}});
+await first;
 if(['cancel','empty'].includes(p.scenario)){assert.equal(sent.length,0);assert.equal(hidden,0);assert.equal(reloads,0);if(p.action==='batch'&&p.scenario==='empty')assert(messages.some(m=>m.t==='warning'));return;}
 assert.equal(sent.length,1);const req=sent[0],h=new Headers(req.o.headers);assert.equal(req.o.method,'POST');assert.equal(req.o.credentials,'same-origin');assert.equal(h.get('X-CSRFToken'),'fixture-csrf');assert.equal(h.get('X-Requested-With'),'XMLHttpRequest');
 assert.equal(req.u,p.action==='add'?'/check/add':p.action==='import'?'/check/import':p.action==='batch'?'/check/batch_delete':'/check/7/'+(p.action==='edit'?'update':p.action));
@@ -60,10 +63,18 @@ acknowledge(true);await new Promise(r=>setImmediate(r));assert.equal(reloads,1);
 }
 if(['delete','revert','batch','copy'].includes(p.action))assert.equal(confirmed,1);
 if(p.action==='import'){assert.equal(file.value,'','finally clears file on every outcome');if(p.scenario==='success'){assert.equal(file.disabled,true);assert.equal(importButton.disabled,true);assert.equal(ctx.handler.pending,true);}else{assert.equal(file.disabled,false);assert.equal(importButton.disabled,false);assert.equal(ctx.handler.pending,false);}}
-if(p.scenario==='success'){assert(messages.some(m=>m.t==='success'));assert.equal(hidden,['add','edit'].includes(p.action)?1:0);timers.forEach(fn=>fn());assert.equal(reloads,1);assert.equal(ctx.location.href,'original','copy retains list reload behavior');}
+if(p.action==='add')assert.equal(createButton.disabled,false);
+if(p.scenario==='missing_document'){assert.equal(ctx.location.href,'original');assert.equal(reloads,0);assert(messages.some(m=>m.t==='warning'));return;}
+if(p.scenario==='success'){
+    if(p.action==='add'){assert.equal(ctx.location.href,'/check/17?embedded=1');assert.equal(reloads,0);return;}
+    assert(messages.some(m=>m.t==='success'));assert.equal(hidden,p.action==='edit'?1:0);
+    timers.forEach(fn=>fn());assert.equal(reloads,1);assert.equal(ctx.location.href,'original');
+}
 else {assert(messages.some(m=>m.t==='danger'),'failure visible');assert.equal(reloads,0);assert.equal(ctx.location.href,'original');assert.equal(hidden,0,'failed modal remains open');
 if(['http','business'].includes(p.scenario))assert(messages.some(m=>m.m.includes('fixture explanation')));if(p.scenario==='html')assert(messages.some(m=>m.m.includes('503')));
-scenario='success';if(p.action==='import')file.value='fixture.xlsx';await invoke();assert.equal(sent.length,2);assert.equal(messages.at(-1).t,'success');assert.equal(hidden,['add','edit'].includes(p.action)?1:0);}
+scenario='success';if(p.action==='import')file.value='fixture.xlsx';await invoke();assert.equal(sent.length,2);
+if(p.action==='add'){assert.equal(ctx.location.href,'/check/17?embedded=1');assert.equal(createButton.disabled,false);}
+else {assert.equal(messages.at(-1).t,'success');assert.equal(hidden,p.action==='edit'?1:0);}}
 })().catch(e=>{process.stderr.write(e.stack);process.exitCode=1;});
 '''
     node = shutil.which('node')

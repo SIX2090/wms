@@ -1,5 +1,6 @@
 """Exercise stocktake displays and document controls through the ordinary web routes."""
 from io import BytesIO
+import re
 
 from openpyxl import Workbook, load_workbook
 
@@ -12,6 +13,24 @@ from tests.test_stocktake_adjustment_controls import _complete, _count
 def material_rows(response, code):
     assert response.status_code == 200
     return [row for row in load_workbook(BytesIO(response.data), data_only=True).active.values if code in row]
+
+
+def test_stocktake_list_creation_uses_filtered_warehouse(scene):
+    client, default, filtered, _ = scene
+
+    def selected_warehouse(response):
+        assert response.status_code == 200
+        html = response.get_data(as_text=True).split('id="addForm"', 1)[1].split('</form>', 1)[0]
+        return re.search(r'<option value="(\d+)" selected>', html).group(1)
+
+    assert selected_warehouse(client.get('/check')) == str(default.id)
+    result = client.get('/check', query_string={'warehouse_id': filtered.id, 'status': 'completed'})
+    assert selected_warehouse(result) == str(filtered.id)
+    created = client.post('/check/add', data={'warehouse_id': str(filtered.id)}).get_json()
+    assert created['status'] == 'success'
+    order = wms.db.session.get(wms.InventoryCheck, created['id'])
+    assert order.warehouse == filtered.name and order.status == 'pending'
+    assert client.get(f'/check/{order.id}?embedded=1').status_code == 200
 
 
 def test_pallet_count_outputs_and_source_navigation(scene):

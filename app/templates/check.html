@@ -153,13 +153,16 @@
             </div>
             <form id="addForm">
                 <div class="modal-body">
-                    {# BUG-2026-08-02-014：新建盘点单仓库必填，未填写时预选默认仓库 #}
+                    {% set create_warehouse_id = default_warehouse.id if default_warehouse else none %}
+                    {% if filters.warehouse_id in (warehouses|map(attribute='id')|list) %}
+                        {% set create_warehouse_id = filters.warehouse_id %}
+                    {% endif %}
                     <div class="mb-3">
                         <label class="form-label">仓库 <span class="text-danger">*</span></label>
                         <select class="form-select" name="warehouse_id" required>
                             <option value="">请选择仓库</option>
                             {% for warehouse in warehouses %}
-                            <option value="{{ warehouse.id }}" {% if default_warehouse and default_warehouse.id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
+                            <option value="{{ warehouse.id }}" {% if create_warehouse_id == warehouse.id %}selected{% endif %}>{{ warehouse.name }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -381,22 +384,31 @@ document.addEventListener('DOMContentLoaded', function() {
     if (addForm) {
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            const submitButton = this.querySelector('button[type="submit"]');
+            if (submitButton.disabled) return;
             const formData = new FormData(this);
-            
+            submitButton.disabled = true;
+
             WMS.api.postRaw('{{ url_for("add_check") }}', formData)
             .then(res => {
-                if (res.status === 'success'){
-                    const addModal = bootstrap.Modal.getInstance(document.getElementById('addModal'));
-                    addModal.hide();
-                    showToast((res.msg || '盘点单已创建') + '，正在刷新列表…', 'success');
-                    setTimeout(function(){ location.reload(); }, 650);
-                } else {
+                if (res.status !== 'success') {
                     showToast(res.msg || '创建失败', 'danger', 3600);
+                    return;
                 }
+                const checkId = Number(res.id);
+                if (!Number.isSafeInteger(checkId) || checkId < 1) {
+                    showToast('盘点单已提交，请按所选仓库查询后再操作。', 'warning', 5000);
+                    return;
+                }
+                showToast(res.msg || '盘点单已创建', 'success');
+                const detailUrl = '/check/' + checkId;
+                window.location.href = typeof preserveEmbeddedUrl === 'function'
+                    ? preserveEmbeddedUrl(detailUrl) : detailUrl;
             })
             .catch(error => {
                 showToast('创建失败：' + error.message, 'danger', 3600);
-            });
+            })
+            .finally(() => { submitButton.disabled = false; });
         });
     }
 
