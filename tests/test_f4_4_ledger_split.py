@@ -699,3 +699,4 @@ POST_SPLIT_BUGS['BUG-2026-11-22-023'] = 'fixed'
 
 # The new registration is checked separately from the historical snapshot.
 POST_SPLIT_BUGS['BUG-2026-11-25-001'] = 'fixed'
+POST_SPLIT_BUGS['BUG-2026-11-25-002'] = 'fixed'
