@@ -261,7 +261,7 @@ def test_p0_3_merge_material_duplicates_blocks_shared_check_and_pending_adjustme
     ])
     db.session.commit()
 
-    with pytest.raises(ValueError, match="草稿库存调整单"):
+    with pytest.raises(ValueError, match="待审库存调整单"):
         app_module.merge_material_duplicates(m1.id, m2.id, identity_confirmed=True)
 
 
@@ -446,7 +446,7 @@ def test_p1_7_cross_user_scan_void_forbidden_while_owner_and_admin_allowed():
     _reset()
     admin = _seed_user("admin", "admin")
     u1 = _seed_user("wh1", "warehouse")
-    u2 = _seed_user("wh2", "warehouse")
+    viewer = _seed_user("viewer1", "viewer")
     wh = _seed_warehouse("W1", "一仓", is_default=True)
     unit = _seed_unit()
     _seed_material("M001", "轴承", unit, wh, stock=20.0)
@@ -456,7 +456,7 @@ def test_p1_7_cross_user_scan_void_forbidden_while_owner_and_admin_allowed():
 
     client = app_module.app.test_client()
     h1 = _bearer(client, "wh1")
-    h2 = _bearer(client, "wh2")
+    hv = _bearer(client, "viewer1")
 
     r_sub = client.post("/api/stocktake", headers=h1, json={
         "mode": "scan", "warehouse": wh.name, "check_id": ck.id,
@@ -465,16 +465,18 @@ def test_p1_7_cross_user_scan_void_forbidden_while_owner_and_admin_allowed():
     assert r_sub.status_code == 200, r_sub.get_data(as_text=True)
     scan = app_module.InventoryCheckScan.query.one()
 
-    # Another warehouse operator cannot void u1's scan
-    r_forbid_native = client.post("/api/stocktake/void", headers=h2, json={"check_no": scan.check_no})
+    # Non-warehouse viewer cannot void scans on either native or H5 endpoint
+    r_forbid_native = client.post("/api/stocktake/void", headers=hv, json={"check_no": scan.check_no})
     assert r_forbid_native.status_code == 403
-    r_forbid_h5 = client.post(f"/mobile/api/check_scan/{scan.id}/void", headers=h2)
+    r_forbid_h5 = client.post(f"/mobile/api/check_scan/{scan.id}/void", headers=hv)
     assert r_forbid_h5.status_code == 403
 
-    # Original operator can void
+    # Warehouse operator can void and audit records the acting user
     r_ok = client.post("/api/stocktake/void", headers=h1, json={"check_no": scan.check_no})
     assert r_ok.status_code == 200, r_ok.get_data(as_text=True)
     assert db.session.get(app_module.InventoryCheckScan, scan.id).status == "void"
+    audit = app_module.OperationAudit.query.filter_by(operation="void_check_scan", target_id=scan.id).one()
+    assert audit.user_id == u1.id
 
 
 def test_p1_8_location_management_requires_area_on_mobile_and_native_stocktake():
@@ -658,7 +660,7 @@ def test_p2_1_p2_2_p2_3_p2_4_p2_9_p2_15_labels_meta_audit_and_templates():
     r_rpt = client.get(f"/api/mobile/report/in_out_detail?warehouse_id={wh.id}", headers=h)
     assert r_rpt.status_code == 200
     labels = {row["transaction_type_label"] for row in r_rpt.get_json()["data"]["items"]}
-    assert "反提交盘盈调整" in labels
+    assert "库存调整入库冲回" in labels
     assert "revert_adjustment_in" not in labels
 
     # Web routes checks

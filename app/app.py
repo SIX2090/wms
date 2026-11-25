@@ -28167,10 +28167,6 @@ def _void_check_scan(check_id, *, actor):
             return None, None, '扫码盘点单不存在', 'not_found'
         return None, None, '只有已完成的扫码盘点单可以作废（可能已被作废）', 'invalid_status'
     check = locked
-    actor_role = (getattr(actor, 'role', '') or '').strip().lower()
-    if actor_role != 'admin' and check.operator_id is not None and check.operator_id != actor.id:
-        db.session.rollback()
-        return None, None, '仅管理员或该扫码单原盘点人可以作废', 'forbidden'
 
     linked_adjustments = AdjustmentOrder.query.filter_by(
         source_type='check_scan', source_id=check.id).all()

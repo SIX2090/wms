@@ -104,7 +104,11 @@ class StocktakeAuditFixTest {
         model.selectWarehouse(WarehouseDto(1, "W1", "一仓"))
         // Default call before restore/stocktake stays gated (preserves NativeMobileAuditRepairTest)
         model.loadLocationOptions()
-        idleRequests(model)
+        pumpUntil("check orders settled without location call") {
+            !model.uiState.value.checkOrdersLoading && server.requestCount >= 1
+        }
+        main.scheduler.runCurrent()
+        shadowOf(Looper.getMainLooper()).idle()
         assertEquals(0, locationCalls.get())
 
         // Stocktake screen invokes force=true so location picker loads immediately
