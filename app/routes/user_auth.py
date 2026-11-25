@@ -34,8 +34,8 @@ from utils import require_role, ASSIGNABLE_ROLES
 
 
 STOCK_AUDIT_TARGETS = {
-    'in_order', 'out_order', 'adjustment', 'transfer', 'check', 'requisition', 'after_sale_out_order',
-    'subcontract_issue', 'subcontract_receive',
+    'in_order', 'out_order', 'adjustment', 'transfer', 'check', 'inventory_check_scan',
+    'requisition', 'after_sale_out_order', 'subcontract_issue', 'subcontract_receive',
 }
 OPENING_STOCK_DELETE_AUDITS = {'delete_opening_stock_doc', 'delete_opening_stock_lines', 'purge_opening_stock'}
 
@@ -852,6 +852,29 @@ def register_user_auth_routes(app):
             related_logs = OperationLog.query.filter(OperationLog.user_id.in_(ids)).count()
             if related_logs > 0:
                 return jsonify({'status': 'error', 'msg': f'选中的用户有 {related_logs} 条操作记录，无法删除。账号已禁用即可阻止登录'}), 400
+
+            from app import (AdjustmentOrder, AfterSaleOutOrder, InOrder, InventoryCheck,
+                             InventoryCheckItem, InventoryCheckScan, OperationAudit,
+                             OutOrder, ProductionRequisition, StockTransaction, TransferOrder)
+            doc_refs = [
+                ('盘点单', InventoryCheck.query.filter(InventoryCheck.operator_id.in_(ids)).count()),
+                ('盘点明细', InventoryCheckItem.query.filter(InventoryCheckItem.counted_by.in_(ids)).count()),
+                ('扫码盘点单', InventoryCheckScan.query.filter(InventoryCheckScan.operator_id.in_(ids)).count()),
+                ('库存调整单', AdjustmentOrder.query.filter(AdjustmentOrder.operator_id.in_(ids)).count()),
+                ('入库单', InOrder.query.filter(InOrder.operator_id.in_(ids)).count()),
+                ('出库单', OutOrder.query.filter(OutOrder.operator_id.in_(ids)).count()),
+                ('调拨单', TransferOrder.query.filter(TransferOrder.operator_id.in_(ids)).count()),
+                ('售后出库单', AfterSaleOutOrder.query.filter(AfterSaleOutOrder.operator_id.in_(ids)).count()),
+                ('工单领料单', ProductionRequisition.query.filter(ProductionRequisition.operator_id.in_(ids)).count()),
+                ('库存流水', StockTransaction.query.filter(StockTransaction.operator_id.in_(ids)).count()),
+                ('审计记录', OperationAudit.query.filter(OperationAudit.operator_id.in_(ids)).count()),
+            ]
+            blocking_refs = [f'{label} {count} 条' for label, count in doc_refs if count > 0]
+            if blocking_refs:
+                return jsonify({
+                    'status': 'error',
+                    'msg': f'选中的用户存在关联业务记录（{"、".join(blocking_refs[:5])}），无法删除。账号已禁用即可阻止登录',
+                }), 400
 
             deleted_names = [user.username for user in users_to_delete]
             for user in users_to_delete:

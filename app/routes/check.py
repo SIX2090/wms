@@ -389,10 +389,17 @@ def _check_delete_errors(check_ids):
 def _stage_check_delete(check):
     """在盘点单写锁内核验依赖，解除历史调整指向后删除盘点单。"""
     from app import AdjustmentOrder, InventoryCheckItem
+    from services.document_stock_audit import stage_order_audit
 
     error = _check_delete_errors({check.id}).get(check.id)
     if error:
         return error
+    old_snapshot = _check_warehouse_snapshot(check, check.items)
+    stage_order_audit(
+        'delete_check', check, target_type='check', target_name=check.check_no,
+        old=old_snapshot, new={'deleted': True, 'moves_inventory': False},
+        reason='删除盘点单',
+    )
     AdjustmentOrder.query.filter_by(source_type='check', source_id=check.id).update(
         {AdjustmentOrder.source_id: None}, synchronize_session='fetch')
     InventoryCheckItem.query.filter_by(inventory_check_id=check.id).delete()
@@ -606,6 +613,7 @@ def register_check_routes(app):
             # - 提交集之外的旧行删除（全量提交语义与旧版一致）；
             # - 首次写入明细时设置 frozen_at，确认更换仓库时才重新冻结。
             existing_items = {item.id: item for item in check.items}
+            existing_material_ids = {item.material_id for item in check.items if item.material_id}
             legacy_rows = {}
             frozen_by_material = {}
             for item in sorted(check.items, key=lambda row: row.id):
@@ -617,10 +625,15 @@ def register_check_routes(app):
             saved_rows = []
             submitted_keys = set()
             locations = location_management_enabled()
+            from request_input import StockDocumentItemInput
             for item_data in items_data:
                 material = _material_from_payload(item_data)
                 if not material:
+                    db.session.rollback()
                     return api_error(f'物料不存在：{item_data.get("code") or ""}')
+                if (material.status or 'active') == 'inactive' and material.id not in existing_material_ids:
+                    db.session.rollback()
+                    return api_error(f'物料 {material.code} 已停用，不能新增到盘点单')
                 area = (item_data.get('area') or item_data.get('location') or '').strip()
                 if locations and not area:
                     db.session.rollback()
@@ -632,6 +645,18 @@ def register_check_routes(app):
                 submitted_keys.add(row_key)
                 raw_actual = item_data.get('actual_stock')
                 has_actual = raw_actual is not None and str(raw_actual).strip() != ''
+                validated_actual = None
+                if has_actual:
+                    try:
+                        validated_actual = StockDocumentItemInput.model_validate(
+                            {'actual_stock': raw_actual}).actual_stock
+                    except (ValueError, TypeError):
+                        db.session.rollback()
+                        return api_error(f'物料 {material.code} 的实际库存必须是有限数字且不能为负数')
+                    if validated_actual is None:
+                        db.session.rollback()
+                        return api_error(f'物料 {material.code} 的实际库存必须是有限数字且不能为负数')
+                    validated_actual = round_to_2_decimals(validated_actual)
                 row = None
                 if item_data.get('line_id') is not None:
                     row = existing_items.get(_clean_int(item_data['line_id']))
@@ -653,7 +678,7 @@ def register_check_routes(app):
                     # 同仓保留冻结账面，确认换仓时使用目标仓账面。
                     retained_ids.add(row.id)
                     was_counted = row.has_actual_count
-                    actual = round_to_2_decimals(parse_float_value(raw_actual, row.actual_stock)) if has_actual else row.actual_stock
+                    actual = validated_actual if has_actual else row.actual_stock
                     cleared = 'line_id' in item_data and not has_actual and was_counted
                     changed = has_actual and (actual != row.actual_stock or
                                               (not was_counted if refreeze else row.counted_at is None))
@@ -682,7 +707,7 @@ def register_check_routes(app):
                     system_stock = round_to_2_decimals(warehouse_stock_map.get(material.id, 0) or 0)
                     if not area:
                         system_stock = frozen_by_material.setdefault(material.id, system_stock)
-                    actual_stock = round_to_2_decimals(parse_float_value(raw_actual, system_stock)) if has_actual else system_stock
+                    actual_stock = validated_actual if has_actual else system_stock
                     row = InventoryCheckItem(
                         inventory_check_id=check.id,
                         material_id=material.id,
@@ -699,6 +724,7 @@ def register_check_routes(app):
             # 删除提交集之外的旧行
             for row_id, row in existing_items.items():
                 if row_id not in retained_ids:
+                    InventoryCheckScanItem.query.filter_by(batch_item_id=row.id).update({'batch_item_id': None})
                     db.session.delete(row)
             # 首次写入明细即冻结账面基准
             if check.frozen_at is None:
@@ -714,9 +740,18 @@ def register_check_routes(app):
             response = {'status': 'success', 'msg': '保存成功', 'id': check.id,
                         'order_no': check.check_no, 'line_ids': [row.id for row in saved_rows]}
             stage_document_response(response)
+            new_revision = None
+            if not order_id:
+                from services.document_edit_guard import HEADER as _REV_HEADER, _sign as _sign_revision
+                db.session.refresh(check)
+                db.session.expire(check, ['items'])
+                new_revision = _sign_revision('check', check)
             db.session.commit()
             log_operation('保存盘点单', f'盘点单：{check.check_no}', 'check', check.id)
-            return jsonify(response)
+            flask_resp = jsonify(response)
+            if new_revision:
+                flask_resp.headers[_REV_HEADER] = new_revision
+            return flask_resp
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'保存盘点单表格失败: {e}')
@@ -761,21 +796,29 @@ def register_check_routes(app):
             category = None
             materials = []
             scope_label = ''
-            scope_all = (request.form.get('scope') or '').strip() == 'all'
+            scope_raw = (request.form.get('scope') or '').strip()
+            scope_all = scope_raw == 'all'
             category_id = request.form.get('category_id', type=int) or 0
+            from app import material_selectable_filter
+            active_filter = material_selectable_filter(False)
             if scope_all:
                 scope_label = '整仓全部物料'
-                materials = Material.query.order_by(Material.code.asc()).all()
+                mat_q = Material.query
+                if active_filter is not None:
+                    mat_q = mat_q.filter(active_filter)
+                materials = mat_q.order_by(Material.code.asc()).all()
+            elif scope_raw == 'category' and not category_id:
+                return api_error('请选择盘点分类')
             elif category_id:
                 category = db.session.get(MaterialCategory, category_id)
                 if category is None:
                     return api_error('所选分类不存在，请重新选择')
                 scope_label = f'分类「{category.name}」（含子分类）'
                 cat_ids = _expand_check_category_ids(category_id)
-                materials = (Material.query
-                             .filter(Material.category_id.in_(cat_ids))
-                             .order_by(Material.code.asc())
-                             .all())
+                mat_q = Material.query.filter(Material.category_id.in_(cat_ids))
+                if active_filter is not None:
+                    mat_q = mat_q.filter(active_filter)
+                materials = mat_q.order_by(Material.code.asc()).all()
             if scope_all or category is not None:
                 max_rows = import_max_rows()
                 if len(materials) > max_rows:
@@ -1056,6 +1099,9 @@ def register_check_routes(app):
             if not material:
                 db.session.rollback()
                 return api_error('物料不存在')
+            if (material.status or 'active') == 'inactive':
+                db.session.rollback()
+                return api_error(f'物料 {material.code} 已停用，不能新增到盘点单')
             warehouse = (check.warehouse or '').strip()
             if not warehouse:
                 if check.items or check.frozen_at is not None:
@@ -1079,7 +1125,8 @@ def register_check_routes(app):
             if area and existing_item:
                 db.session.rollback()
                 return api_error('该物料在此区域已存在，请修改现有明细')
-            system_stock = get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0
+            from app import round_to_2_decimals
+            system_stock = round_to_2_decimals(get_warehouse_stock_quantities(wh_obj).get(material_id, 0) or 0)
             if not area and existing_item:
                 system_stock = existing_item.system_stock
             check.warehouse = wh_obj.name
@@ -1131,8 +1178,9 @@ def register_check_routes(app):
             if not ok:
                 return api_error('该盘点单状态已变更，请刷新后重试')
             InventoryCheckScanItem.query.filter_by(batch_item_id=item.id).update({'batch_item_id': None})
-            item.actual_stock = actual_stock if actual_stock is not None else item.system_stock
-            item.difference = item.actual_stock - item.system_stock
+            from app import round_to_2_decimals
+            item.actual_stock = round_to_2_decimals(actual_stock) if actual_stock is not None else item.system_stock
+            item.difference = round_to_2_decimals(item.actual_stock - item.system_stock)
             # INV-BATCH-001-B：行级盘点归属（多人协作批次下谁改的、何时改的）
             item.counted_by = current_user.id if actual_stock is not None else None
             item.counted_at = datetime.now() if actual_stock is not None else None
@@ -1193,8 +1241,9 @@ def register_check_routes(app):
             db.session.add(new_check)
             db.session.flush()
             stock_map = get_warehouse_stock_quantities(warehouse_obj)
+            from app import round_to_2_decimals
             for item in check.items:
-                system_stock = stock_map.get(item.material_id, 0) or 0
+                system_stock = round_to_2_decimals(stock_map.get(item.material_id, 0) or 0)
                 new_item = InventoryCheckItem(
                     inventory_check_id=new_check.id,
                     material_id=item.material_id,
@@ -1303,20 +1352,32 @@ def register_check_routes(app):
     @login_required
     def delete_check_item(id, item_id):
         """删除盘点明细"""
-        from app import InventoryCheck, InventoryCheckItem, api_error, log_operation
+        from app import (InventoryCheck, InventoryCheckItem, InventoryCheckScanItem,
+                         _acquire_order_write_lock, api_error, log_operation)
         check = InventoryCheck.query.get_or_404(id)
         if check.status != 'pending':
             return api_error('只有草稿状态的盘点单可以删除明细')
-        
-        item = InventoryCheckItem.query.get_or_404(item_id)
-        if item.inventory_check_id != id:
-            return api_error('盘点明细不属于当前盘点单')
-        
+
         try:
+            locked, ok = _acquire_order_write_lock(InventoryCheck, id, 'pending')
+            if not ok or locked is None:
+                return api_error('该盘点单状态已变更，请刷新后重试')
+            check = locked
+            item = db.session.get(InventoryCheckItem, item_id)
+            if item is None:
+                db.session.rollback()
+                return api_error('盘点明细不存在', 404)
+            if item.inventory_check_id != id:
+                db.session.rollback()
+                return api_error('盘点明细不属于当前盘点单')
             material_code = item.material.code if item.material else ''
+            InventoryCheckScanItem.query.filter_by(batch_item_id=item.id).update({'batch_item_id': None})
             db.session.delete(item)
+            db.session.flush()
+            if InventoryCheckItem.query.filter_by(inventory_check_id=id).count() == 0:
+                check.frozen_at = None
             db.session.commit()
-            
+
             log_operation('删除盘点明细', f'盘点单：{check.check_no}，物料：{material_code}', 'check', id)
             return jsonify({'status': 'success', 'msg': '盘点明细删除成功'})
         except Exception as e:
@@ -1439,6 +1500,7 @@ def register_check_routes(app):
             if not required.issubset(col_map):
                 return api_error(f'Excel表头缺少必要列（物料编码、实际库存）。检测到的表头：{", ".join(header_row)}')
             checks_by_no = {}
+            checks_item_counts = {}
             # BUG-2026-09-03-001：每个导入盘点单缓存其仓库级账面映射，避免逐行重算流水聚合
             checks_wh_stock = {}
             order_count = 0
@@ -1540,7 +1602,12 @@ def register_check_routes(app):
                     counted_at=datetime.now() if entered_actual else None,
                     reason=_get_excel_cell(row, col_map, 'reason'),
                 ))
+                checks_item_counts[order_no] = checks_item_counts.get(order_no, 0) + 1
                 item_count += 1
+            for created_no, created_check in list(checks_by_no.items()):
+                if checks_item_counts.get(created_no, 0) == 0:
+                    db.session.delete(created_check)
+                    order_count = max(0, order_count - 1)
             if not item_count:
                 db.session.rollback()
                 message = f'没有有效盘点明细，跳过 {skip} 行。' + '；'.join(skip_details[:10])

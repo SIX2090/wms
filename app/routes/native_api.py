@@ -1393,8 +1393,11 @@ def register_native_api_routes(app):
             if counted.actual_stock is None:
                 return api_json_error(f'第 {index} 行请输入实盘数量，盘到零请填 0', 400)
 
+        def _clean_text(val):
+            return val.strip() if isinstance(val, str) else ''
+
         # BUG-2026-08-11-021：扫码盘点仓库必填，未填写时自动带入默认仓库
-        warehouse = (payload.get('warehouse') or payload.get('warehouse_code') or '').strip()
+        warehouse = _clean_text(payload.get('warehouse')) or _clean_text(payload.get('warehouse_code'))
         if not warehouse:
             default_wh = get_default_warehouse()
             if default_wh:
@@ -1407,6 +1410,7 @@ def register_native_api_routes(app):
             return api_json_error(wh_err, 400)
         warehouse = wh_obj.name
 
+        from sqlalchemy.exc import OperationalError
         try:
             # INV-BATCH-001-E / BUG-2026-09-04-005：移动盘点强制选单。
             # 必须先选择 PC 端进行中的盘点单（check_id=InventoryCheck.id），
@@ -1430,9 +1434,10 @@ def register_native_api_routes(app):
                 selectinload(InventoryCheck.items))
             if not lock_ok:
                 return api_json_error(
-                    f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试', 400)
+                    f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试', 409)
             batch = locked_batch
-            if (batch.warehouse or '').strip() != warehouse:
+            from app import OperationLog, get_default_location, get_request_ip, resolve_inventory_warehouse_id
+            if resolve_inventory_warehouse_id(batch.warehouse) != wh_obj.id:
                 message = (f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
                            f'与所选盘点仓库「{warehouse}」不一致，请重新选择')
                 db.session.rollback()
@@ -1448,27 +1453,36 @@ def register_native_api_routes(app):
             )
             db.session.add(check)
             db.session.flush()
-            # INV-AUDIT-003-FIX-01：盘点账面按仓库级库存取数，对齐 mobile.py scan_submit。
-            # 此前默认值回退全局 Material.stock，多仓库下会把"全部仓库合计"当成
-            # 单个仓库的账面数，盘盈盘亏全部算错，并据此生成错误的调整草稿。
-            # 在循环外一次性聚合，避免逐行重复汇总流水（N+1）。
+            # INV-AUDIT-003-FIX-01：盘点账面按仓库级库存取数，优先沿用批次已冻结的同料账面。
             warehouse_stock_map = get_warehouse_stock_quantities(wh_obj)
+            frozen_by_material = {}
+            for existing_row in sorted(batch.items, key=lambda r: r.id or 0):
+                if existing_row.material_id:
+                    frozen_by_material.setdefault(existing_row.material_id, existing_row.system_stock)
+            locations_enabled = location_management_enabled()
+            default_loc = get_default_location(wh_obj.id) if locations_enabled else None
+            default_area = (default_loc.code or default_loc.name or '') if default_loc else ''
             for index, line in enumerate(lines, start=1):
-                code = (line.get('material_code') or line.get('code') or '').strip()
-                # 盘点区域（可选）：分区盘点时按"物料+区域"分行
-                area = (line.get('area') or line.get('region') or line.get('location') or line.get('location_code') or '').strip()
+                code = _clean_text(line.get('material_code')) or _clean_text(line.get('code'))
+                # 盘点区域（可选；开启库位管理时必填）：分区盘点时按"物料+区域"分行
+                area = (_clean_text(line.get('area')) or _clean_text(line.get('region'))
+                        or _clean_text(line.get('location')) or _clean_text(line.get('location_code')))
+                if locations_enabled and not area:
+                    area = default_area
+                if locations_enabled and not area:
+                    db.session.rollback()
+                    return api_json_error(f'第 {index} 行库位管理已启用，必须填写库位/区域', 400)
                 material = Material.query.filter_by(code=code).first()
                 if not material:
                     db.session.rollback()
                     return api_json_error(f'第 {index} 行物料不存在：{code}')
-                # INV-AUDIT-003-FIX-01：默认取服务端仓库级库存；客户端显式传值时
-                # 仍沿用（Android ScanViewModel 固定传 null，必然走仓库级分支）。
-                system_stock = parse_float_value(
-                    line.get('system_stock'), warehouse_stock_map.get(material.id) or 0)
-                actual_stock = parse_float_value(line.get('actual_stock'), system_stock)
-                if location_management_enabled() and abs(actual_stock - system_stock) > 0.000001 and not area:
-                    db.session.rollback()
-                    return api_json_error(f'第 {index} 行盘点差异必须填写库位/区域', 400)
+                default_book = (
+                    frozen_by_material[material.id]
+                    if material.id in frozen_by_material
+                    else (warehouse_stock_map.get(material.id) or 0)
+                )
+                system_stock = round_to_2_decimals(parse_float_value(line.get('system_stock'), default_book))
+                actual_stock = round_to_2_decimals(parse_float_value(line.get('actual_stock'), system_stock))
                 db.session.add(InventoryCheckScanItem(
                     check_scan_id=check.id,
                     material_id=material.id,
@@ -1491,11 +1505,23 @@ def register_native_api_routes(app):
                 'adjustment_nos': [],
             }
             msg = f'盘点提交成功，已挂批次 {batch.check_no}'
+            db.session.add(OperationLog(
+                user_id=user.id,
+                operation_type='手机扫码盘点',
+                content=f'扫码盘点单：{check.check_no}，批次：{batch.check_no}',
+                target_type='inventory_check_scan',
+                target_id=check.id,
+                ip_address=get_request_ip(),
+            ))
             db.session.flush()
             response = api_json_success(data, msg)
             stage_document_response(response.get_json())
             db.session.commit()
             return response
+        except OperationalError:
+            db.session.rollback()
+            app.logger.warning('Android stocktake write lock contention')
+            return api_json_error('盘点单正被其他操作占用，请稍后重试', 409)
         except Exception:
             db.session.rollback()
             app.logger.exception('Android stocktake failed')
@@ -1537,7 +1563,7 @@ def register_native_api_routes(app):
             return api_json_error(f'扫码盘点单不存在：{req.check_no}', 404)
         voided, deleted_nos, error, error_code = _void_check_scan(check.id, actor=user)
         if error:
-            status_code = {'not_found': 404, 'save_failed': 500}.get(error_code, 400)
+            status_code = {'not_found': 404, 'forbidden': 403, 'save_failed': 500}.get(error_code, 400)
             return api_json_error(error, status_code)
         msg = f'已作废扫码盘点单：{voided.check_no}'
         if deleted_nos:
@@ -1619,16 +1645,18 @@ def register_native_api_routes(app):
 
         # 仓库筛选：提供参数时才过滤（含历史 warehouse 为空的脏数据不丢，
         # 缺省展示本人全部经手记录）
-        wh_param = (request.args.get('warehouse')
-                    or request.args.get('warehouse_code')
-                    or request.args.get('warehouse_id') or '').strip()
-        query = InventoryCheckScan.query.filter(
+        from sqlalchemy.orm import selectinload
+        from app import _warehouse_document_match_clause
+        wh_name = (request.args.get('warehouse')
+                   or request.args.get('warehouse_code') or '').strip()
+        raw_wh_id = (request.args.get('warehouse_id') or '').strip()
+        query = InventoryCheckScan.query.options(selectinload(InventoryCheckScan.items)).filter(
             InventoryCheckScan.operator_id == user.id)
-        if wh_param:
-            wh_obj, wh_err = validate_inventory_warehouse(wh_param)
+        if wh_name or raw_wh_id:
+            wh_obj, wh_err = validate_inventory_warehouse(wh_name, raw_wh_id or None)
             if wh_err:
                 return api_json_error(wh_err, 400)
-            query = query.filter(InventoryCheckScan.warehouse == wh_obj.name)
+            query = query.filter(_warehouse_document_match_clause(InventoryCheckScan.warehouse, wh_obj))
 
         status_filter = (request.args.get('status') or 'completed').strip()
         if status_filter in ('completed', 'pending', 'void'):
@@ -1682,10 +1710,10 @@ def register_native_api_routes(app):
             batch = batches.get(scan.check_id) if scan.check_id else None
             batch_adj = adj_by_batch.get(scan.check_id, []) if scan.check_id else []
             linked_adj = scan_adj or batch_adj
-            if any(o.status == 'completed' for o in linked_adj):
-                adjustment_status = 'completed'
-            elif any(o.status == 'pending' for o in linked_adj):
+            if any(o.status == 'pending' for o in linked_adj):
                 adjustment_status = 'pending'
+            elif linked_adj and any(o.status == 'completed' for o in linked_adj):
+                adjustment_status = 'completed'
             else:
                 adjustment_status = ''
 
@@ -1748,12 +1776,15 @@ def register_native_api_routes(app):
         is_diff（|difference| > STOCK_COMPARE_EPSILON，与 PC 口径一致）。
         差异行排在前面——下钻的第一诉求就是对差异。
         """
-        from app import (STOCK_COMPARE_EPSILON, InventoryCheckScan,
-                         api_json_error, api_json_success)
+        from sqlalchemy.orm import joinedload, selectinload
+        from app import (STOCK_COMPARE_EPSILON, InventoryCheckScan, InventoryCheckScanItem,
+                         Material, api_json_error, api_json_success)
         scan_id = request.args.get('id', type=int)
         if not scan_id:
             return api_json_error('缺少参数 id', 400)
-        scan = InventoryCheckScan.query.filter(
+        scan = InventoryCheckScan.query.options(
+            selectinload(InventoryCheckScan.items).joinedload(InventoryCheckScanItem.material).joinedload(Material.unit),
+        ).filter(
             InventoryCheckScan.id == scan_id,
             InventoryCheckScan.operator_id == user.id).first()
         if scan is None:
@@ -2879,6 +2910,7 @@ def register_native_api_routes(app):
         page_rows = transactions[(page - 1) * page_size: page * page_size]
         total_pages = max(1, (total + page_size - 1) // page_size) if total > 0 else 0
 
+        from app import TRANSACTION_TYPE_LABELS
         out_order_labels = _ledger_out_order_labels(page_rows)
         items = []
         for t in page_rows:
@@ -2895,8 +2927,9 @@ def register_native_api_routes(app):
                 'unit': m.unit.name if (m and m.unit) else '',
                 'transaction_type': t.transaction_type or '',
                 'transaction_type_label': (out_order_labels.get(t.reference_id, '出库单')
-                    if t.reference_type == 'out_order' else REFERENCE_TYPE_LABELS.get(
-                        t.transaction_type, t.transaction_type or '库存流水')),
+                    if t.reference_type == 'out_order' else TRANSACTION_TYPE_LABELS.get(
+                        t.transaction_type,
+                        REFERENCE_TYPE_LABELS.get(t.reference_type, t.transaction_type or '库存流水'))),
                 'reference_type': t.reference_type or '',
                 'reference_id': t.reference_id,
                 'quantity': round_to_2_decimals(q),
@@ -4072,9 +4105,11 @@ def register_native_api_routes(app):
             }, speak or '导航指令')
 
         # 无页面映射的 intent：执行后端意图拿 reply 文本（PC 同款），App 朗读/展示
-        # 注意 _ai_execute_intent 返回 flask Response(jsonify)，解包取 reply。
+        # 注意 _ai_execute_intent 内部校验 Flask-Login current_user，需先绑定当前 Bearer 用户。
+        from flask_login import login_user
         from app import _ai_execute_intent
         try:
+            login_user(user)
             resp = _ai_execute_intent(text, intent_payload, context={
                 'page_url': '/mobile/voice', 'page_title': '语音助手',
             })

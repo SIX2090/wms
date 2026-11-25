@@ -25,13 +25,18 @@ def _check_required_fields(order: Any, required_fields: list[str]) -> list[str]:
     errors = []
     for field_name in required_fields:
         value = getattr(order, field_name, None)
+        if (value is None or (isinstance(value, str) and not value.strip())) and field_name == 'warehouse':
+            value = getattr(order, 'warehouse_id', None)
         if value is None or (isinstance(value, str) and not value.strip()):
             errors.append(f'缺少必填字段: {field_name}')
     return errors
 
 
-def _check_duplicate_materials(items: list[Any]) -> list[str]:
+def _check_duplicate_materials(items: list[Any], order_type: str = '') -> list[str]:
     """检查明细行中是否有重复物料。"""
+    if order_type == 'check':
+        # 2026-11-20 现场口径：盘点单允许同一物料按卡板/盘点纸分行录入。
+        return []
     errors = []
     seen = {}
     for i, item in enumerate(items):
@@ -45,10 +50,17 @@ def _check_duplicate_materials(items: list[Any]) -> list[str]:
     return errors
 
 
-def _check_quantity_anomalies(items: list[Any], max_ratio: float = 10.0) -> list[str]:
+def _check_quantity_anomalies(items: list[Any], max_ratio: float = 10.0, order_type: str = '') -> list[str]:
     """检查异常数量（与平均数量偏差过大）。"""
     errors = []
-    quantities = [getattr(item, 'quantity', 0) or 0 for item in items]
+    if order_type == 'check':
+        quantities = [
+            abs(getattr(item, 'actual_stock', 0) or 0)
+            for item in items
+            if getattr(item, 'has_actual_count', True)
+        ]
+    else:
+        quantities = [abs(getattr(item, 'quantity', 0) or 0) for item in items]
     if not quantities:
         return errors
 
@@ -57,7 +69,12 @@ def _check_quantity_anomalies(items: list[Any], max_ratio: float = 10.0) -> list
         return errors
 
     for i, item in enumerate(items):
-        qty = getattr(item, 'quantity', 0) or 0
+        if order_type == 'check':
+            if not getattr(item, 'has_actual_count', True):
+                continue
+            qty = abs(getattr(item, 'actual_stock', 0) or 0)
+        else:
+            qty = abs(getattr(item, 'quantity', 0) or 0)
         if qty > avg_qty * max_ratio:
             errors.append(f'第{i+1}行数量 {qty} 异常偏大（平均值 {avg_qty:.1f}）')
         elif qty < avg_qty / max_ratio and qty > 0:
@@ -203,16 +220,16 @@ def draft_check_agent(
         'in_order': ['warehouse_id', 'supplier_id'],
         'out_order': ['warehouse_id', 'department_id'],
         'transfer': ['from_warehouse_id', 'to_warehouse_id'],
-        'check': ['warehouse_id'],
-        'adjustment': ['warehouse_id', 'reason'],
+        'check': ['warehouse'],
+        'adjustment': ['warehouse'],
     }
 
     executor.register_tool(
         'check_required_fields',
         lambda **ctx: _check_required_fields(order, required_fields_map.get(order_type, []))
     )
-    executor.register_tool('check_duplicate_materials', lambda **ctx: _check_duplicate_materials(items))
-    executor.register_tool('check_quantity_anomalies', lambda **ctx: _check_quantity_anomalies(items))
+    executor.register_tool('check_duplicate_materials', lambda **ctx: _check_duplicate_materials(items, order_type=order_type))
+    executor.register_tool('check_quantity_anomalies', lambda **ctx: _check_quantity_anomalies(items, order_type=order_type))
     executor.register_tool('check_stock_sufficiency', lambda **ctx: _check_stock_sufficiency(items, db, Stock))
     executor.register_tool('check_po_quantity', lambda **ctx: _check_po_quantity(items, db, PurchaseOrderItem, PurchaseOrder))
 

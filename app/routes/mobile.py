@@ -719,10 +719,22 @@ def register_mobile_routes(app):
                 return jsonify(response)
 
             if mode == 'check':
-                # 盘点区域（可选）：分区盘点时按"物料+区域"分行（同物料多区各行并存）
-                area = (data.get('area') or data.get('region') or data.get('location') or data.get('location_code') or '').strip()
+                def _clean_text(val):
+                    return val.strip() if isinstance(val, str) else ''
+
+                # 盘点区域（可选；开启库位管理时必填）：分区盘点时按"物料+区域"分行
+                area = (_clean_text(data.get('area')) or _clean_text(data.get('region'))
+                        or _clean_text(data.get('location')) or _clean_text(data.get('location_code')))
                 # FEATURE-2026-09-05-004：行级差异原因（可选），盘出差异时当场备注
-                reason = (data.get('reason') or '').strip()
+                reason = _clean_text(data.get('reason'))
+                if location_management_enabled() and not area:
+                    from app import get_default_location
+                    default_loc = get_default_location(warehouse.id)
+                    if default_loc:
+                        area = default_loc.code or default_loc.name or ''
+                if location_management_enabled() and not area:
+                    return jsonify({'status': 'error', 'success': False,
+                                    'msg': '库位管理已启用，请填写盘点库位/区域'}), 400
                 actual_raw = data.get('actual_stock')
                 if actual_raw is None or str(actual_raw).strip() == '':
                     actual_raw = data.get('quantity')
@@ -734,9 +746,6 @@ def register_mobile_routes(app):
                 except (ValueError, TypeError):
                     return jsonify({'status': 'error', 'success': False, 'msg': '实际库存必须是有限数字且不能为负数'}), 400
                 actual_stock = round_to_2_decimals(parse_float_value(actual_raw, 0))
-                # INV-AUDIT-003：盘点按仓库级系统库存生成调整草稿，不再使用全局 Material.stock
-                warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
-                system_stock = normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
                 # INV-BATCH-001-E / BUG-2026-09-04-005：盘点强制选单。必须先选择
                 # PC 端进行中的盘点单（check_id=InventoryCheck.id），本次盘点结果
                 # 统一 upsert 进该批次，由 PC「完成盘点」统一生成调整草稿；不再
@@ -763,11 +772,24 @@ def register_mobile_routes(app):
                     return jsonify({'status': 'error', 'success': False,
                                     'msg': f'盘点单 {batch.check_no} 正被其他操作占用（可能正在完成/反提交），请稍后重试'}), 400
                 batch = locked_batch
-                if (batch.warehouse or '').strip() != (warehouse.name or '').strip():
+                from app import resolve_inventory_warehouse_id
+                if resolve_inventory_warehouse_id(batch.warehouse) != warehouse.id:
                     message = (f'盘点单 {batch.check_no} 属于仓库「{batch.warehouse}」，'
                                f'与当前盘点仓库「{warehouse.name}」不一致，请重新选择')
                     db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': message}), 400
+                # 在写锁内计算仓库级库存，优先沿用批次已冻结的该物料账面，避免手机记录与电脑账面口径偏离。
+                warehouse_stock_map = get_warehouse_stock_quantities(warehouse)
+                frozen_row = next(
+                    (it for it in sorted(batch.items, key=lambda r: r.id or 0)
+                     if it.material_id == material.id),
+                    None,
+                )
+                system_stock = (
+                    normalize_stock_quantity(frozen_row.system_stock)
+                    if frozen_row is not None
+                    else normalize_stock_quantity(warehouse_stock_map.get(material.id) or 0)
+                )
                 check = InventoryCheckScan(
                     check_no=generate_order_no('CS'),
                     date=date.today(),
@@ -820,7 +842,7 @@ def register_mobile_routes(app):
             db.session.rollback()
             current_app.logger.warning('Mobile scan submit 写锁冲突（可重试）')
             return jsonify({'status': 'error', 'success': False,
-                            'msg': '当前有其他出库操作正在处理，请稍后重试'}), 409
+                            'msg': '当前有其他库存操作正在处理，请稍后重试'}), 409
         except Exception:
             db.session.rollback()
             current_app.logger.exception('Mobile scan submit failed')
@@ -842,7 +864,7 @@ def register_mobile_routes(app):
         actor = current_user if current_user.is_authenticated else get_bearer_user()
         check, deleted_nos, error, error_code = _void_check_scan(check_id, actor=actor)
         if error:
-            status_code = {'not_found': 404, 'save_failed': 500}.get(error_code, 400)
+            status_code = {'not_found': 404, 'forbidden': 403, 'save_failed': 500}.get(error_code, 400)
             return jsonify({'status': 'error', 'success': False, 'msg': error}), status_code
         msg = f'已作废扫码盘点单：{check.check_no}'
         if deleted_nos:
@@ -885,8 +907,16 @@ def register_mobile_routes(app):
     @app.route('/mobile/api/check_orders/<int:check_id>/items')
     @_web_or_api_role_required('warehouse')
     def mobile_check_order_items(check_id):
-        from app import InventoryCheck, db, jsonify
-        check = db.session.get(InventoryCheck, check_id)
+        from sqlalchemy.orm import selectinload
+        from app import InventoryCheck, InventoryCheckItem, db, jsonify
+        check = db.session.get(
+            InventoryCheck,
+            check_id,
+            options=[
+                selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.material),
+                selectinload(InventoryCheck.items).joinedload(InventoryCheckItem.counted_by_user),
+            ],
+        )
         if check is None:
             return jsonify({'status': 'error', 'success': False,
                             'msg': f'盘点单不存在：{check_id}'}), 404

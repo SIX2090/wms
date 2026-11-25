@@ -104,8 +104,15 @@ def overlapping_stocktake_adjustment(check, material_ids, warehouse, *, posting=
 
 def validate_stocktake_adjustment(order, warehouse):
     """Verify that a pending adjustment still matches its completed source."""
-    from app import resolve_inventory_warehouse_id
+    from app import InventoryCheckScan, resolve_inventory_warehouse_id
 
+    if order.source_type == 'check_scan':
+        scan = db.session.get(InventoryCheckScan, order.source_id) if order.source_id else None
+        if scan is None or scan.status == 'void':
+            return '来源扫码盘点单不存在或已作废，无法完成该调整单'
+        if scan.warehouse and resolve_inventory_warehouse_id(scan.warehouse) != warehouse.id:
+            return '调整单与来源扫码盘点单的仓库不一致，无法完成该调整单'
+        return None
     if order.source_type != 'check':
         return None
     check = db.session.get(InventoryCheck, order.source_id)

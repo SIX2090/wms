@@ -9719,6 +9719,38 @@ def merge_material_duplicates(target_id, source_id, keep_alias=True, identity_co
     from services.warehouse_stock_service import verify_material_three_ledgers
 
     target, source = _material_merge_check_pair(target_id, source_id, identity_confirmed)
+    # 防止同张盘点单或待审调整单内主/副物料并存导致合并后账面失真或调整校验死锁
+    shared_checks = (
+        db.session.query(InventoryCheck.check_no)
+        .join(InventoryCheckItem, InventoryCheckItem.inventory_check_id == InventoryCheck.id)
+        .filter(InventoryCheckItem.material_id.in_((target.id, source.id)))
+        .group_by(InventoryCheck.id, InventoryCheck.check_no)
+        .having(db.func.count(db.distinct(InventoryCheckItem.material_id)) > 1)
+        .limit(5)
+        .all()
+    )
+    if shared_checks:
+        nos = '、'.join(row[0] for row in shared_checks if row[0])
+        raise ValueError(
+            f'两个物料同时存在于同一张盘点单（{nos}），直接合并会导致盘点账面与差异失真；请先处理相关盘点单后再合并'
+        )
+    shared_adjustments = (
+        db.session.query(AdjustmentOrder.adjustment_no)
+        .join(AdjustmentOrderItem, AdjustmentOrderItem.adjustment_order_id == AdjustmentOrder.id)
+        .filter(
+            AdjustmentOrder.status == 'pending',
+            AdjustmentOrderItem.material_id.in_((target.id, source.id)),
+        )
+        .group_by(AdjustmentOrder.id, AdjustmentOrder.adjustment_no)
+        .having(db.func.count(db.distinct(AdjustmentOrderItem.material_id)) > 1)
+        .limit(5)
+        .all()
+    )
+    if shared_adjustments:
+        nos = '、'.join(row[0] for row in shared_adjustments if row[0])
+        raise ValueError(
+            f'两个物料同时存在于同一张待审库存调整单（{nos}），直接合并会导致调整校验失败；请先完成或撤回相关草稿后再合并'
+        )
     stats = {'tables': {}, 'stock_before': float(target.stock or 0),
              'stock_source': float(source.stock or 0), 'alias': None}
 
@@ -9906,6 +9938,8 @@ def _warehouse_delete_blockers(warehouse):
                 TransferOrder.to_location.in_(values))).count()),
             ('库存调整单', AdjustmentOrder.query.filter(AdjustmentOrder.warehouse.in_(values)).count()),
             ('库存调整明细', AdjustmentOrderItem.query.filter(AdjustmentOrderItem.location.in_(values)).count()),
+            ('库存盘点单', InventoryCheck.query.filter(InventoryCheck.warehouse.in_(values)).count()),
+            ('扫码盘点单', InventoryCheckScan.query.filter(InventoryCheckScan.warehouse.in_(values)).count()),
             # 历史未归属行（warehouse_id IS NULL）字符串兜底
             ('库位库存(历史未归属)', LocationInventory.query.filter(
                 LocationInventory.warehouse_id.is_(None),
@@ -12330,7 +12364,7 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     )
     return response, None
 
-def _ai_create_check_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
+def _ai_create_check_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text', resolved_items=None):
     """AI 助手生成盘点单草稿。
     示例：盘点 M001 M002 M003  /  生成盘点单 A001 A002
     物料行的 system_stock 自动填入当前库存，actual_stock 等待用户盘点录入。
@@ -12349,14 +12383,20 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     if warehouse is None:
         return None, _ai_warehouse_error()
     warehouse_stock = get_warehouse_stock_quantities(warehouse)
-    items = _ai_parse_material_lines(message)
-    # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以仓库级账面为准）
-    if not items:
-        # 尝试仅按物料名称/编码匹配（不要求带数量）
-        candidates = _ai_find_materials_from_message(message, limit=20)
-        items = [(m, normalize_stock_quantity(warehouse_stock.get(m.id, 0))) for m in candidates]
+    if resolved_items is not None:
+        items = list(resolved_items)
+    else:
+        items = _ai_parse_material_lines(message)
+        # 盘点单允许只指定物料不指定数量（数量用于辅助识别，实际以仓库级账面为准）
+        if not items:
+            # 尝试仅按物料名称/编码匹配（不要求带数量）
+            candidates = _ai_find_materials_from_message(message, limit=20)
+            items = [(m, normalize_stock_quantity(warehouse_stock.get(m.id, 0))) for m in candidates]
     if not items:
         return None, '没有识别到要盘点的物料。可以这样说：盘点 M001 M002 M003'
+    for material, _ in items:
+        if getattr(material, 'status', None) == 'inactive':
+            return None, f'物料 {material.code} 已停用，不能加入盘点单草稿'
 
     business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
     slot = _ai_draft_idempotency().acquire(
@@ -12379,6 +12419,7 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
         warehouse=warehouse.name,
         remark=(message or '')[:200],
         status='pending',
+        frozen_at=datetime.now(),
         operator_id=current_user.id,
     )
     db.session.add(order)
@@ -12414,7 +12455,7 @@ def _ai_create_check_draft(message, manual_confirmation=False, confirmation_toke
     )
     return response, None
 
-def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
+def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text', resolved_items=None, adjustment_type_override=None):
     """AI 助手生成库存调整单草稿。
     示例：报废 M001 5  /  盘亏 A002 3  /  盘盈 B001 10
     调整类型识别：
@@ -12432,25 +12473,58 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
         return None, error_msg
 
     text = (message or '')
-    loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
-    surplus_keywords = ('盘盈', '多出', '溢余', '多了')
-    if any(k in text for k in loss_keywords):
-        adjustment_type = 'loss'
-        type_label = '盘亏/报废'
-    elif any(k in text for k in surplus_keywords):
-        adjustment_type = 'surplus'
-        type_label = '盘盈'
+    if adjustment_type_override in ('loss', 'surplus'):
+        adjustment_type = adjustment_type_override
+        type_label = '盘盈' if adjustment_type == 'surplus' else '盘亏/报废'
     else:
-        # 默认按盘亏处理（调整单最常见场景是处理差异/报废）
-        adjustment_type = 'loss'
-        type_label = '盘亏（默认）'
+        loss_keywords = ('报废', '损坏', '盘亏', '损耗', '丢失', '少了', '坏')
+        surplus_keywords = ('盘盈', '多出', '溢余', '多了')
+        if any(k in text for k in loss_keywords):
+            adjustment_type = 'loss'
+            type_label = '盘亏/报废'
+        elif any(k in text for k in surplus_keywords):
+            adjustment_type = 'surplus'
+            type_label = '盘盈'
+        else:
+            # 默认按盘亏处理（调整单最常见场景是处理差异/报废）
+            adjustment_type = 'loss'
+            type_label = '盘亏（默认）'
 
     warehouse = _ai_resolve_draft_warehouse(message)
     if warehouse is None:
         return None, _ai_warehouse_error()
-    items = _ai_parse_material_lines(message)
-    if not items:
+    raw_items = list(resolved_items) if resolved_items is not None else _ai_parse_material_lines(message)
+    if not raw_items:
         return None, '没有识别到物料和数量。可以这样说：报废 项目仓 M001 5  /  盘盈 库存仓 A002 10'
+
+    items = []
+    loss_totals = {}
+    loss_materials = {}
+    for material, quantity in raw_items:
+        if getattr(material, 'status', None) == 'inactive':
+            return None, f'物料 {material.code} 已停用，不能加入库存调整草稿'
+        qty = round_to_2_decimals(abs(float(quantity or 0)))
+        if qty <= 0 or qty > 999999:
+            return None, f'物料 {material.code} 调整数量必须在 0 到 999999 之间'
+        items.append((material, qty))
+        if adjustment_type == 'loss':
+            loss_totals[material.id] = round_to_2_decimals(loss_totals.get(material.id, 0) + qty)
+            loss_materials[material.id] = material
+
+    item_location = ''
+    if location_management_enabled():
+        default_loc = get_default_location(warehouse.id)
+        if not default_loc:
+            return None, f'库位管理已启用，仓库 {warehouse.name} 尚未配置默认库位，请先配置默认库位或在电脑端填写库位'
+        item_location = default_loc.code
+
+    if adjustment_type == 'loss' and not allow_negative_stock():
+        wh_stock = get_warehouse_stock_quantities(warehouse)
+        for mat_id, total_loss in loss_totals.items():
+            current_stock = normalize_stock_quantity(wh_stock.get(mat_id, 0))
+            if not is_stock_sufficient(current_stock, total_loss):
+                mat = loss_materials[mat_id]
+                return None, f'物料 {mat.code} 库存不足，仓库 {warehouse.name} 当前库存 {current_stock:.2f}，待盘亏 {total_loss:.2f}'
 
     business_key = _ai_draft_business_key_from_items(
         items,
@@ -12488,7 +12562,7 @@ def _ai_create_adjustment_draft(message, manual_confirmation=False, confirmation
         db.session.add(AdjustmentOrderItem(
             adjustment_order_id=order.id,
             material_id=material.id,
-            location='',
+            location=item_location,
             quantity=signed_qty,
             unit_id=material.unit_id,
             reason=(message or '')[:200],
@@ -15970,21 +16044,25 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
             source='confirmation',
         )
     elif doc_type == 'adjustment':
-        prefix = '盘盈 ' if str(adjustment_type or '').lower() == 'surplus' else '报废 '
+        resolved_adj_type = 'surplus' if str(adjustment_type or '').lower() == 'surplus' else 'loss'
+        prefix = '盘盈 ' if resolved_adj_type == 'surplus' else '报废 '
         draft, error = _ai_create_adjustment_draft(
-            prefix + draft_message,
+            prefix + ((source_text or '') + ' ' + draft_message).strip(),
             manual_confirmation=True,
             confirmation_token=confirmation_token,
             document_job_id=document_job_id,
             source='confirmation',
+            resolved_items=[(row['material'], row['quantity']) for row in matched],
+            adjustment_type_override=resolved_adj_type,
         )
     else:
         draft, error = _ai_create_check_draft(
-            draft_message,
+            ((source_text or '') + ' ' + draft_message).strip(),
             manual_confirmation=True,
             confirmation_token=confirmation_token,
             document_job_id=document_job_id,
             source='confirmation',
+            resolved_items=[(row['material'], row['quantity']) for row in matched],
         )
     if error:
         return None, error
@@ -18421,10 +18499,15 @@ def _ai_check_draft(module_key, order):
     if not items:
         issues.append('没有明细行，不能提交。')
     warehouse = None
-    if module_key == 'out_order':
+    if module_key in ('out_order', 'check', 'adjustment'):
         warehouse, warehouse_error = validate_inventory_warehouse(getattr(order, 'warehouse', None))
         if not warehouse:
-            issues.append(warehouse_error or '出库单未指定有效仓库')
+            fallback_msg = {
+                'out_order': '出库单未指定有效仓库',
+                'check': '盘点单未指定有效仓库',
+                'adjustment': '调整单未指定有效仓库',
+            }[module_key]
+            issues.append(warehouse_error or fallback_msg)
     elif module_key == 'transfer':
         warehouse, warehouse_error = validate_inventory_warehouse(
             getattr(order, 'from_warehouse', None) or getattr(order, 'from_location', None),
@@ -18432,11 +18515,43 @@ def _ai_check_draft(module_key, order):
         if not warehouse:
             issues.append(warehouse_error or '调拨单未指定有效调出仓库')
     warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else {}
+    use_location = location_management_enabled()
     seen = set()
+    loss_totals = {}
+    loss_materials = {}
+    uncounted_count = 0
     for item in items:
         material = getattr(item, 'material', None)
-        qty = round_to_2_decimals(getattr(item, 'quantity', 0) or 0)
         code = material.code if material else str(getattr(item, 'material_id', ''))
+        if module_key == 'check':
+            if not getattr(item, 'has_actual_count', False):
+                uncounted_count += 1
+            else:
+                actual = round_to_2_decimals(getattr(item, 'actual_stock', 0) or 0)
+                if actual < 0:
+                    issues.append(f'{code} 实盘数量不能为负数。')
+            area = (getattr(item, 'area', None) or '').strip()
+            if use_location and not area:
+                issues.append(f'{code} 缺少库位/区域（库位管理已启用）。')
+            if use_location and material:
+                dup_key = (material.id, area)
+                if dup_key in seen:
+                    issues.append(f'{code}（库位 {area}）在明细中重复出现，请合并。')
+                seen.add(dup_key)
+            continue
+        if module_key == 'adjustment':
+            raw_qty = getattr(item, 'quantity', 0) or 0
+            abs_qty = round_to_2_decimals(abs(raw_qty))
+            if abs_qty <= 0:
+                issues.append(f'{code} 调整数量必须大于 0。')
+            loc = (getattr(item, 'location', None) or '').strip()
+            if use_location and not loc:
+                issues.append(f'{code} 缺少库位（库位管理已启用）。')
+            if getattr(order, 'adjustment_type', '') == 'loss' and material and abs_qty > 0:
+                loss_totals[material.id] = round_to_2_decimals(loss_totals.get(material.id, 0) + abs_qty)
+                loss_materials[material.id] = material
+            continue
+        qty = round_to_2_decimals(getattr(item, 'quantity', 0) or 0)
         if qty <= 0:
             issues.append(f'{code} 数量必须大于 0。')
         if material and material.id in seen:
@@ -18446,6 +18561,14 @@ def _ai_check_draft(module_key, order):
         if module_key in ('out_order', 'transfer') and material and qty > warehouse_stock.get(material.id, 0) and not allow_negative_stock():
             current_stock = normalize_stock_quantity(warehouse_stock.get(material.id, 0))
             issues.append(f'{code} 待出 {qty}，仓库库存仅 {current_stock}，库存不足。')
+    if module_key == 'check' and uncounted_count > 0:
+        issues.append(f'尚有 {uncounted_count} 条明细未录入实盘，请确认是否漏盘。')
+    if module_key == 'adjustment' and loss_totals and not allow_negative_stock():
+        for mat_id, total_loss in loss_totals.items():
+            current_stock = normalize_stock_quantity(warehouse_stock.get(mat_id, 0))
+            if total_loss > current_stock:
+                mat = loss_materials[mat_id]
+                issues.append(f'{mat.code} 累计盘亏 {total_loss}，仓库库存仅 {current_stock}，库存不足。')
     if module_key == 'in_order':
         if is_purchase_in_order(order) and purchase_in_order_requires_order() and not getattr(order, 'source_purchase_order_id', None):
             issues.append('采购入库要求关联采购订单，当前草稿没有来源采购订单。')
@@ -26904,11 +27027,14 @@ def _acquire_order_write_lock(model_cls, record_id, expected_status, eager_load=
         eager_loads = [eager_load]
     try:
         if db.engine.dialect.name == 'sqlite':
-            # A flushed document receipt already owns the SQLite write transaction.
-            if not (db.session().info.get('native_request') or (has_request_context() and (getattr(g, 'web_document_receipt', None) or getattr(g, 'document_edit_guard', False)))):
+            # Only skip BEGIN IMMEDIATE when the active session already owns a write transaction.
+            native_state = db.session().info.get('native_request')
+            native_owns_tx = bool(native_state and native_state.get('atomic'))
+            if not (native_owns_tx or (has_request_context() and (getattr(g, 'web_document_receipt', None) or getattr(g, 'document_edit_guard', False)))):
                 db.session.rollback()
                 db.session.connection().exec_driver_sql('BEGIN IMMEDIATE')
-            order = db.session.get(model_cls, record_id, options=eager_loads) if eager_loads else db.session.get(model_cls, record_id)
+            order = (db.session.get(model_cls, record_id, options=eager_loads, populate_existing=True)
+                     if eager_loads else db.session.get(model_cls, record_id, populate_existing=True))
         else:
             query = model_cls.query.with_for_update()
             if eager_loads:
@@ -27490,6 +27616,8 @@ def _build_check_batch_meta(check):
     try:
         all_scans = (InventoryCheckScan.query
                      .filter_by(check_id=check.id)
+                     .filter(db.or_(InventoryCheckScan.status.is_(None),
+                                    InventoryCheckScan.status != 'void'))
                      .order_by(InventoryCheckScan.created_at.desc())
                      .all())
     except Exception:
@@ -27909,16 +28037,26 @@ def _create_adjustment_drafts_from_check_scan(check):
     # 冲突处理（宁拦不漏，处理方式为审核或删除存量草稿，成本低）。
     _guard_material_ids = [item.material_id for item in check.items if item.material_id]
     if _guard_material_ids:
+        from services.stocktake import STOCKTAKE_SOURCES
         _pending_q = AdjustmentOrder.query.filter(
-            AdjustmentOrder.source_type == 'check_scan',
+            AdjustmentOrder.source_type.in_(STOCKTAKE_SOURCES),
             AdjustmentOrder.status == 'pending',
-            AdjustmentOrder.source_id != check.id,
+            db.or_(AdjustmentOrder.source_type != 'check_scan',
+                   AdjustmentOrder.source_id != check.id,
+                   AdjustmentOrder.source_id.is_(None)),
         )
         if check.warehouse:
-            _pending_q = _pending_q.filter(db.or_(
-                AdjustmentOrder.warehouse == check.warehouse,
-                AdjustmentOrder.warehouse.is_(None),
-            ))
+            _wh_obj, _ = validate_inventory_warehouse(check.warehouse)
+            if _wh_obj is not None:
+                _pending_q = _pending_q.filter(db.or_(
+                    _warehouse_document_match_clause(AdjustmentOrder.warehouse, _wh_obj),
+                    AdjustmentOrder.warehouse.is_(None),
+                ))
+            else:
+                _pending_q = _pending_q.filter(db.or_(
+                    AdjustmentOrder.warehouse == check.warehouse,
+                    AdjustmentOrder.warehouse.is_(None),
+                ))
         _pending_orders = _pending_q.all()
         if _pending_orders:
             _conflicts = (
@@ -27944,27 +28082,25 @@ def _create_adjustment_drafts_from_check_scan(check):
                     '请先在「库存调整」中审核或删除这些草稿后再盘点，否则库存会被重复调整'
                 )
 
-    # 盘点支持"物料+区域"分行：同一物料跨多区域的差异按净额合并为一条，
-    # 防止分区盘点把同一物料的差异重复叠加/重复调整。
+    # 盘点支持"物料+区域"分行：同一物料跨多行时按首次账面一次扣减，实盘合计后算净差。
     _net = {}
-    for item in check.items:
+    for item in sorted(check.items, key=lambda row: row.id or 0):
         if not item.material_id:
             continue
         system_stock = normalize_stock_quantity(item.system_stock or 0)
         actual_stock = normalize_stock_quantity(item.actual_stock or 0)
-        diff = normalize_stock_quantity(actual_stock - system_stock)
-        if abs(diff) <= STOCK_COMPARE_EPSILON:
-            continue
-        entry = _net.setdefault(item.material_id, {'diff': 0.0, 'areas': set(), 'item': item})
-        entry['diff'] += diff
+        entry = _net.setdefault(item.material_id, {
+            'system_stock': system_stock, 'actual_total': 0.0, 'areas': set(), 'item': item,
+        })
+        entry['actual_total'] = round_to_2_decimals(entry['actual_total'] + actual_stock)
         entry['areas'].add((item.area or '').strip() or '未分区')
     grouped = {'surplus': [], 'loss': []}
     for _material_id, _entry in _net.items():
-        _net_diff = round_to_2_decimals(_entry['diff'])
+        _net_diff = round_to_2_decimals(_entry['actual_total'] - _entry['system_stock'])
         if abs(_net_diff) <= STOCK_COMPARE_EPSILON:
             continue
         _direction = 'surplus' if _net_diff > 0 else 'loss'
-        grouped[_direction].append((_entry['item'], abs(_net_diff), _material_id, _entry['areas']))
+        grouped[_direction].append((_entry['item'], abs(_net_diff), _material_id, _entry['areas'], _entry['system_stock'], _entry['actual_total']))
 
     drafts = []
     for adjustment_type, rows in grouped.items():
@@ -27984,19 +28120,18 @@ def _create_adjustment_drafts_from_check_scan(check):
         )
         db.session.add(order)
         db.session.flush()
-        for item, qty, material_id, areas in rows:
+        for item, qty, material_id, areas, book_stock, actual_total in rows:
             signed_qty = qty if adjustment_type == 'surplus' else -qty
             if len(areas) > 1:
                 reason = f'扫码盘点差异（{len(areas)} 个区域），净调整 {signed_qty}'
             else:
-                reason = '扫码盘点差异：账面 %s，实盘 %s' % (
-                    normalize_stock_quantity(item.system_stock or 0),
-                    normalize_stock_quantity(item.actual_stock or 0))
+                reason = '扫码盘点差异：账面 %s，实盘 %s' % (book_stock, actual_total)
             db.session.add(AdjustmentOrderItem(
                 adjustment_order_id=order.id,
                 material_id=material_id,
                 quantity=signed_qty,
                 unit_id=item.material.unit_id if item.material else None,
+                location=(item.area or '').strip() or None,
                 reason=reason
             ))
         drafts.append(order)
@@ -28035,6 +28170,10 @@ def _void_check_scan(check_id, *, actor):
             return None, None, '扫码盘点单不存在', 'not_found'
         return None, None, '只有已完成的扫码盘点单可以作废（可能已被作废）', 'invalid_status'
     check = locked
+    actor_role = (getattr(actor, 'role', '') or '').strip().lower()
+    if actor_role != 'admin' and check.operator_id is not None and check.operator_id != actor.id:
+        db.session.rollback()
+        return None, None, '仅管理员或该扫码单原盘点人可以作废', 'forbidden'
 
     linked_adjustments = AdjustmentOrder.query.filter_by(
         source_type='check_scan', source_id=check.id).all()
@@ -28088,9 +28227,15 @@ def _void_check_scan(check_id, *, actor):
             batch_rows = InventoryCheckItem.query.filter_by(
                 inventory_check_id=batch.id).all()
             by_id = {row.id: row for row in batch_rows}
-            bound_ids = {row_id for (row_id,) in db.session.query(InventoryCheckScanItem.batch_item_id)
-                         .join(InventoryCheckItem, InventoryCheckItem.id == InventoryCheckScanItem.batch_item_id)
-                         .filter(InventoryCheckItem.inventory_check_id == batch.id)}
+            bound_ids = {
+                row_id for (row_id,) in db.session.query(InventoryCheckScanItem.batch_item_id)
+                .join(InventoryCheckScan, InventoryCheckScan.id == InventoryCheckScanItem.check_id)
+                .join(InventoryCheckItem, InventoryCheckItem.id == InventoryCheckScanItem.batch_item_id)
+                .filter(
+                    InventoryCheckItem.inventory_check_id == batch.id,
+                    InventoryCheckScan.status != 'void',
+                )
+            }
             scan_operator = check.operator_id
             for scan_item in check.items:
                 if not scan_item.material_id:
@@ -28109,6 +28254,7 @@ def _void_check_scan(check_id, *, actor):
                     row = candidates[0] if candidates else None
                     scan_created = row is not None and str(row.reason or '').startswith('手机扫码盘点')
                 if row is None:
+                    scan_item.batch_item_id = None
                     continue
                 # FEATURE-2026-09-05-004：手机端可填行级差异原因，扫码新建行
                 # reason 形如「手机扫码盘点：破损2件」——此处改用前缀判定识别
@@ -28116,6 +28262,7 @@ def _void_check_scan(check_id, *, actor):
                 # 只重置不删除，撤销后留下孤儿未盘行）。
                 if scan_created and row.counted_by is not None and row.counted_by == scan_operator:
                     old_batch_rows.append(snapshot_audit_row(row))
+                    scan_item.batch_item_id = None
                     db.session.delete(row)
                 elif not scan_created and row.counted_by == scan_operator and row.counted_at is not None:
                     old_batch_rows.append(snapshot_audit_row(row))
@@ -28123,6 +28270,9 @@ def _void_check_scan(check_id, *, actor):
                     row.difference = 0.0
                     row.counted_by = None
                     row.counted_at = None
+                    if str(row.reason or '').startswith('手机扫码盘点'):
+                        row.reason = ''
+                    scan_item.batch_item_id = None
                     restored_batch_rows.append(snapshot_audit_row(row))
             # 批次被本 CS 清空时撤销首次冻结时点，批次回到初始"待冻结"空态
             if InventoryCheckItem.query.filter_by(
@@ -28181,9 +28331,13 @@ def _list_pending_check_orders(warehouse=None):
     调整草稿。此 helper 供 Android（GET /api/stocktake/check_orders）与
     H5（GET /mobile/api/check_orders）两个列表接口共用。
     """
-    query = InventoryCheck.query.filter_by(status='pending')
+    query = InventoryCheck.query.options(selectinload(InventoryCheck.items)).filter_by(status='pending')
     if warehouse:
-        query = query.filter_by(warehouse=warehouse)
+        wh_obj, _ = validate_inventory_warehouse(warehouse)
+        if wh_obj is not None:
+            query = query.filter(_warehouse_document_match_clause(InventoryCheck.warehouse, wh_obj))
+        else:
+            query = query.filter_by(warehouse=warehouse)
     orders = query.order_by(InventoryCheck.id.desc()).all()
     result = []
     for order in orders:
@@ -28867,6 +29021,9 @@ REPORT_TYPE_ORDER = [
 STATUS_LABELS = {
     'pending': '待处理',
     'completed': '已完成',
+    'cancelled': '已撤回',
+    'void': '已作废',
+    'deleted': '已删除',
 }
 TRANSACTION_TYPE_LABELS = {
     'in': '入库',
@@ -28875,6 +29032,12 @@ TRANSACTION_TYPE_LABELS = {
     'transfer_out': '调拨出库',
     'adjustment_in': '库存调整入库',
     'adjustment_out': '库存调整出库',
+    'revert_adjustment_in': '库存调整入库冲回',
+    'revert_adjustment_out': '库存调整出库冲回',
+    'revert_in': '入库冲回',
+    'revert_out': '出库冲回',
+    'revert_after_sale_out': '售后出库冲回',
+    'revert_requisition': '工单领料冲回',
     'check': '盘点调整',
     'after_sale_out': '售后出库',
 }
@@ -28885,6 +29048,7 @@ REFERENCE_TYPE_LABELS = {
     'out_order': '领料单',
     'transfer': '调拨单',
     'adjustment': '调整单',
+    'check': '盘点单',
     'inventory_check': '盘点单',
     'inventory_check_scan': '扫码盘点单',
     'stock_transaction': '库存流水',
@@ -28898,8 +29062,9 @@ REPORT_REFERENCE_LINKS = {
     'in_order': {'model': InOrder, 'number': 'order_no', 'endpoint': 'in_order_detail'},
     'out_order': {'model': OutOrder, 'number': 'order_no', 'endpoint': 'out_order_detail'},
     'after_sale_out_order': {'model': AfterSaleOutOrder, 'number': 'order_no', 'endpoint': 'after_sale_out_detail'},
+    'check': {'model': InventoryCheck, 'number': 'check_no', 'endpoint': 'check_detail'},
     'inventory_check': {'model': InventoryCheck, 'number': 'check_no', 'endpoint': 'check_detail'},
-    'inventory_check_scan': {'model': InventoryCheck, 'number': 'check_no', 'endpoint': 'check_detail'},
+    'inventory_check_scan': {'model': InventoryCheckScan, 'number': 'check_no', 'endpoint': None},
     'transfer': {'model': TransferOrder, 'number': 'transfer_no', 'endpoint': 'transfer_detail'},
     'adjustment': {'model': AdjustmentOrder, 'number': 'adjustment_no', 'endpoint': 'adjustment_detail'},
     'subcontract': {'model': SubcontractOrder, 'number': 'order_no', 'endpoint': 'subcontract_detail'},
@@ -29854,13 +30019,18 @@ INVENTORY_ANALYSIS_IDLE_DAYS_DEFAULT = 90
 _INBOUND_TXN_TYPES = ('in', 'transfer_in', 'adjustment_in', 'check_in')
 _OUTBOUND_TXN_TYPES = ('out', 'transfer_out', 'adjustment_out', 'after_sale_out', 'check_out')
 _OPENING_TXN_TYPES = ('opening', 'opening_stock')
+_REVERSAL_TXN_TYPES = (
+    'revert_in', 'revert_out', 'revert_adjustment_in', 'revert_adjustment_out',
+    'revert_after_sale_out', 'revert_requisition',
+    'revert_subcontract_issue', 'revert_subcontract_receive',
+)
 
 
 def _outbound_txn_condition():
     """出库方向流水的 SQL 条件（与 _is_inbound_transaction 严格同源）。
 
     出库 = 显式出库类型；或未知/空类型且数量为负（_is_inbound_transaction 对
-    未知类型按 quantity >= 0 判入库）；期初类型既非入也非出，不参与。
+    未知类型按 quantity >= 0 判入库）；期初与反提交冲回类型既非真实入也非真实出，不参与。
     """
     return db.or_(
         StockTransaction.transaction_type.in_(list(_OUTBOUND_TXN_TYPES)),
@@ -29869,7 +30039,8 @@ def _outbound_txn_condition():
             db.or_(
                 StockTransaction.transaction_type.is_(None),
                 StockTransaction.transaction_type.notin_(
-                    list(_INBOUND_TXN_TYPES) + list(_OUTBOUND_TXN_TYPES) + list(_OPENING_TXN_TYPES)),
+                    list(_INBOUND_TXN_TYPES) + list(_OUTBOUND_TXN_TYPES)
+                    + list(_OPENING_TXN_TYPES) + list(_REVERSAL_TXN_TYPES)),
             ),
         ),
     )

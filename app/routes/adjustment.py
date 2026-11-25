@@ -179,8 +179,8 @@ def register_adjustment_routes(app):
         from app import (AdjustmentOrder, AdjustmentOrderItem, Material, Unit,
                          _serialize_adjustment_item_for_form, get_active_warehouses,
                          get_default_warehouse, get_warehouse_stock_quantities,
-                         location_management_enabled, serialize_material_with_stock,
-                         validate_inventory_warehouse)
+                         location_management_enabled, resolve_inventory_warehouse_id,
+                         serialize_material_with_stock, validate_inventory_warehouse)
         adjustment = AdjustmentOrder.query.options(
             joinedload(AdjustmentOrder.operator),
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.material).joinedload(Material.unit),
@@ -209,6 +209,7 @@ def register_adjustment_routes(app):
 
         return render_template('adjustment_add.html',
                              adjustment=adjustment,
+                             adjustment_warehouse_id=resolve_inventory_warehouse_id(adjustment.warehouse),
                              order_id=adjustment.id,
                              adjustment_no=adjustment.adjustment_no,
                              adjustment_date=(adjustment.date or date.today()).strftime('%Y-%m-%d'),
@@ -239,6 +240,13 @@ def register_adjustment_routes(app):
             selectinload(AdjustmentOrder.items).joinedload(AdjustmentOrderItem.unit),
         ).filter(AdjustmentOrder.id == id, AdjustmentOrder.status.is_distinct_from('deleted')).first_or_404()
         type_label = '盘盈增加库存' if adjustment.adjustment_type == 'surplus' else '盘亏减少库存' if adjustment.adjustment_type == 'loss' else adjustment.adjustment_type
+        source_labels = {
+            'manual': '手工新增',
+            'check': '盘点生成',
+            'check_scan': '扫码盘点生成',
+            'import': 'Excel导入',
+        }
+        source_label = source_labels.get(adjustment.source_type or 'manual', adjustment.source_type or '手工新增')
         rows = [
             _material_row_common(
                 item,
@@ -259,10 +267,11 @@ def register_adjustment_routes(app):
             'date_label': '调整日期',
             'date': _fmt_date(adjustment.date),
             'status': '已撤回' if adjustment.status == 'cancelled' else adjustment.status,
+            'total_amount': None,
             'info': [
                 ('仓库', adjustment.warehouse),
                 ('调整类型', type_label),
-                ('来源类型', adjustment.source_type or 'manual'),
+                ('来源类型', source_label),
                 ('制单人', _operator_name(adjustment)),
                 ('创建时间', _fmt_date(adjustment.created_at)),
             ],
@@ -414,11 +423,26 @@ def register_adjustment_routes(app):
             if replace_items and not items_data:
                 return api_error('请至少填写一条调整明细')
 
+            parsed_date = None
             if date_str:
                 try:
-                    adjustment.date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                    parsed_date = datetime.strptime(date_str, '%Y-%m-%d').date()
                 except ValueError:
                     return api_error('日期格式不正确')
+
+            if order_id and stocktake_adjustment_history(adjustment.id):
+                from app import resolve_inventory_warehouse_id
+                old_wh_id = resolve_inventory_warehouse_id(adjustment.warehouse)
+                if parsed_date is not None and adjustment.date and parsed_date != adjustment.date:
+                    return api_error('该调整单已有历史过账/反提交流水，不能更改日期；如需修改请新建调整单')
+                if (old_wh_id is not None and old_wh_id != wh_obj.id) or (
+                    old_wh_id is None and (adjustment.warehouse or '').strip()
+                    and (adjustment.warehouse or '').strip() != warehouse
+                ):
+                    return api_error('该调整单已有历史过账/反提交流水，不能更换仓库；如需修改请新建调整单')
+
+            if parsed_date is not None:
+                adjustment.date = parsed_date
 
             adjustment.adjustment_no = adjustment_no
             adjustment.adjustment_type = adjustment_type
@@ -427,12 +451,43 @@ def register_adjustment_routes(app):
             if not adjustment.operator_id:
                 adjustment.operator_id = current_user.id
 
+            from app import LocationInventory, allow_negative_location_stock
+            use_location = location_management_enabled()
+            wh_stock_map = get_warehouse_stock_quantities(wh_obj)
+
+            def _check_loss_stock_totals(material_map, material_totals, location_totals):
+                if adjustment_type != 'loss' or allow_negative_stock():
+                    return None
+                for mat_id, total_qty in material_totals.items():
+                    mat = material_map[mat_id]
+                    current_stock = normalize_stock_quantity(wh_stock_map.get(mat_id, 0))
+                    if (not is_stock_sufficient(current_stock, total_qty)
+                            and _material_stock_unattributed(mat_id)):
+                        # stock-truth: reason=无法归属仓库的历史遗留库存兜底，与 deduct_stock_atomic 口径一致
+                        current_stock = normalize_stock_quantity(mat.stock or 0)
+                    if not is_stock_sufficient(current_stock, total_qty):
+                        return f'物料 {mat.code} 库存不足，当前库存：{current_stock:.2f}，待扣减：{total_qty:.2f}'
+                if use_location and not allow_negative_location_stock():
+                    for (mat_id, loc), total_qty in location_totals.items():
+                        mat = material_map[mat_id]
+                        loc_row = LocationInventory.query.filter_by(
+                            material_id=mat_id, warehouse_id=wh_obj.id, location=loc
+                        ).first()
+                        loc_qty = normalize_stock_quantity(loc_row.quantity if loc_row else 0)
+                        if not is_stock_sufficient(loc_qty, total_qty):
+                            return f'物料 {mat.code} 在库位 {loc} 库存不足，当前库位库存：{loc_qty:.2f}，待扣减：{total_qty:.2f}'
+                return None
+
             # Process items if provided.
             if replace_items:
-                db.session.flush()
-                # Clear existing items
-                AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment.id).delete()
-
+                existing_material_ids = (
+                    {row.material_id for row in adjustment.items if row.material_id}
+                    if order_id else set()
+                )
+                prepared_items = []
+                material_map = {}
+                material_totals = {}
+                location_totals = {}
                 for item_data in items_data:
                     material = None
                     material_id = item_data.get('material_id')
@@ -446,6 +501,8 @@ def register_adjustment_routes(app):
                         material = Material.query.filter_by(code=material_code).first()
                     if not material:
                         return api_error(f'物料不存在：{material_code or material_id}')
+                    if (material.status or 'active') == 'inactive' and material.id not in existing_material_ids:
+                        return api_error(f'物料 {material.code} 已停用，不能新增到调整单')
                     try:
                         quantity = round_to_2_decimals(item_data.get('quantity', 0))
                     except (TypeError, ValueError):
@@ -455,39 +512,69 @@ def register_adjustment_routes(app):
                     if quantity > 999999:
                         return api_error(f'物料 {material.code} 的数量超过合理范围（最大 999999）')
 
-                    # BUG-2026-09-19-002：报损校验改为按单据仓库口径（wh_obj 已由
-                    # validate_inventory_warehouse 在上方解析并保证有效启用），不再用
-                    # 全局 Material.stock —— 否则 A 仓库存会掩护 B 仓报损（A11 / R2，
-                    # BUG-2026-08-16-009 同类）。兜底：库存全部无法归属仓库时回退全局
-                    # 口径，与 deduct_stock_atomic 一致，避免历史遗留库存被误报不足。
-                    current_stock = normalize_stock_quantity(
-                        get_warehouse_stock_quantities(wh_obj).get(material.id, 0))
-                    if (not is_stock_sufficient(current_stock, quantity)
-                            and _material_stock_unattributed(material.id)):
-                        # stock-truth: reason=无法归属仓库的历史遗留库存兜底，与 deduct_stock_atomic 口径一致
-                        current_stock = normalize_stock_quantity(material.stock or 0)
-                    if adjustment_type == 'loss' and not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
-                        return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
-
                     location = (item_data.get('location') or '').strip()
                     reason = (item_data.get('reason') or '').strip()
 
                     # P1-BUGFIX: 开启库位管理时 item 级 location 必填（AGENTS.md 规则二）
-                    if location_management_enabled() and not location:
+                    if use_location and not location:
                         return api_error(f'库位管理已启用，物料 {material.code} 请填写库位')
 
-                    # Store signed quantity based on adjustment type
-                    signed_quantity = quantity if adjustment_type == 'surplus' else -quantity
+                    material_map[material.id] = material
+                    material_totals[material.id] = round_to_2_decimals(
+                        material_totals.get(material.id, 0) + quantity)
+                    if use_location:
+                        location_totals[(material.id, location)] = round_to_2_decimals(
+                            location_totals.get((material.id, location), 0) + quantity)
+                    prepared_items.append((material, quantity, location, reason))
 
-                    item = AdjustmentOrderItem(
+                stock_error = _check_loss_stock_totals(material_map, material_totals, location_totals)
+                if stock_error:
+                    return api_error(stock_error)
+
+                db.session.flush()
+                # Clear existing items only after all line & stock validations pass.
+                AdjustmentOrderItem.query.filter_by(adjustment_order_id=adjustment.id).delete()
+                for material, quantity, location, reason in prepared_items:
+                    signed_quantity = quantity if adjustment_type == 'surplus' else -quantity
+                    db.session.add(AdjustmentOrderItem(
                         adjustment_order_id=adjustment.id,
                         material_id=material.id,
                         location=location or None,
                         quantity=signed_quantity,
                         unit_id=material.unit_id,
                         reason=reason
-                    )
-                    db.session.add(item)
+                    ))
+            elif order_id and adjustment.items:
+                # 仅修改表头（如切换盘盈/盘亏或换仓）时，同步翻转既有明细正负号并重检库存/库位。
+                material_map = {}
+                material_totals = {}
+                location_totals = {}
+                for item in adjustment.items:
+                    if not item.material_id:
+                        continue
+                    mat = item.material or db.session.get(Material, item.material_id)
+                    if not mat:
+                        return api_error(f'明细物料不存在：{item.material_id}')
+                    loc = (item.location or '').strip()
+                    if use_location and not loc:
+                        return api_error(f'库位管理已启用，物料 {mat.code} 请填写库位')
+                    abs_qty = round_to_2_decimals(abs(item.quantity or 0))
+                    if abs_qty <= 0:
+                        return api_error(f'物料 {mat.code} 的数量必须大于0')
+                    material_map[mat.id] = mat
+                    material_totals[mat.id] = round_to_2_decimals(
+                        material_totals.get(mat.id, 0) + abs_qty)
+                    if use_location:
+                        location_totals[(mat.id, loc)] = round_to_2_decimals(
+                            location_totals.get((mat.id, loc), 0) + abs_qty)
+                stock_error = _check_loss_stock_totals(material_map, material_totals, location_totals)
+                if stock_error:
+                    return api_error(stock_error)
+                for item in adjustment.items:
+                    if not item.material_id:
+                        continue
+                    abs_qty = round_to_2_decimals(abs(item.quantity or 0))
+                    item.quantity = abs_qty if adjustment_type == 'surplus' else -abs_qty
 
             db.session.flush()
             stage_document_response({'status': 'success', 'msg': '保存成功', 'id': adjustment.id, 'adjustment_no': adjustment.adjustment_no})
@@ -627,6 +714,27 @@ def register_adjustment_routes(app):
                 db.session.rollback()
                 return api_error(recorded_result[1])
             if recorded_result is None:
+                from app import StockTransaction, Warehouse, resolve_inventory_warehouse_id
+                revert_warehouse = adjustment.warehouse
+                txns = (StockTransaction.query.filter_by(reference_type='adjustment', reference_id=adjustment.id)
+                        .order_by(StockTransaction.id).all())
+                last_reverse = max((row.id for row in txns if (row.transaction_type or '').startswith('revert_')), default=0)
+                active_txns = [row for row in txns if row.id > last_reverse and (row.quantity or 0) != 0]
+                active_wh_ids = {row.warehouse_id for row in active_txns if row.warehouse_id is not None}
+                if len(active_wh_ids) > 1:
+                    db.session.rollback()
+                    return api_error('历史调整原仓归属冲突，不能安全回冲')
+                if len(active_wh_ids) == 1:
+                    orig_wh_id = next(iter(active_wh_ids))
+                    orig_wh = db.session.get(Warehouse, orig_wh_id)
+                    if orig_wh is None:
+                        db.session.rollback()
+                        return api_error('历史调整原仓记录不存在，不能安全回冲')
+                    header_wh_id = resolve_inventory_warehouse_id(adjustment.warehouse)
+                    if header_wh_id is not None and header_wh_id != orig_wh.id:
+                        db.session.rollback()
+                        return api_error('调整单头仓库与原流水归属冲突，不能安全回冲')
+                    revert_warehouse = orig_wh.name
                 for item in adjustment.items:
                     if not item.material_id:
                         continue
@@ -640,7 +748,7 @@ def register_adjustment_routes(app):
                             reference_type='adjustment',
                             reference_id=adjustment.id,
                             remark=f'反提交库存调整 {adjustment.adjustment_no}',
-                            warehouse=adjustment.warehouse,
+                            warehouse=revert_warehouse,
                             location=item.location,
                         )
                         if not ok:
@@ -653,7 +761,7 @@ def register_adjustment_routes(app):
                             reference_type='adjustment',
                             reference_id=adjustment.id,
                             remark=f'反提交库存调整 {adjustment.adjustment_no}',
-                            warehouse=adjustment.warehouse,
+                            warehouse=revert_warehouse,
                             location=item.location,
                         )
                         if not ok:
@@ -843,9 +951,12 @@ def register_adjustment_routes(app):
         from flask_login import current_user
         from app import (AdjustmentOrder, AdjustmentOrderItem, _find_or_create_material,
                          _get_excel_cell, _get_excel_number, _import_result, _order_no_from_row,
-                         _parse_excel_date, _read_import_sheet, api_error,
-                         location_management_enabled, resolve_request_warehouse,
-                         validate_excel_extension, validate_excel_size)
+                         _parse_excel_date, _read_import_sheet, allow_negative_stock, api_error,
+                         get_warehouse_stock_quantities, is_stock_sufficient,
+                         location_management_enabled, normalize_stock_quantity,
+                         resolve_request_warehouse, round_to_2_decimals,
+                         validate_excel_extension, validate_excel_size,
+                         validate_inventory_warehouse, _material_stock_unattributed)
         file = request.files.get('file')
         if not file:
             return api_error('请选择要导入的库存调整文件')
@@ -888,9 +999,12 @@ def register_adjustment_routes(app):
             existing_orders = {}
             locations_required = location_management_enabled()
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+                raw_qty = round_to_2_decimals(_get_excel_number(row, col_map, 'quantity'))
                 if (not _get_excel_cell(row, col_map, 'material_code')
-                        or _get_excel_number(row, col_map, 'quantity') <= 0):
+                        or raw_qty <= 0):
                     continue
+                if raw_qty > 999999:
+                    return api_error(f'第{row_idx}行：数量超过合理范围（最大 999999）')
                 explicit_no = _get_excel_cell(row, col_map, 'order_no')
                 if explicit_no:
                     if explicit_no not in existing_orders:
@@ -923,9 +1037,11 @@ def register_adjustment_routes(app):
             skip = 0
             skip_details = []
             warnings = []
+            loss_totals = {}
+            wh_stock_cache = {}
             for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
                 material_code = _get_excel_cell(row, col_map, 'material_code')
-                quantity = _get_excel_number(row, col_map, 'quantity')
+                quantity = round_to_2_decimals(_get_excel_number(row, col_map, 'quantity'))
                 if not material_code or quantity <= 0:
                     skip += 1
                     skip_details.append(f'第{row_idx}行：物料编码为空或数量不正确')
@@ -959,6 +1075,21 @@ def register_adjustment_routes(app):
                     _get_excel_cell(row, col_map, 'unit'),
                     warnings=warnings,
                 )
+                if order.adjustment_type == 'loss' and not allow_negative_stock():
+                    if order.warehouse not in wh_stock_cache:
+                        wh_obj, _ = validate_inventory_warehouse(order.warehouse)
+                        wh_stock_cache[order.warehouse] = get_warehouse_stock_quantities(wh_obj) if wh_obj else {}
+                    key = (order.adjustment_no, material.id)
+                    cum_qty = round_to_2_decimals(loss_totals.get(key, 0) + quantity)
+                    loss_totals[key] = cum_qty
+                    current_stock = normalize_stock_quantity(wh_stock_cache[order.warehouse].get(material.id, 0))
+                    if (not is_stock_sufficient(current_stock, cum_qty)
+                            and _material_stock_unattributed(material.id)):
+                        # stock-truth: reason=无法归属仓库的历史遗留库存兜底，与 deduct_stock_atomic 口径一致
+                        current_stock = normalize_stock_quantity(material.stock or 0)
+                    if not is_stock_sufficient(current_stock, cum_qty):
+                        db.session.rollback()
+                        return api_error(f'第{row_idx}行：物料 {material.code} 在 {order.warehouse} 库存不足（当前 {current_stock:.2f}，待盘亏 {cum_qty:.2f}）')
                 db.session.add(AdjustmentOrderItem(
                     adjustment_order_id=order.id,
                     material_id=material.id,
