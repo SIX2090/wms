@@ -40,7 +40,7 @@ def register_transfer_routes(app):
         from sqlalchemy.orm import joinedload, selectinload
         from flask import render_template, request
         """库存调拨单列表"""
-        status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
+        status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         page = max(1, request.args.get('page', default=1, type=int))
         per_page = request.args.get('per_page', default=20, type=int)
         if per_page not in (20, 50, 100, 200):
@@ -55,7 +55,7 @@ def register_transfer_routes(app):
         query = _apply_status_date_filters(query, TransferOrder, status_filter, date_start, date_end)
         if search:
             search_like = f'%{search}%'
-            status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
+            status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))
             conditions = [
                 TransferOrder.transfer_no.like(search_like),
                 TransferOrder.from_warehouse.like(search_like),
@@ -854,7 +854,7 @@ def register_transfer_routes(app):
         from app import (Material, TransferOrder, TransferOrderItem, _apply_status_date_filters, _get_order_list_filters, _status_from_search_keyword, _workbook_response)
         from sqlalchemy.orm import selectinload
         rows = []
-        status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed', 'cancelled'))
+        status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         allowed_sorts = {'transfer_no', 'date', 'from_location', 'to_location', 'status', 'created_at'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
@@ -865,7 +865,7 @@ def register_transfer_routes(app):
         query = _apply_status_date_filters(query, TransferOrder, status_filter, date_start, date_end)
         if search:
             search_like = f'%{search}%'
-            status_from_search = _status_from_search_keyword(search, ('pending', 'completed', 'cancelled'))
+            status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))
             conditions = [
                 TransferOrder.transfer_no.like(search_like),
                 TransferOrder.from_warehouse.like(search_like),

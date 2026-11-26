@@ -410,4 +410,81 @@ def test_fix4_backdated_duplicate_orders_warn_within_7_days(env):
     assert wms.db.session.get(wms.OutOrder, out_3d_dup.id).status == "pending"
 
 
+def test_fix5_transfer_removes_dead_cancelled_and_adjustment_keeps_active_withdrawn(env):
+    """修复 5：调拨单下拉与后端过滤移除永不写入的 cancelled；调整单已撤回(cancelled)为真实活跃状态，保持可查。"""
+    wms, ctx = env
+    wh1, wh2, mat, user = ctx["wh1"], ctx["wh2"], ctx["mat"], ctx["user"]
+
+    # 1. 调拨单：创建一条草稿调拨单，验证筛选下拉不再含 cancelled，且传 status=cancelled 与全部一致
+    transfer = wms.TransferOrder(
+        transfer_no="TF-FIX5-001",
+        date=date(2026, 11, 25),
+        from_warehouse=wh1.name,
+        to_warehouse=wh2.name,
+        from_location=wh1.name,
+        to_location=wh2.name,
+        status="pending",
+        operator_id=user.id,
+    )
+    wms.db.session.add(transfer)
+    wms.db.session.commit()
+
+    page_html = ctx["client"].get("/transfer").get_data(as_text=True)
+    assert 'value="cancelled"' not in page_html
+    assert "已取消" not in page_html
+    assert "TF-FIX5-001" in page_html
+
+    # 传入已移除的 status=cancelled 时被 _get_order_list_filters 忽略，列表行为与下拉一致
+    ignored_html = ctx["client"].get("/transfer?status=cancelled").get_data(as_text=True)
+    assert "TF-FIX5-001" in ignored_html
+
+    # 2. 调整单：验证 cancelled(已撤回) 为真实可达状态（盘点完成->调整入账->调整反提交->盘点反提交）
+    mat.stock = 100.0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="opening",
+            quantity=100.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime(2026, 11, 20, 9, 0, 0),
+        )
+    )
+    check = wms.InventoryCheck(
+        check_no="CK-FIX5-001",
+        date=date(2026, 11, 25),
+        warehouse=wh1.name,
+        status="pending",
+        operator_id=user.id,
+        frozen_at=datetime(2026, 11, 25, 10, 0, 0),
+    )
+    wms.db.session.add(check)
+    wms.db.session.flush()
+    wms.db.session.add(
+        wms.InventoryCheckItem(
+            inventory_check_id=check.id,
+            material_id=mat.id,
+            system_stock=100.0,
+            actual_stock=105.0,
+            difference=5.0,
+            counted_by=user.id,
+            counted_at=datetime(2026, 11, 25, 10, 5, 0),
+        )
+    )
+    wms.db.session.commit()
+
+    assert ctx["client"].post(f"/check/{check.id}/complete", json={}).get_json()["status"] == "success"
+    adj = wms.AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).one()
+    assert ctx["client"].post(f"/adjustment/{adj.id}/complete", json={}).get_json()["status"] == "success"
+    assert ctx["client"].post(f"/adjustment/{adj.id}/revert", json={}).get_json()["status"] == "success"
+    assert ctx["client"].post(f"/check/{check.id}/revert", json={}).get_json()["status"] == "success"
+    assert wms.db.session.get(wms.AdjustmentOrder, adj.id).status == "cancelled"
+
+    adj_html = ctx["client"].get(f"/adjustment?warehouse_id={wh1.id}&status=cancelled").get_data(as_text=True)
+    assert adj.adjustment_no in adj_html
+    assert "已撤回" in adj_html
+
+
+
 

@@ -626,7 +626,7 @@ class TransferOrder(db.Model):
     to_warehouse = db.Column(db.String(100), nullable=False, default='')
     from_location = db.Column(db.String(100), nullable=False)  # Source location（未开库位时存调出仓库名，开库位时存调出库位）
     to_location = db.Column(db.String(100), nullable=False)  # Target location（同上）
-    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled
+    status = db.Column(db.String(20), default='pending')  # Status: pending/completed
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)
@@ -664,9 +664,9 @@ class AdjustmentOrder(db.Model):
     warehouse = db.Column(db.String(100), nullable=False, default='')
     source_type = db.Column(db.String(50))  # Source type: check/manual
     source_id = db.Column(db.Integer)  # Source ID
-    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled/deleted
-    reversed = db.Column(db.Boolean, default=False)  # Reversed flag
-    reversal_order_id = db.Column(db.Integer)  # Reversal order ID
+    status = db.Column(db.String(20), default='pending')  # Status: pending/completed/cancelled/deleted（cancelled=已撤回，盘点反提交或扫码作废保留过账历史时写入）
+    reversed = db.Column(db.Boolean, default=False)  # 历史预留字段，当前流转不写入
+    reversal_order_id = db.Column(db.Integer)  # 历史预留字段，当前流转不写入
     operator_id = db.Column(db.Integer, db.ForeignKey('user.id'))  # Operator ID
     remark = db.Column(db.String(500))  # Remark
     created_at = db.Column(db.DateTime, default=datetime.now)

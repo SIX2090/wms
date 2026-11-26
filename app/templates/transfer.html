@@ -41,7 +41,6 @@
                     <option value="" {% if not filters.status %}selected{% endif %}>全部状态</option>
                     <option value="pending" {% if filters.status == 'pending' %}selected{% endif %}>草稿/待处理</option>
                     <option value="completed" {% if filters.status == 'completed' %}selected{% endif %}>已完成</option>
-                    <option value="cancelled" {% if filters.status == 'cancelled' %}selected{% endif %}>已取消</option>
                 </select>
             </div>
             <div class="col-md-2">
