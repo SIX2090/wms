@@ -1035,13 +1035,38 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
     assert r_tpl.status_code in (200, 400)
     assert r_tpl.get_json()["status"] == "error"
 
-    # PC-P2-05: 物料编辑非法 category_id 返回友好错误而非 500
+    # PC-P2-05: 物料编辑非法 category_id 返回友好错误而非 500，且合法编辑保留修剪后的 purpose
+    from routes.material import _material_edit_revision
+    rev = _material_edit_revision(mat_on)
     r_mat = client.post(
         f"/material/edit/{mat_on.id}",
-        data={"code": mat_on.code, "name": mat_on.name, "unit_id": unit.id, "category_id": "abc"},
+        data={
+            "edit_revision": rev,
+            "code": mat_on.code,
+            "name": mat_on.name,
+            "unit_id": unit.id,
+            "category_id": "abc",
+        },
     )
     assert r_mat.status_code in (200, 400)
-    assert r_mat.get_json()["status"] == "error"
+    mat_err = r_mat.get_json()
+    assert mat_err["status"] == "error"
+    assert "物料分类" in (mat_err.get("msg") or "")
+
+    r_mat_ok = client.post(
+        f"/material/edit/{mat_on.id}",
+        data={
+            "edit_revision": _material_edit_revision(mat_on),
+            "code": mat_on.code,
+            "name": mat_on.name,
+            "unit_id": unit.id,
+            "purpose": "  测试用途  ",
+        },
+    )
+    assert r_mat_ok.status_code == 200
+    assert r_mat_ok.get_json()["status"] == "success"
+    db.session.expire_all()
+    assert db.session.get(app_module.Material, mat_on.id).purpose == "测试用途"
 
 
 # =====================================================================
@@ -1131,22 +1156,31 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
     )
     db.session.add(job)
     db.session.flush()
-    db.session.add(app_module.AIDocumentItem(job_id=job.id, line_no=1, raw_text="test"))
+    doc_item = app_module.AIDocumentItem(job_id=job.id, line_no=1, raw_text="test")
+    db.session.add(doc_item)
+    db.session.flush()
+    db.session.add(app_module.AIDocumentFieldConfirmation(
+        job_id=job.id, item_id=doc_item.id, field_name="quantity", evidence_source="manual",
+    ))
     db.session.add(app_module.AIDocumentFeedback(job_id=job.id, user_id=admin.id, rating="thumbs_up"))
     db.session.commit()
+
+    run_id = run.id
+    job_id = job.id
 
     # 验证采购跟单未关联通知能识别 delivery_note
     unlinked_count, unlinked_rows = app_module._ai_pf_query_unlinked_notices()
     assert unlinked_count >= 1
-    assert any(row["id"] == job.id for row in unlinked_rows)
+    assert any(row["id"] == job_id for row in unlinked_rows)
 
-    assert app_module._ai_dr_delete_records("conversations", [run.id]) == 1
-    assert db.session.get(app_module.AIRun, run.id) is None
-    assert app_module.AIToolCall.query.filter_by(ai_run_id=run.id).count() == 0
+    assert app_module._ai_dr_delete_records("conversations", [run_id]) == 1
+    assert db.session.get(app_module.AIRun, run_id) is None
+    assert app_module.AIToolCall.query.filter_by(ai_run_id=run_id).count() == 0
 
-    assert app_module._ai_dr_delete_records("tasks", [job.id]) == 1
-    assert db.session.get(app_module.AIDocumentJob, job.id) is None
-    assert app_module.AIDocumentItem.query.filter_by(job_id=job.id).count() == 0
+    assert app_module._ai_dr_delete_records("tasks", [job_id]) == 1
+    assert db.session.get(app_module.AIDocumentJob, job_id) is None
+    assert app_module.AIDocumentItem.query.filter_by(job_id=job_id).count() == 0
+    assert app_module.AIDocumentFieldConfirmation.query.filter_by(job_id=job_id).count() == 0
 
 
 def test_pc_frontend_xss_csrf_and_script_static_contracts():

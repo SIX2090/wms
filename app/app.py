@@ -17733,7 +17733,7 @@ def _ai_dr_delete_records(category: str, ids: list) -> int:
         elif category == 'images':
             deleted = AIDocumentAttempt.query.filter(AIDocumentAttempt.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'tasks':
-            for child_model in (AIDocumentItem, AIDocumentFieldConfirmation, AIDocumentAttempt, AIDocumentFeedback):
+            for child_model in (AIDocumentFieldConfirmation, AIDocumentItem, AIDocumentAttempt, AIDocumentFeedback):
                 child_model.query.filter(child_model.job_id.in_(ids)).delete(synchronize_session=False)
             deleted = AIDocumentJob.query.filter(AIDocumentJob.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'feedback':

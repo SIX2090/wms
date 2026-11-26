@@ -717,12 +717,15 @@ def register_material_routes(app):
 
         cat_id, cat_err = _parse_optional_fk(request.form.get('category_id'), '物料分类')
         if cat_err:
+            db.session.rollback()
             return api_error(cat_err)
         unit_id_val, unit_err = _parse_optional_fk(request.form.get('unit_id'), '计量单位')
         if unit_err:
+            db.session.rollback()
             return api_error(unit_err)
         sup_id, sup_err = _parse_optional_fk(request.form.get('supplier_id'), '默认供应商')
         if sup_err:
+            db.session.rollback()
             return api_error(sup_err)
 
         material.code = new_code
@@ -733,7 +736,7 @@ def register_material_routes(app):
         material.brand = new_brand or None
         material.spec = new_spec
         material.status = new_status
-        material.purpose = (request.form.get('purpose') or '').strip() or None
+        material.purpose = new_purpose or None
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
         if inventory_alert_enabled():
             # BUG-2026-09-18-002：同新增——安全库存不得小于最低库存。
