@@ -1099,7 +1099,7 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
         from flask_login import login_user
         login_user(admin)
         tr_res, tr_err = app_module._ai_create_transfer_draft(
-            f"从 {wh1.code} 调拨到 {wh2.code} {m_hot.code} 5",
+            f"从 {wh1.code}仓库 调拨到 {wh2.code}仓库 {m_hot.code} 5",
             manual_confirmation=True,
             resolved_items=[(m_hot, 5)],
         )
