@@ -179,9 +179,10 @@ from utils import (
     recalculate_order_total,
     get_default_print_template, save_print_template_file, save_upload_image, migrate_legacy_material_images,
     require_role,
-    # AI-WMS-FINANCE-ROLE：只读角色（财务）相关判定
+    # AI-WMS-FINANCE-ROLE：只读角色（财务）与 PC-P0-03 禁写低权角色（viewer/user）判定
     READ_ONLY_ROLES, READ_ONLY_ALLOWED_POST_ENDPOINTS, READ_ONLY_DENY_MSG,
     READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS,
+    WRITE_RESTRICTED_ROLES, WRITE_RESTRICTED_SELF_GATED_ENDPOINTS,
     is_read_only_role, read_only_path_denied,
     validate_excel_extension,
     validate_excel_size,
@@ -4897,15 +4898,17 @@ def enforce_read_only_role():
     """
     if not current_user.is_authenticated:
         return None
-    if not is_read_only_role(current_user.role):
+    role = getattr(current_user, 'role', None)
+    is_ro = is_read_only_role(role)
+    is_write_restricted = role in WRITE_RESTRICTED_ROLES
+    if not is_ro and not is_write_restricted:
         return None
     endpoint = request.endpoint or ''
     # 登录/退出/改自己的密码/静态资源永远放行
     if endpoint in READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS:
         return None
-    # 管理类页面：即使 GET 也拒绝。require_role 只拦挂了它的路由，
-    # 这里兜住只挂 @login_required 的管理路由（如 /print_queue、/batch_import 页面）。
-    if read_only_path_denied():
+    # 财务只读角色的管理类页面拒绝（viewer/user 的 GET 权限继续由各路由 @require_role 严格收口）
+    if is_ro and read_only_path_denied():
         msg = '当前账号没有权限访问该页面'
         if wants_json_error_response():
             return jsonify({'status': 'error', 'msg': msg}), 403
@@ -4916,6 +4919,9 @@ def enforce_read_only_role():
         return None
     # 改自己的密码、退出登录，以及"查询/导出"这类不落库的 POST 仍然放通
     if endpoint in READ_ONLY_ALLOWED_POST_ENDPOINTS:
+        return None
+    # viewer/user 在自带角色/能力/灰度审计门禁或非计费辅助的 AI/媒体端点交由路由自身校验与审计
+    if is_write_restricted and not is_ro and endpoint in WRITE_RESTRICTED_SELF_GATED_ENDPOINTS:
         return None
     if wants_json_error_response():
         return jsonify({'status': 'error', 'msg': READ_ONLY_DENY_MSG}), 403

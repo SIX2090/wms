@@ -748,9 +748,27 @@ def _looks_like_image(data: bytes) -> bool:
 #      只挂了 @login_required、没有任何角色校验（如 /opening_stock/import 能改库存），
 #      单靠 require_role 白名单根本挡不住。
 #   3) 只读语义的 POST（查询、导出）进白名单，不影响财务正常查数。
-# PC-P0-03（2026-11-26 用户拍板）：finance / viewer / user 均纳入只读写闸，
-# 统一受 enforce_read_only_role 拦截，堵住仅挂 @login_required 的写路由敞口。
-READ_ONLY_ROLES = frozenset({'finance', 'viewer', 'user'})
+# AI-WMS-FINANCE-ROLE：财务只读角色（可在 require_role 中放行业务 GET，且受管理页前缀拒绝与全局写闸保护）。
+READ_ONLY_ROLES = frozenset({'finance'})
+
+# PC-P0-03（2026-11-26 用户拍板）：viewer / user 纳入全局非 GET 写闸，堵住仅挂 @login_required
+# 的业务写路由敞口；但不并入 READ_ONLY_ROLES，避免在 require_role 中错误放宽其对 /purchase_order、
+# /material 等页面的 GET 浏览权限，也不抢断自带角色/能力/灰度审计的 AI 与媒体门禁。
+WRITE_RESTRICTED_ROLES = frozenset({'viewer', 'user'})
+
+WRITE_RESTRICTED_SELF_GATED_ENDPOINTS = frozenset({
+    'ai.conversation_create',
+    'ai_document_job_retry',
+    'mobile_recognize_material',
+    'mobile_asr',
+    'api_document_ocr',
+    'api_document_ocr_excel',
+    'api_supplier_evaluation',
+    'ai_replenishment_suggestions',
+    'ai_inventory_health',
+    'api_recommend_location',
+    'api_demand_forecast',
+})
 
 # 可由管理员分配给账号的角色全集。
 # AI-WMS-FINANCE-ROLE：此前这份白名单在 add_user / edit_user 里各硬编码一份，

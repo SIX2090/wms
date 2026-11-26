@@ -155,14 +155,23 @@ def test_pc_p2_07_no_duplicate_inline_sortable_header_listeners():
 
 def test_bug_2026_11_26_007_read_only_roles_include_viewer_and_user():
     tree = ast.parse((APP_DIR / "utils.py").read_text(encoding="utf-8-sig"))
-    roles = None
+    constants = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == "READ_ONLY_ROLES":
-                    roles = ast.literal_eval(node.value.args[0])
-    assert roles is not None
-    assert {"finance", "viewer", "user"}.issubset(roles)
+                if isinstance(target, ast.Name) and target.id in ("READ_ONLY_ROLES", "WRITE_RESTRICTED_ROLES"):
+                    constants[target.id] = ast.literal_eval(node.value.args[0])
+    assert constants.get("READ_ONLY_ROLES") == {"finance"}
+    assert {"viewer", "user"}.issubset(constants.get("WRITE_RESTRICTED_ROLES", set()))
+    app_src = (APP_DIR / "app.py").read_text(encoding="utf-8-sig")
+    app_tree = ast.parse(app_src)
+    hook = next(
+        ast.get_source_segment(app_src, n)
+        for n in app_tree.body
+        if isinstance(n, ast.FunctionDef) and n.name == "enforce_read_only_role"
+    )
+    assert "WRITE_RESTRICTED_ROLES" in hook
+    assert "WRITE_RESTRICTED_SELF_GATED_ENDPOINTS" in hook
 
 
 def test_bug_2026_11_26_007_closed_po_and_sqlite_coalesce_source_contracts():

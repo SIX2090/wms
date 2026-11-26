@@ -248,7 +248,8 @@ def main():
     sys.modules['request_input'] = input_module
     utils_tree = ast.parse((root / 'app/utils.py').read_text(encoding='utf-8-sig'))
     role_constants = {'READ_ONLY_ROLES', 'READ_ONLY_ALLOWED_POST_ENDPOINTS', 'READ_ONLY_DENIED_PREFIXES',
-                      'READ_ONLY_DENY_MSG', 'READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS'}
+                      'READ_ONLY_DENY_MSG', 'READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS',
+                      'WRITE_RESTRICTED_ROLES', 'WRITE_RESTRICTED_SELF_GATED_ENDPOINTS'}
     role_nodes = [node for node in utils_tree.body if isinstance(node, ast.Assign)
                   and any(isinstance(target, ast.Name) and target.id in role_constants for target in node.targets)]
     role_nodes += [node for node in utils_tree.body if isinstance(node, ast.FunctionDef)

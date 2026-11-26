@@ -1399,13 +1399,15 @@ def test_pc_audit_approved_contract_updates_20261126():
     db.session.add(cust)
     db.session.commit()
 
-    # 1) PC-P0-03: viewer / user 均在 READ_ONLY_ROLES，禁止访问未挂角色装饰器的写接口，但仍可只读浏览业务页
-    from utils import READ_ONLY_ROLES
-    assert {"finance", "viewer", "user"}.issubset(READ_ONLY_ROLES)
+    # 1) PC-P0-03: viewer / user 纳入 WRITE_RESTRICTED_ROLES，禁止访问未挂角色装饰器的写接口，
+    # 且不并入 READ_ONLY_ROLES（不放宽其对 /material /purchase_order 的 GET 权限）
+    from utils import READ_ONLY_ROLES, WRITE_RESTRICTED_ROLES
+    assert READ_ONLY_ROLES == frozenset({"finance"})
+    assert {"viewer", "user"}.issubset(WRITE_RESTRICTED_ROLES)
     client = app_module.app.test_client()
     for ro_user in (viewer, normal_user):
         _login_web(client, ro_user)
-        assert client.get("/material").status_code == 200
+        assert client.get("/material").status_code in (302, 403)
         assert client.get(f"/stock_query?warehouse_id={wh.id}").status_code == 200
         r_imp = client.post(
             "/opening_stock/import",
