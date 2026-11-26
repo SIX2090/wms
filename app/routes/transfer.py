@@ -780,7 +780,7 @@ def register_transfer_routes(app):
     @login_required
     def batch_delete_transfer():
         from app import (TransferOrder, TransferOrderItem, StockTransaction,
-                         _acquire_order_write_lock, api_error, log_operation)
+                         _acquire_order_write_lock, api_error, log_audit, log_operation)
         from flask import jsonify, request
         """批量删除草稿调拨单"""
         ids = request.form.getlist('ids[]') or request.form.getlist('ids')
@@ -801,6 +801,7 @@ def register_transfer_routes(app):
             return api_error('只能删除草稿调拨单：' + '、'.join(blocked))
 
         deleted_count = 0
+        deleted_audits = []
         skipped = []
         # 逐条加写锁并独立提交，单点失败仅回滚自身，不影响其余单据。
         for transfer_id in ids:
@@ -815,6 +816,11 @@ def register_transfer_routes(app):
                     continue
                 transfer = locked
                 transfer_no = transfer.transfer_no
+                audit_old = {
+                    'transfer_no': transfer.transfer_no,
+                    'from_warehouse': transfer.from_warehouse or '',
+                    'to_warehouse': transfer.to_warehouse or '',
+                }
                 TransferOrderItem.query.filter_by(transfer_order_id=transfer_id).delete()
                 # BUG-2026-09-10-001：同步清理该调拨单完成/反提交产生的库存流水
                 StockTransaction.query.filter_by(
@@ -823,6 +829,7 @@ def register_transfer_routes(app):
                 db.session.delete(transfer)
                 db.session.commit()
                 deleted_count += 1
+                deleted_audits.append((transfer_id, transfer_no, audit_old))
             except Exception:
                 db.session.rollback()
                 skipped.append(f'{transfer_no or f"ID:{transfer_id}"}(错误)')
@@ -832,6 +839,13 @@ def register_transfer_routes(app):
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
         log_operation('批量删除调拨单', f'共删除 {deleted_count} 张调拨单', 'transfer')
+        for del_id, del_no, audit_old in deleted_audits:
+            log_audit(
+                'delete_transfer', 'transfer', del_id,
+                target_name=del_no,
+                old_data=audit_old,
+                reason='批量草稿删除',
+            )
         return jsonify({'status': 'success', 'msg': msg, 'deleted': deleted_count, 'skipped': skipped})
 
     @app.route('/transfer/export')

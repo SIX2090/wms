@@ -538,7 +538,17 @@ def register_out_order_routes(app):
             order.department_id = department.id if department else None
         order.customer = (data.get('customer') or '').strip() or None
         order.picker = (data.get('picker') or '').strip() or None
-        order.purpose = (data.get('purpose') or '').strip() or None
+        linked_sales_outbound = (
+            order.business_type == '销售出库'
+            and (
+                bool(order.source_sales_order_id)
+                or (order.purpose or '').strip() == '选单生成销售出库'
+                or (order.purpose or '').strip().startswith('来源销售订单 ')
+                or any(item.source_sales_order_item_id for item in order.items)
+            )
+        )
+        if not linked_sales_outbound:
+            order.purpose = (data.get('purpose') or '').strip() or None
         # 合同编号/工程名称：领料单（含下推生成的草稿）允许修改
         order.contract_no = (data.get('contract_no') or '').strip() or None
         order.project_name = (data.get('project_name') or '').strip() or None
@@ -1035,6 +1045,15 @@ def register_out_order_routes(app):
         if order.business_type == '采购退货出库':
             return api_error('采购退货出库单的明细必须关联来源采购入库行，'
                              '请使用编辑页维护退货明细')
+        # PC-P1-04：关联销售订单的销售出库单禁止用裸新增行绕过来源行超发校验
+        if (order.business_type == '销售出库'
+                and (
+                    order.source_sales_order_id
+                    or (order.purpose or '').strip() == '选单生成销售出库'
+                    or (order.purpose or '').strip().startswith('来源销售订单 ')
+                    or any(item.source_sales_order_item_id for item in order.items)
+                )):
+            return api_error('关联销售订单的销售出库单不能直接追加无来源明细，请从原销售订单重新下推或使用编辑页维护')
 
         material_code = (request.form.get('material_code') or request.form.get('code') or '').strip()
         if not material_code:

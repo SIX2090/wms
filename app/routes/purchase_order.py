@@ -955,6 +955,12 @@ def register_purchase_order_routes(app):
         ).get_or_404(id)
         if not source.items:
             return api_error('原采购单没有明细，不能复制')
+        inactive_codes = [
+            item.material.code for item in source.items
+            if item.material and getattr(item.material, 'status', None) == 'inactive'
+        ]
+        if inactive_codes:
+            return api_error(f'原采购单包含已停用物料（{"、".join(inactive_codes[:5])}），不能直接复制')
         try:
             new_order = PurchaseOrder(
                 order_no=generate_order_no('PO'),
@@ -962,6 +968,9 @@ def register_purchase_order_routes(app):
                 supplier_id=source.supplier_id,
                 expected_date=None,
                 purchase_request_id=None,
+                contract_id=getattr(source, 'contract_id', None),
+                contract_no=getattr(source, 'contract_no', None),
+                project_name=getattr(source, 'project_name', None),
                 status='pending',
                 remark=f'由采购单 {source.order_no} 复制生成',
                 operator_id=current_user.id,
@@ -987,6 +996,9 @@ def register_purchase_order_routes(app):
                     received_quantity=0,
                     price=price,
                     amount=amount,
+                    contract_id=getattr(item, 'contract_id', None),
+                    contract_no=getattr(item, 'contract_no', None),
+                    project_name=getattr(item, 'project_name', None),
                     remark=item.remark,
                 ))
             if copied_items == 0 or total_amount < 0:
@@ -1061,13 +1073,17 @@ def register_purchase_order_routes(app):
     @require_role('purchase')
     @login_required
     def close_purchase_order(id):
-        from app import PurchaseOrder, api_error, log_operation
+        from app import PurchaseOrder, _acquire_order_write_lock, api_error, log_operation
         order = PurchaseOrder.query.get_or_404(id)
         if order.status not in ('pending', 'partial'):
             return api_error('只有未入库或部分入库的采购单可以关闭')
         payload = request.get_json(silent=True) or request.form
         reason = (payload.get('reason') or '').strip()
         try:
+            locked, ok = _acquire_order_write_lock(PurchaseOrder, id, order.status)
+            if not ok or not locked:
+                return api_error('采购单状态已变更，请刷新后重试', 409)
+            order = locked
             order.status = 'closed'
             if reason:
                 order.remark = ((order.remark or '') + f'\n关闭原因：{reason}').strip()
@@ -1084,11 +1100,16 @@ def register_purchase_order_routes(app):
     @require_role('purchase')
     @login_required
     def reopen_purchase_order(id):
-        from app import PurchaseOrder, api_error, log_operation, update_purchase_order_status
+        from app import (PurchaseOrder, _acquire_order_write_lock, api_error,
+                         log_operation, update_purchase_order_status)
         order = PurchaseOrder.query.get_or_404(id)
         if order.status != 'closed':
             return api_error('只有已关闭的采购单可以重新打开')
         try:
+            locked, ok = _acquire_order_write_lock(PurchaseOrder, id, 'closed')
+            if not ok or not locked:
+                return api_error('采购单状态已变更，请刷新后重试', 409)
+            order = locked
             order.status = 'pending'
             update_purchase_order_status(order)
             db.session.commit()
@@ -1165,25 +1186,24 @@ def register_purchase_order_routes(app):
             return api_error('以下采购单不能删除：' + '、'.join(blocked))
 
         try:
-            # BUG-2026-08-16-020：逐单加写锁并复核 status/引用后统一删除，防止并发入库孤儿引用
-            locked = []
-            for order in delete_orders:
+            # BUG-2026-08-16-020 / PC-P2-04：逐单加写锁、复核状态与下游引用并在循环内独立 commit，
+            # 避免 SQLite 分支中 _acquire_order_write_lock 内部 rollback 释放前序单据锁。
+            delete_ids = [order.id for order in delete_orders]
+            deleted = 0
+            for oid in delete_ids:
                 order, ok = _acquire_order_write_lock(
-                    PurchaseOrder, order.id, 'pending', joinedload(PurchaseOrder.items))
+                    PurchaseOrder, oid, 'pending', joinedload(PurchaseOrder.items))
                 if not ok:
                     db.session.rollback()
                     return api_error('采购单状态已变化或已被删除，请刷新后重试')
                 if has_inbound_reference(order.id):
                     db.session.rollback()
                     return api_error(f'采购单 {order.order_no} 已有下游入库单，不能删除')
-                locked.append(order)
-            deleted = 0
-            for order in locked:
                 for item in list(order.items):
                     db.session.delete(item)
                 db.session.delete(order)
+                db.session.commit()
                 deleted += 1
-            db.session.commit()
             log_operation('批量删除采购单', f'共删除 {deleted} 张采购单', 'purchase_order')
             return jsonify({'status': 'success', 'msg': f'删除成功，共删除 {deleted} 张采购单'})
         except Exception as e:

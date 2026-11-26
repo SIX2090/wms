@@ -32,7 +32,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from db import db
 from services.import_validation import InactiveMaterialImportError
-from services.web_document_idempotency import web_document_idempotent, stage_document_response
+from services.web_document_idempotency import (
+    stage_document_response,
+    web_document_command_idempotent,
+    web_document_idempotent,
+)
 from utils import require_role
 from utils import round_money_product
 
@@ -222,13 +226,14 @@ def register_purchase_request_routes(app):
     @app.route('/purchase_request/<int:id>/create_purchase_order', methods=['POST'])
     @require_role('purchase')
     @login_required
+    @web_document_command_idempotent
     def create_purchase_order_from_request(id):
         from datetime import date
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
         from app import (PurchaseOrder, PurchaseOrderItem, PurchaseRequest,
-                         PurchaseRequestItem, STOCK_COMPARE_EPSILON, api_error,
-                         build_purchase_request_execution, generate_order_no,
+                         PurchaseRequestItem, STOCK_COMPARE_EPSILON, _acquire_order_write_lock,
+                         api_error, build_purchase_request_execution, generate_order_no,
                          log_operation, parse_float_value, purchase_request_item_has_material,
                          round_to_2_decimals, update_purchase_order_status)
         payload = request.get_json(silent=True) or {}
@@ -238,20 +243,32 @@ def register_purchase_request_routes(app):
         ).get_or_404(id)
         if request_order.status not in ('approved', 'completed'):
             return api_error('采购申请需审核通过后才能生成采购单')
-        valid_items = [item for item in request_order.items if item.material_id and purchase_request_item_has_material(item)]
-        if not valid_items:
-            return api_error('采购申请没有可下推的物料明细')
 
         try:
+            # PC-P1-02：加写锁后重查申请状态与执行进度，防止并发重复下推超额生成采购单
+            locked, ok = _acquire_order_write_lock(
+                PurchaseRequest, id, ('approved', 'completed'),
+                [joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.material),
+                 joinedload(PurchaseRequest.items).joinedload(PurchaseRequestItem.supplier)],
+            )
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
+            valid_items = [item for item in request_order.items if item.material_id and purchase_request_item_has_material(item)]
+            if not valid_items:
+                db.session.rollback()
+                return api_error('采购申请没有可下推的物料明细')
             item_execution = build_purchase_request_execution(valid_items, request_order)
             selected_quantities = {}
             selected_items = payload.get('items') if isinstance(payload, dict) else None
             if selected_items is not None:
                 if not isinstance(selected_items, list) or not selected_items:
+                    db.session.rollback()
                     return api_error('请选择要下推的采购申请明细')
                 valid_item_by_id = {item.id: item for item in valid_items}
                 for selected in selected_items:
                     if not isinstance(selected, dict):
+                        db.session.rollback()
                         return api_error('下推明细格式不正确')
                     try:
                         item_id = int(selected.get('purchase_request_item_id') or selected.get('item_id') or 0)
@@ -259,17 +276,21 @@ def register_purchase_request_routes(app):
                         item_id = 0
                     req_item = valid_item_by_id.get(item_id)
                     if not req_item:
+                        db.session.rollback()
                         return api_error('下推明细不属于当前采购申请')
                     remaining_qty = round_to_2_decimals(item_execution.get(item_id, {}).get('remaining_to_order', 0))
                     quantity = round_to_2_decimals(parse_float_value(selected.get('quantity'), remaining_qty))
                     if quantity <= 0:
+                        db.session.rollback()
                         return api_error('本次下推数量必须大于 0')
                     if quantity - remaining_qty > STOCK_COMPARE_EPSILON:
+                        db.session.rollback()
                         return api_error('本次下推数量不能大于未下推数量')
                     selected_quantities[item_id] = round_to_2_decimals(selected_quantities.get(item_id, 0) + quantity)
                 for item_id, quantity in selected_quantities.items():
                     remaining_qty = round_to_2_decimals(item_execution.get(item_id, {}).get('remaining_to_order', 0))
                     if quantity - remaining_qty > STOCK_COMPARE_EPSILON:
+                        db.session.rollback()
                         return api_error('同一明细累计下推数量不能大于未下推数量')
                 push_items = [valid_item_by_id[item_id] for item_id in selected_quantities.keys()]
             else:
@@ -281,7 +302,7 @@ def register_purchase_request_routes(app):
                 existing_orders = PurchaseOrder.query.filter_by(purchase_request_id=request_order.id).order_by(PurchaseOrder.id.asc()).all()
                 if existing_orders:
                     existing = existing_orders[0]
-                    return jsonify({
+                    response_payload = {
                         'status': 'success',
                         'msg': '该采购申请已全部下推',
                         'id': existing.id,
@@ -289,8 +310,19 @@ def register_purchase_request_routes(app):
                         'ids': [order.id for order in existing_orders],
                         'order_nos': [order.order_no for order in existing_orders],
                         'redirect_url': url_for('purchase_order_detail', id=existing.id)
-                    })
+                    }
+                    db.session.rollback()
+                    return jsonify(response_payload)
+                db.session.rollback()
                 return api_error('采购申请没有可下推数量')
+
+            inactive_codes = [
+                req_item.material.code for req_item in push_items
+                if req_item.material and getattr(req_item.material, 'status', None) == 'inactive'
+            ]
+            if inactive_codes:
+                db.session.rollback()
+                return api_error(f'包含已停用物料（{"、".join(inactive_codes[:5])}），不能下推生成采购单')
 
             grouped_items = {}
             for req_item in push_items:
@@ -338,14 +370,7 @@ def register_purchase_request_routes(app):
                 if not created_orders:
                     db.session.rollback()
                     return api_error('采购申请没有有效数量，不能生成采购单')
-                db.session.commit()
-                log_operation(
-                    '采购申请下推采购单',
-                    f'{request_order.request_no} -> {", ".join(order.order_no for order in created_orders)}',
-                    'purchase_order',
-                    created_orders[0].id
-                )
-                return jsonify({
+                response_payload = {
                     'status': 'success',
                     'msg': f'已按供应商生成 {len(created_orders)} 张采购单',
                     'id': created_orders[0].id,
@@ -353,7 +378,16 @@ def register_purchase_request_routes(app):
                     'ids': [order.id for order in created_orders],
                     'order_nos': [order.order_no for order in created_orders],
                     'redirect_url': url_for('purchase_order_detail', id=created_orders[0].id)
-                })
+                }
+                stage_document_response(response_payload)
+                db.session.commit()
+                log_operation(
+                    '采购申请下推采购单',
+                    f'{request_order.request_no} -> {", ".join(order.order_no for order in created_orders)}',
+                    'purchase_order',
+                    created_orders[0].id
+                )
+                return jsonify(response_payload)
 
             supplier_id = next(iter(grouped_items.keys()), 0) or None
             order = PurchaseOrder(
@@ -390,15 +424,17 @@ def register_purchase_request_routes(app):
             db.session.flush()
             db.session.expire(order, ['items'])
             update_purchase_order_status(order)
-            db.session.commit()
-            log_operation('采购申请下推采购单', f'{request_order.request_no} -> {order.order_no}', 'purchase_order', order.id)
-            return jsonify({
+            response_payload = {
                 'status': 'success',
                 'msg': '采购单生成成功',
                 'id': order.id,
                 'order_no': order.order_no,
                 'redirect_url': url_for('purchase_order_detail', id=order.id)
-            })
+            }
+            stage_document_response(response_payload)
+            db.session.commit()
+            log_operation('采购申请下推采购单', f'{request_order.request_no} -> {order.order_no}', 'purchase_order', order.id)
+            return jsonify(response_payload)
         except Exception as e:
             db.session.rollback()
             app.logger.error(f'采购申请下推采购单失败: {e}')
@@ -745,11 +781,15 @@ def register_purchase_request_routes(app):
     @require_role('purchase')
     @login_required
     def approve_purchase_request(id):
-        from app import PurchaseRequest, api_error, log_operation
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         try:
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status != 'pending':
                 return api_error('只有待审批的采购申请单可以审批')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, 'pending')
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             request_order.status = 'approved'
             db.session.commit()
             log_operation('采购申请审批通过', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
@@ -763,12 +803,16 @@ def register_purchase_request_routes(app):
     @require_role('purchase')
     @login_required
     def reject_purchase_request(id):
-        from app import PurchaseRequest, api_error, log_operation
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         try:
             data = request.get_json(silent=True) or {}
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status != 'pending':
                 return api_error('只有待审批的采购申请单可以驳回')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, 'pending')
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             request_order.status = 'rejected'
             request_order.remark = data.get('remark', request_order.remark)
             try:
@@ -788,13 +832,18 @@ def register_purchase_request_routes(app):
     @require_role('purchase')
     @login_required
     def revert_purchase_request(id):
-        from app import PurchaseOrder, PurchaseRequest, api_error, log_operation
+        from app import PurchaseOrder, PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         try:
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status not in ('approved', 'completed'):
                 return api_error('只有已审批或已完成的采购申请单可以反审')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, ('approved', 'completed'))
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             downstream_count = PurchaseOrder.query.filter_by(purchase_request_id=request_order.id).count()
             if downstream_count > 0:
+                db.session.rollback()
                 return api_error('该采购申请已有下游采购单，不能反审；请先删除下游采购单')
             request_order.status = 'pending'
             db.session.commit()
@@ -810,11 +859,15 @@ def register_purchase_request_routes(app):
     @require_role('purchase')
     @login_required
     def complete_purchase_request(id):
-        from app import PurchaseRequest, api_error, log_operation
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         try:
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status != 'approved':
                 return api_error('只有已审批的采购申请单可以完成')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, 'approved')
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             request_order.status = 'completed'
             db.session.commit()
             log_operation('采购申请完成', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
@@ -828,11 +881,19 @@ def register_purchase_request_routes(app):
     @require_role('purchase')
     @login_required
     def delete_purchase_request(id):
-        from app import PurchaseRequest, api_error, log_operation
+        from sqlalchemy.orm import selectinload
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         try:
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status not in ('pending', 'rejected'):
                 return api_error('只有待审批或已驳回的采购申请单可以删除')
+            locked, ok = _acquire_order_write_lock(
+                PurchaseRequest, id, ('pending', 'rejected'),
+                selectinload(PurchaseRequest.items),
+            )
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
 
             request_no = request_order.request_no
 

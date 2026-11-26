@@ -731,7 +731,10 @@ function getHeaderDocDate() {
     return document.getElementById('headerDocDate')?.value || '';
 }
 
+let _openingStockSaveInFlight = false;
+
 function saveDocument() {
+    if (_openingStockSaveInFlight) return;
     const headerWarehouseId = document.getElementById('headerWarehouse')?.value;
     const items = collectItems();
     if (!items.length) {
@@ -785,6 +788,7 @@ function saveDocument() {
     if (headerDate) payload.date = headerDate;
     if (headerWarehouseId) payload.warehouse_id = headerWarehouseId;
     payload.remark = headerRemark;
+    _openingStockSaveInFlight = true;
     WMS.api.post('/opening_stock/save', payload)
         .then(data => {
             if (data && data.status === 'success') {
@@ -800,10 +804,14 @@ function saveDocument() {
                     else window.location.reload();
                 }, 700);
             } else {
+                _openingStockSaveInFlight = false;
                 showToast((data && data.msg) || '保存失败', 'danger', 4200);
             }
         })
-        .catch(error => showToast('保存失败：' + error.message, 'danger', 4200));
+        .catch(error => {
+            _openingStockSaveInFlight = false;
+            showToast('保存失败：' + error.message, 'danger', 4200);
+        });
 }
 
 function showPasteModal() {

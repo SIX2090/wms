@@ -5,6 +5,7 @@ from flask import abort, g
 from flask_login import login_required
 
 from services.document_stock_audit import stage_order_audit
+from services.web_document_idempotency import stage_document_response, web_document_idempotent
 from utils import is_read_only_role, require_role
 
 # G-16（2026-11-11 体检缺口）：一键清空全部期初库存是**全库级不可逆**动作，
@@ -163,15 +164,24 @@ def register_opening_stock_routes(app):
 
         material = payload['material']
         warehouse = payload['warehouse']
-        existing = OpeningStock.query.filter_by(
-            material_id=material.id, warehouse_id=warehouse.id
-        ).with_for_update().first()
-        if existing:
-            return jsonify({'status': 'error', 'msg': f'该物料在仓库 [{warehouse.name}] 已存在期初库存，请使用编辑按差额调整'}), 400
-
         try:
+            from services.opening_stock_legacy import _begin_legacy_opening_write
+            _begin_legacy_opening_write()
+            existing = OpeningStock.query.filter_by(
+                material_id=material.id, warehouse_id=warehouse.id
+            ).with_for_update().first()
+            if existing:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': f'该物料在仓库 [{warehouse.name}] 已存在期初库存，请使用编辑按差额调整'}), 400
             opening, delta = _apply_opening_stock_balance(
                 None, material, payload['quantity'], payload['price'], payload['amount'], payload['remark'], warehouse, payload.get('date'), payload.get('location', '')
+            )
+            stage_order_audit(
+                'add_opening_stock', opening, target_type='opening_stock',
+                target_name=f'{material.code}@{warehouse.name}',
+                new={'material_id': material.id, 'warehouse_id': warehouse.id,
+                     'quantity': payload['quantity'], 'delta': delta},
+                reason='新增期初库存',
             )
             db.session.commit()
             log_operation('新增期初库存', f'{material.code} @ {warehouse.name} 数量 {payload["quantity"]}', 'opening_stock', opening.id)
@@ -541,6 +551,13 @@ def register_opening_stock_routes(app):
                     for line in doc.lines:
                         line.date = doc.date
 
+            stage_order_audit(
+                'batch_save_opening_stock', doc, target_type='opening_stock',
+                target_name=doc.doc_no if doc else '期初批量保存',
+                new={'line_count': len(normalized_items), 'changed_count': changed_count,
+                     'removed_count': removed_count},
+                reason='批量保存期初库存',
+            )
             db.session.commit()
             log_operation(
                 '保存期初库存单据',
@@ -568,6 +585,7 @@ def register_opening_stock_routes(app):
     @app.route('/opening_stock/save', methods=['POST'])
     @require_role('warehouse')
     @login_required
+    @web_document_idempotent
     def save_opening_stock_doc():
         """保存期初库存单据（新建 / 编辑统一入口，ARCH-OS-DOC-01）。
 
@@ -765,6 +783,26 @@ def register_opening_stock_routes(app):
             for line in doc.lines:
                 line.date = doc.date
 
+            msg = f'期初库存单据 {doc.doc_no} 已保存，共 {len(normalized_items)} 行'
+            if removed_count:
+                msg += f'，删除 {removed_count} 行并已回冲库存'
+            response_payload = {
+                'status': 'success',
+                'msg': msg,
+                'doc_id': doc.id,
+                'doc_no': doc.doc_no,
+                'changed_count': changed_count,
+                'removed_count': removed_count,
+            }
+            stage_order_audit(
+                'create_opening_stock_doc' if is_new else 'update_opening_stock_doc',
+                doc, target_type='opening_stock', target_name=doc.doc_no,
+                new={'line_count': len(normalized_items), 'changed_count': changed_count,
+                     'removed_count': removed_count},
+                reason='新增期初库存单据' if is_new else '编辑期初库存单据',
+            )
+            if is_new:
+                stage_document_response(response_payload)
             db.session.commit()
             log_operation(
                 '新增期初库存单据' if is_new else '编辑期初库存单据',
@@ -772,17 +810,7 @@ def register_opening_stock_routes(app):
                 f'库存变动 {changed_count} 行，删除 {removed_count} 行',
                 'opening_stock', doc.id,
             )
-            msg = f'期初库存单据 {doc.doc_no} 已保存，共 {len(normalized_items)} 行'
-            if removed_count:
-                msg += f'，删除 {removed_count} 行并已回冲库存'
-            return jsonify({
-                'status': 'success',
-                'msg': msg,
-                'doc_id': doc.id,
-                'doc_no': doc.doc_no,
-                'changed_count': changed_count,
-                'removed_count': removed_count,
-            })
+            return jsonify(response_payload)
         except ValueError as ve:
             db.session.rollback()
             return jsonify({'status': 'error', 'msg': str(ve)}), 400

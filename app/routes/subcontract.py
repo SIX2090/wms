@@ -806,16 +806,33 @@ def register_subcontract_routes(app):
     @login_required
     def revert_subcontract_to_pending(id):
         """反提交委外单（processing/cancelled -> pending）"""
-        from app import SubcontractOrder, api_error, log_operation
+        from sqlalchemy.orm import selectinload
+        from app import SubcontractOrder, _acquire_order_write_lock, api_error, log_operation
         order = SubcontractOrder.query.get_or_404(id)
         if order.status == 'completed':
             return api_error('已完结的委外单请使用「反完结」按钮')
         if order.status == 'pending':
             return api_error('该委外单已经是待处理状态')
-        # 已发料或已收货的反提交需要先回滚库存
+        # 已发料或已收货的反提交需要先处理关联单据
         if order.issue_orders:
             return api_error('该委外单已发料，不能反提交')
+        if order.receive_orders:
+            return api_error('该委外单已收货，不能反提交')
         try:
+            locked, ok = _acquire_order_write_lock(
+                SubcontractOrder, id, order.status,
+                [selectinload(SubcontractOrder.issue_orders),
+                 selectinload(SubcontractOrder.receive_orders)],
+            )
+            if not ok or not locked:
+                return api_error('该委外单状态已变更，请刷新后重试', 409)
+            order = locked
+            if order.issue_orders:
+                db.session.rollback()
+                return api_error('该委外单已发料，不能反提交')
+            if order.receive_orders:
+                db.session.rollback()
+                return api_error('该委外单已收货，不能反提交')
             order.status = 'pending'
             db.session.commit()
             log_operation('反提交委外单', f'委外单：{order.order_no}', 'subcontract', id)
@@ -929,7 +946,9 @@ def register_subcontract_routes(app):
     @require_role('production')
     @login_required
     def batch_update_subcontract_status():
-        from app import SubcontractOrder, SubcontractProgress, api_error
+        from sqlalchemy.orm import selectinload
+        from app import (SubcontractOrder, SubcontractProgress,
+                         _acquire_order_write_lock, api_error, log_audit, log_operation)
         data = request.get_json(silent=True)
         if isinstance(data, dict):
             ids = data.get('ids', [])
@@ -943,22 +962,61 @@ def register_subcontract_routes(app):
         except (TypeError, ValueError):
             return api_error('委外单参数格式错误')
 
+        if not ids:
+            return api_error('请选择要更新状态的委外单')
+
         if status not in {'pending', 'processing', 'completed', 'cancelled'}:
             return api_error('目标状态不合法')
 
         updated = 0
-        for oid in ids:
-            order = db.session.get(SubcontractOrder, oid)
-            if order:
+        updated_records = []
+        try:
+            for oid in dict.fromkeys(ids):
+                preview = db.session.get(SubcontractOrder, oid)
+                if not preview:
+                    continue
+                locked, ok = _acquire_order_write_lock(
+                    SubcontractOrder, oid, preview.status,
+                    [selectinload(SubcontractOrder.items),
+                     selectinload(SubcontractOrder.issue_orders),
+                     selectinload(SubcontractOrder.receive_orders)],
+                )
+                if not ok or not locked:
+                    db.session.rollback()
+                    return api_error(f'委外单 {preview.order_no} 状态已变更，请刷新后重试', 409)
+                order = locked
+                old_status = order.status
+                if old_status == status:
+                    db.session.rollback()
+                    continue
+                # PC-P0-06：批量改状态必须执行与单据状态机一致的门禁，禁止绕过发料/收货/完结校验
+                if old_status == 'completed' and status in {'pending', 'cancelled'}:
+                    db.session.rollback()
+                    return api_error(f'委外单 {order.order_no} 已完结，不能直接改为当前目标状态，请先执行反完结')
+                if status in {'pending', 'cancelled'} and (order.issue_orders or order.receive_orders):
+                    db.session.rollback()
+                    return api_error(f'委外单 {order.order_no} 已有关联发料单或收货单，不能改为 {status}')
+                if status == 'processing' and not order.items:
+                    db.session.rollback()
+                    return api_error(f'委外单 {order.order_no} 缺少产品明细，不能进入加工中')
                 SubcontractProgress.query.filter_by(subcontract_order_id=oid, process_type='auto_receipt_close').delete()
                 order.status = status
+                db.session.commit()
                 updated += 1
-        try:
-            db.session.commit()
+                updated_records.append((order.id, order.order_no, old_status, status))
         except Exception as e:
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
+        for order_id, order_no, old_status, new_status in updated_records:
+            log_operation('批量更新委外单状态', f'委外单：{order_no} ({old_status} -> {new_status})', 'subcontract', order_id)
+            log_audit(
+                'batch_update_subcontract_status', 'subcontract', order_id,
+                target_name=order_no,
+                old_data={'status': old_status},
+                new_data={'status': new_status},
+                reason='批量更新委外单状态',
+            )
         return jsonify({'status': 'success', 'count': updated, 'msg': f'状态更新成功，共处理 {updated} 条'})
 
     @app.route('/subcontract/export')

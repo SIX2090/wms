@@ -574,6 +574,7 @@ def register_after_sale_out_routes(app):
                         # stock-truth: reason=仓库名无法解析为仓库档案（脏数据），回退全局口径保持原行为
                         current_stock = normalize_stock_quantity(material.stock or 0)
                     if not allow_negative_stock() and not is_stock_sufficient(current_stock, quantity):
+                        db.session.rollback()
                         return api_error(f'物料 {material.code} 库存不足，当前库存：{current_stock:.2f}')
 
             audit_checkpoint = stock_document_audit_checkpoint(order)

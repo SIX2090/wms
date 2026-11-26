@@ -53,6 +53,7 @@ EDIT_ENDPOINTS = frozenset({
     'add_requisition_item', 'update_requisition_item', 'delete_requisition_item',
     'batch_delete_requisition_items', 'batch_add_requisition_items',
     'edit_subcontract_header', 'add_subcontract_item', 'delete_subcontract_item',
+    'import_subcontract_products',
     'add_subcontract_issue_item', 'add_subcontract_receive_item',
     'edit_opening_stock', 'batch_save_opening_stock', 'save_opening_stock_doc',
     'update_opening_stock_doc_date',

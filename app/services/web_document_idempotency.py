@@ -45,9 +45,9 @@ def _document_idempotent(view, *, mobile, command=False):
         payload = request.get_json(silent=True) if request.is_json else request.form.to_dict(flat=False)
         if isinstance(payload, dict):
             header = payload.get('header') or {}
-            identity = payload.get('order_id') or payload.get('id') or payload.get('request_id')
+            identity = payload.get('order_id') or payload.get('id') or payload.get('request_id') or payload.get('doc_id')
             if not identity and isinstance(header, dict):
-                identity = header.get('order_id') or header.get('id') or header.get('request_id')
+                identity = header.get('order_id') or header.get('id') or header.get('request_id') or header.get('doc_id')
             if isinstance(identity, list):
                 identity = identity[0] if identity else None
             try:

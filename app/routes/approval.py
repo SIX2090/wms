@@ -75,14 +75,18 @@ def register_approval_routes(app):
     @login_required
     def approve_from_approval_center(id):
         # 原实现调用共享辅助函数 approve_purchase_request；该函数已随 purchase_request
-        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，保持行为一致。
-        from app import PurchaseRequest, api_error, log_operation
+        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，并加写锁防止并发重复审批（PC-P1-02）。
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         from db import db
         from flask import jsonify
         try:
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status != 'pending':
                 return api_error('只有待审批的采购申请单可以审批')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, 'pending')
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             request_order.status = 'approved'
             db.session.commit()
             log_operation('采购申请审批通过', f'采购申请单：{request_order.request_no}', 'purchase_request', request_order.id)
@@ -97,8 +101,8 @@ def register_approval_routes(app):
     @login_required
     def reject_from_approval_center(id):
         # 原实现调用共享辅助函数 reject_purchase_request；该函数已随 purchase_request
-        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，保持行为一致。
-        from app import PurchaseRequest, api_error, log_operation
+        # 域拆分为独立路由，不再位于 app。此处内联复现原逻辑，并加写锁防止并发状态覆盖（PC-P1-02）。
+        from app import PurchaseRequest, _acquire_order_write_lock, api_error, log_operation
         from db import db
         from flask import jsonify, request
         try:
@@ -106,6 +110,10 @@ def register_approval_routes(app):
             request_order = PurchaseRequest.query.get_or_404(id)
             if request_order.status != 'pending':
                 return api_error('只有待审批的采购申请单可以驳回')
+            locked, ok = _acquire_order_write_lock(PurchaseRequest, id, 'pending')
+            if not ok or not locked:
+                return api_error('该采购申请单状态已变更，请刷新后重试', 409)
+            request_order = locked
             request_order.status = 'rejected'
             request_order.remark = data.get('remark', request_order.remark)
             try:

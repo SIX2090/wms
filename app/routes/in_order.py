@@ -3354,22 +3354,42 @@ def register_in_order_routes(app):
                 skipped.append(f'{order.order_no}(未填写库位)')
                 db.session.rollback()
                 continue
-            # ③ 超收复核：草稿期间来源 PO 的未入库数量可能被其他单推进，
-            # 完成时按行级来源复核（与新增明细 validate_purchase_receive_quantity 同口径）
+            # ③ 超收复核：按来源采购行聚合本单数量，扣除本单自身在草稿创建时已预留的
+            # received_quantity，避免把同一单据重复计算一次（PC-P0-04）；同时仍拦截
+            # 真实超收（本单 + 其他已关联入库行 > 采购量，或采购行累计已超采购量）。
+            from sqlalchemy import func as sa_func
+            from app import STOCK_COMPARE_EPSILON, should_block_purchase_over_receive
             over_qty = False
-            for item in order.items:
-                if not item.source_purchase_order_item_id:
-                    continue
-                source_item = item.source_purchase_order_item
-                if not source_item:
-                    continue
-                valid_qty, qty_msg = validate_purchase_receive_quantity(
-                    source_item, item.quantity or 0,
-                    item.material.code if item.material else str(item.material_id))
-                if not valid_qty:
-                    skipped.append(f'{order.order_no}({qty_msg})')
-                    over_qty = True
-                    break
+            if should_block_purchase_over_receive():
+                qty_by_source = {}
+                source_by_id = {}
+                code_by_source = {}
+                for item in order.items:
+                    if not item.source_purchase_order_item_id or not item.source_purchase_order_item:
+                        continue
+                    sid = item.source_purchase_order_item_id
+                    qty_by_source[sid] = round_to_2_decimals(qty_by_source.get(sid, 0) + (item.quantity or 0))
+                    source_by_id[sid] = item.source_purchase_order_item
+                    code_by_source[sid] = item.material.code if item.material else str(item.material_id)
+                for sid, this_order_qty in qty_by_source.items():
+                    source_item = source_by_id[sid]
+                    other_linked_qty = float(
+                        db.session.query(sa_func.coalesce(sa_func.sum(InOrderItem.quantity), 0))
+                        .filter(
+                            InOrderItem.source_purchase_order_item_id == sid,
+                            InOrderItem.in_order_id != order.id,
+                        ).scalar() or 0
+                    )
+                    other_reserved = max(
+                        other_linked_qty,
+                        max(0.0, float(source_item.received_quantity or 0) - this_order_qty),
+                    )
+                    effective_remain = round_to_2_decimals((source_item.quantity or 0) - other_reserved)
+                    if (this_order_qty - effective_remain > STOCK_COMPARE_EPSILON
+                            or float(source_item.received_quantity or 0) - float(source_item.quantity or 0) > STOCK_COMPARE_EPSILON):
+                        skipped.append(f'{order.order_no}(物料 {code_by_source[sid]} 入库数量不能大于采购单未入库数量)')
+                        over_qty = True
+                        break
             if over_qty:
                 db.session.rollback()
                 continue

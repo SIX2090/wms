@@ -1424,16 +1424,37 @@ def register_sales_routes(app):
     @require_role('warehouse', 'purchase', 'sales')
     @login_required
     def cancel_sales_order(id):
-        from app import OutOrder, SalesOrder, STOCK_COMPARE_EPSILON, log_operation
+        from sqlalchemy.orm import selectinload
+        from app import (OutOrder, OutOrderItem, SalesOrder, STOCK_COMPARE_EPSILON,
+                         _acquire_order_write_lock, log_operation)
         order = SalesOrder.query.get_or_404(id)
         if order.status not in ('draft', 'confirmed') or any((item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON for item in order.items):
             return jsonify({'status': 'error', 'msg': '已发货或当前状态不允许取消销售订单'}), 400
-        # SALES-AUDIT-002：存在 pending 销售出库草稿时禁止取消，否则会留下
-        # 指向 cancelled 订单的孤儿草稿，完成后触发 SALES-AUDIT-001 复活链。
+        locked, ok = _acquire_order_write_lock(
+            SalesOrder, id, order.status, selectinload(SalesOrder.items)
+        )
+        if not ok or not locked:
+            return jsonify({'status': 'error', 'msg': '该销售订单状态已变更，请刷新后重试'}), 409
+        order = locked
+        if any((item.shipped_quantity or 0) > STOCK_COMPARE_EPSILON for item in order.items):
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': '已发货或当前状态不允许取消销售订单'}), 400
+        # SALES-AUDIT-002 / PC-P0-05：同时检查表头关联与多单选单行级关联的 pending 出库草稿
         pending_outbound = OutOrder.query.filter_by(
             source_sales_order_id=order.id, status='pending'
         ).first()
+        if not pending_outbound:
+            item_ids = [item.id for item in order.items if item.id]
+            if item_ids:
+                pending_outbound = (
+                    OutOrder.query.join(OutOrderItem, OutOrderItem.out_order_id == OutOrder.id)
+                    .filter(
+                        OutOrder.status == 'pending',
+                        OutOrderItem.source_sales_order_item_id.in_(item_ids),
+                    ).first()
+                )
         if pending_outbound:
+            db.session.rollback()
             return jsonify({
                 'status': 'error',
                 'msg': f'存在未完成的销售出库草稿 {pending_outbound.order_no}，请先处理后再取消'

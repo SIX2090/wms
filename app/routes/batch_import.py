@@ -890,6 +890,12 @@ def register_batch_import_routes(app):
                     outcome.update(action='skip', reason=f'物料编码 [{code}] 不存在')
                     preview_rows.append(outcome)
                     continue
+                if getattr(material, 'status', None) == 'inactive':
+                    errors.append(f'第 {row_no} 行：物料 [{code}] 已停用，禁止导入期初库存')
+                    skipped += 1
+                    outcome.update(action='skip', reason=f'物料 [{code}] 已停用')
+                    preview_rows.append(outcome)
+                    continue
                 wh_code = _v(row, 'warehouse')
                 warehouse = None
                 if wh_code:
@@ -977,11 +983,10 @@ def register_batch_import_routes(app):
                         preview_rows.append(outcome)
                         continue
 
-                    # BUG-2026-10-17-015-F05（审计 I6）：每个导入行一个 SAVEPOINT。
-                    # `_apply_opening_stock_balance` 是「①总账→③流水→②库位账」多步写入，
-                    # 中途 ValueError 时旧代码只记录跳过、不回滚，导致"报跳过但已落账"。
-                    row_savepoint = db.session.begin_nested()
+                    # BUG-2026-10-17-015-F05 / PC-P0-07：单据头在外层事务创建，
+                    # 行写入包在 SAVEPOINT 内，防止首行回滚后 batch_doc 残留悬空对象导致后续外键损坏。
                     doc = _ensure_batch_doc()
+                    row_savepoint = db.session.begin_nested()
                     # 只在本批单据内查找同 (物料,仓库) 行：跨单据允许重复，
                     # 若不带 doc_id 过滤会命中别的单据的行，导致改错单/库存错算。
                     opening = OpeningStock.query.filter_by(

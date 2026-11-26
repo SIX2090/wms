@@ -9626,7 +9626,6 @@ MATERIAL_MERGE_REF_TABLES = (
     'inventory_check_item',
     'inventory_check_scan_item',
     'material_image',
-    'opening_stock',
     'out_order_item',
     'production_requisition_item',
     'purchase_order_item',
@@ -9639,9 +9638,11 @@ MATERIAL_MERGE_REF_TABLES = (
     'transfer_order_item',
 )
 
-# 需要「按维度合并数量」而不是简单改指的表：同一 (物料, 仓库, 库位) 只允许一条，
-# 直接改指会留下同键两行，Σ② 虽仍对得上但台账不干净。
-MATERIAL_MERGE_QUANTITY_TABLES = ('location_inventory',)
+# 需要「按维度合并数量」而不是简单改指的表：
+# - location_inventory：同一 (物料, 仓库, 库位) 只允许一条；
+# - opening_stock：同一 (物料, 仓库, 单据) 受唯一约束 uix_opening_stock_line_doc 限制，
+#   直接改指会在同单据同仓库下触发 IntegrityError。
+MATERIAL_MERGE_QUANTITY_TABLES = ('location_inventory', 'opening_stock')
 
 
 def _material_merge_check_pair(target_id, source_id, identity_confirmed=False):
@@ -9794,6 +9795,42 @@ def merge_material_duplicates(target_id, source_id, keep_alias=True, identity_co
             merged += 1
     if merged:
         stats['tables']['location_inventory'] = merged
+
+    # 3b) 期初库存：按 (仓库 + 单据) 合并数量与金额，避免 uix_opening_stock_line_doc 唯一约束冲突（PC-P0-08）
+    os_tbl = db.metadata.tables.get('opening_stock')
+    os_merged = 0
+    if os_tbl is not None:
+        for row in db.session.execute(
+                sa_select(os_tbl).where(os_tbl.c.material_id == source.id)).fetchall():
+            wh_cond = (os_tbl.c.warehouse_id.is_(None) if row.warehouse_id is None
+                       else os_tbl.c.warehouse_id == row.warehouse_id)
+            doc_cond = (os_tbl.c.doc_id.is_(None) if row.doc_id is None
+                        else os_tbl.c.doc_id == row.doc_id)
+            dup = db.session.execute(
+                sa_select(os_tbl).where(
+                    os_tbl.c.material_id == target.id,
+                    wh_cond,
+                    doc_cond,
+                )).fetchone()
+            if dup is not None:
+                new_qty = round_to_2_decimals((dup.quantity or 0) + (row.quantity or 0))
+                new_amt = round_to_2_decimals((dup.amount or 0) + (row.amount or 0))
+                new_price = (round_to_2_decimals(new_amt / new_qty) if new_qty > 0
+                             else round_to_2_decimals(dup.price or row.price or 0))
+                db.session.execute(
+                    os_tbl.update().where(os_tbl.c.id == dup.id).values(
+                        quantity=new_qty,
+                        amount=new_amt,
+                        price=new_price,
+                    ))
+                db.session.execute(os_tbl.delete().where(os_tbl.c.id == row.id))
+            else:
+                db.session.execute(
+                    os_tbl.update().where(os_tbl.c.id == row.id).values(
+                        material_id=target.id))
+            os_merged += 1
+    if os_merged:
+        stats['tables']['opening_stock'] = os_merged
 
     # 4) 总账累加
     target.stock = float(target.stock or 0) + float(source.stock or 0)
@@ -36480,14 +36517,17 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
                 sales_item = candidates[0]
         if not sales_item:
             continue
-        # SALES-AUDIT-004：原子回写 shipped_quantity，避免并发完成引用同一销售
-        # 订单的多张出库单时发生 read-modify-write 丢失更新（lost update）。
-        # 对照 deduct_stock_atomic 的条件 UPDATE 模式。
+        # PC-P0-05：多单选单出库表头 order 为 None，逐行必须检查来源销售订单未取消
+        if sales_item.sales_order and sales_item.sales_order.status == 'cancelled':
+            continue
+        # SALES-AUDIT-004 / PC-P1-03：原子回写 shipped_quantity，使用可移植的 CASE 替代 SQLite 专有双参 MAX
+        from sqlalchemy import case as sa_case
         delta = quantity_sign * (outbound_item.quantity or 0)
+        next_shipped = func.coalesce(SalesOrderItem.shipped_quantity, 0) + delta
         db.session.execute(
             sa_update(SalesOrderItem)
             .where(SalesOrderItem.id == sales_item.id)
-            .values(shipped_quantity=func.max(0, SalesOrderItem.shipped_quantity + delta))
+            .values(shipped_quantity=sa_case((next_shipped > 0, next_shipped), else_=0))
         )
         # 让 ORM 实例与 DB 一致，供后续 recalculate_sales_order 读取
         db.session.expire(sales_item, ['shipped_quantity'])
@@ -36504,6 +36544,9 @@ def sales_outbound_remaining_check(outbound):
     if is_detached_sales_copy(outbound):
         return False, '历史销售复制草稿请从原销售订单重新下推'
     header_id = outbound.source_sales_order_id
+    header_order = None
+    if header_id:
+        header_order = db.session.get(SalesOrder, header_id)
     if not header_id:
         legacy = re.search(r'来源销售订单\s+([^\s]+)', outbound.purpose or '')
         if legacy:
@@ -36511,6 +36554,11 @@ def sales_outbound_remaining_check(outbound):
             if not order:
                 return False, '无法核对历史销售来源，请从销售订单下推'
             header_id = order.id
+            header_order = order
+    if header_order and header_order.status == 'cancelled':
+        return False, f'销售订单 {header_order.order_no} 已取消，不能完成出库'
+    if header_order and header_order.status == 'draft':
+        return False, f'销售订单 {header_order.order_no} 尚未确认，请先确认后再出库'
     ids = {row.source_sales_order_item_id for row in outbound.items if row.source_sales_order_item_id}
     if not header_id and outbound.purpose == '选单生成销售出库' and any(not row.source_sales_order_item_id for row in outbound.items):
         return False, '选单生成的销售出库缺少来源明细，请从原销售订单下推'
@@ -36539,6 +36587,10 @@ def sales_outbound_remaining_check(outbound):
             requested[sid] = round_to_2_decimals(requested.get(sid, 0) + (item.quantity or 0))
     for sid, quantity in requested.items():
         source = sources[sid]
+        if source.sales_order and source.sales_order.status == 'cancelled':
+            return False, f'销售订单 {source.sales_order.order_no} 已取消，不能完成出库'
+        if source.sales_order and source.sales_order.status == 'draft':
+            return False, f'销售订单 {source.sales_order.order_no} 尚未确认，请先确认后再出库'
         remaining = round_to_2_decimals((source.quantity or 0) - (source.shipped_quantity or 0))
         if quantity - remaining > STOCK_COMPARE_EPSILON:
             number = source.sales_order.order_no if source.sales_order else f'item#{sid}'
@@ -36776,8 +36828,10 @@ def build_sales_outbound_draft(order, selected_qty_by_item_id=None):
             amount=round_money_product(remaining_quantity, item.price or 0),
             remark=f'来源销售订单 {order.order_no}',
         ))
+    db.session.flush()
+    recalculate_order_total(outbound)
     order.shipment_order_no = outbound.order_no
-    order.shipment_status = 'pending'
+    recalculate_sales_order(order, recalculate_amounts=False)
     return outbound, 'created'
 
 
