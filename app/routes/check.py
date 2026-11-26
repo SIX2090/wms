@@ -1012,7 +1012,7 @@ def register_check_routes(app):
                 log_operation('盘点完成', f'盘点单：{check.check_no}，生成调整草稿：{draft_nos}', 'check', id)
                 return jsonify({
                     'status': 'success',
-                    'msg': f'盘点完成，已生成库存调整草稿：{draft_nos}。请审核调整单后提交库存变动。',
+                    'msg': f'盘点完成，已生成库存调整草稿：{draft_nos}。盘点自身不改动库存；差异需待生成的调整单提交后才体现在库存。',
                     'adjustment_ids': [order.id for order in drafts],
                     'adjustment_nos': [order.adjustment_no for order in drafts],
                 })

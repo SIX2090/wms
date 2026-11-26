@@ -261,6 +261,11 @@
     </div>
 </section>
 <div id="activeFilterSummary" class="small text-muted mb-3" aria-live="polite"></div>
+{% if report_type == 'check' %}
+<div class="alert alert-info py-2 px-3 mb-3 small" id="checkReportInventoryNotice" role="note">
+    <i class="bi bi-info-circle me-1"></i>盘点自身不改动库存；差异需待生成的调整单提交后才体现在库存。
+</div>
+{% endif %}
 {% if report_type == 'material_movement' %}
 <div class="small text-muted mb-3">期初为开始日期前的结存；本期包含期初建账、调拨及盘点调整等已生效库存变动，草稿不参与。未设日期时从建账开始统计。点击物料编码可查看台账。</div>
 <div id="materialMovementCount" class="small text-muted mb-2" aria-live="polite">物料数：0</div>

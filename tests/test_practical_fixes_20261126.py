@@ -118,3 +118,62 @@ def test_fix1_balance_rounding_footnote_and_ledger_untouched(env):
     assert closing["balance_quantity"] == pytest.approx(0.008)
     assert wms.db.session.get(wms.Material, mat.id).stock == pytest.approx(0.008)
     assert wms.StockTransaction.query.count() == 2
+
+
+def test_fix2_check_complete_notice_without_stock_change(env):
+    """修复 2：完成有差异的盘点单后页面和盘点报表可见提示，且此时库存账未变动。"""
+    wms, ctx = env
+    wh1, mat, user = ctx["wh1"], ctx["mat"], ctx["user"]
+    mat.stock = 100.0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="opening",
+            quantity=100.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime(2026, 11, 20, 9, 0, 0),
+        )
+    )
+    check = wms.InventoryCheck(
+        check_no="CK-FIX2-001",
+        date=date(2026, 11, 25),
+        warehouse=wh1.name,
+        status="pending",
+        operator_id=user.id,
+        frozen_at=datetime(2026, 11, 25, 10, 0, 0),
+    )
+    wms.db.session.add(check)
+    wms.db.session.flush()
+    wms.db.session.add(
+        wms.InventoryCheckItem(
+            inventory_check_id=check.id,
+            material_id=mat.id,
+            system_stock=100.0,
+            actual_stock=115.0,
+            difference=15.0,
+            counted_by=user.id,
+            counted_at=datetime(2026, 11, 25, 10, 5, 0),
+        )
+    )
+    wms.db.session.commit()
+
+    notice = "盘点自身不改动库存；差异需待生成的调整单提交后才体现在库存。"
+    resp = ctx["client"].post(f"/check/{check.id}/complete", json={})
+    assert resp.status_code == 200, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body["status"] == "success", body
+    assert notice in body["msg"]
+    assert wms.AdjustmentOrder.query.filter_by(source_type="check", source_id=check.id).count() == 1
+    assert wms.db.session.get(wms.Material, mat.id).stock == pytest.approx(100.0)
+    assert wms.StockTransaction.query.count() == 1
+
+    detail_resp = ctx["client"].get(f"/check/{check.id}")
+    assert detail_resp.status_code == 200
+    assert notice in detail_resp.get_data(as_text=True)
+
+    report_resp = ctx["client"].get("/report/view/check")
+    assert report_resp.status_code == 200
+    assert notice in report_resp.get_data(as_text=True)
+
