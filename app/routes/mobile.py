@@ -191,6 +191,7 @@ def mobile_material_payload(material, warehouse=None):
         'name': material.name or '',
         'brand': material.brand or '',
         'spec': material.spec or '',
+        'storage_location': getattr(material, 'storage_location', None) or '',
         'unit': material.unit.name if material.unit else '',
         'category': material.category.name if material.category else '',
         'supplier': material.supplier.name if material.supplier else '',
@@ -1560,6 +1561,7 @@ def register_mobile_routes(app):
             'code': material.code or '',
             'name': material.name or '',
             'spec': material.spec or '',
+            'storage_location': getattr(material, 'storage_location', None) or '',
             'unit': material.unit.name if material.unit else '',
             'category': material.category.name if material.category else '',
             # BUG-2026-09-14-035：image_count 由调用方批量预取传入（修 N+1）；未传则单条查询兜底
@@ -1585,6 +1587,7 @@ def register_mobile_routes(app):
                 Material.name.like(like),
                 Material.spec.like(like),
                 Material.brand.like(like),
+                Material.storage_location.like(like),
             ))
         # BUG-2026-09-14-035：手机端物料档案需展示全部物料。原 .limit(50) 把空关键字
         # 浏览截断为前 50（R1：默认上限被当成全量）。改为返回全部匹配物料（主数据量可控），

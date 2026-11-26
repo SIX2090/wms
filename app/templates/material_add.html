@@ -101,13 +101,19 @@
             </div>
             
             <div class="row">
-                <div class="col-md-6">
+                <div class="col-md-4">
+                    <div class="mb-3">
+                        <label class="form-label" for="material-add-storage_location">库位</label>
+                        <input type="text" class="form-control" name="storage_location" maxlength="100" placeholder="如 A-01-02（选填）" id="material-add-storage_location">
+                    </div>
+                </div>
+                <div class="col-md-4">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-price-10">参考单价</label>
                         <input type="number" class="form-control" name="price" value="0" min="0" step="0.01" id="material-add-price-10">
                     </div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-remark-11">备注</label>
                         <textarea class="form-control" name="remark" rows="2" id="material-add-remark-11"></textarea>

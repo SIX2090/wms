@@ -173,6 +173,10 @@ class Material(db.Model):
 
     因此：改「安全库存」相关逻辑时，**写库用 reorder_point，读展示可用 safety_stock**，
     不要新增第四种叫法（如 safe_stock / security_stock）。
+
+    ``storage_location``（存放库位，选填）：仅记录物料在仓库中的常规存放位置，
+    便于快速找料及后续按库位盘点；**与系统参数 ``location_management_enabled``
+    （库位管理开关）完全无关**，不参与三账（总账/库位账/流水）核算。
     """
     __tablename__ = 'material'
     __table_args__ = (
@@ -184,6 +188,7 @@ class Material(db.Model):
         db.Index('idx_material_supplier', 'supplier_id'),
         db.Index('idx_material_unit', 'unit_id'),
         db.Index('idx_material_created', 'created_at'),
+        db.Index('idx_material_storage_location', 'storage_location'),
     )
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), unique=True, nullable=False)  # Code
@@ -193,6 +198,7 @@ class Material(db.Model):
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))  # Supplier ID
     brand = db.Column(db.String(100))  # Brand
     spec = db.Column(db.String(100))  # Specification
+    storage_location = db.Column(db.String(100))  # 存放库位（选填，与库位管理开关无关）
     purpose = db.Column(db.String(200))  # Purpose
     image = db.Column(db.String(200))  # Image path
     stock = db.Column(db.Float, default=0)  # Inventory

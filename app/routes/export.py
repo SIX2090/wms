@@ -412,8 +412,8 @@ def register_export_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '物料导入模板'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '单价']
-        example = ['MAT001', '示例物料', 'ABB', '规格A', '个', '原材料', '示例供应商', 0]
+        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '单价']
+        example = ['MAT001', '示例物料', 'ABB', '规格A', 'A-01-01', '个', '原材料', '示例供应商', 0]
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存'])
             example.extend([0, 0])

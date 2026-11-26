@@ -50,7 +50,7 @@ except Exception:  # pragma: no cover - 降级路径
 
 # entity -> (模型名, 编码字段, 名称字段, 参与匹配的额外字段)
 ENTITY_CONFIG = {
-    'material':   ('Material',         'code', 'name', ('spec', 'brand')),
+    'material':   ('Material',         'code', 'name', ('spec', 'brand', 'storage_location')),
     'supplier':   ('Supplier',         'code', 'name', ()),
     'customer':   ('Customer',         'code', 'name', ()),
     'warehouse':  ('Warehouse',        'code', 'name', ()),

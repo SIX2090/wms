@@ -20,7 +20,7 @@ MATERIAL_SCHEMA = """【物料档案表 material】（约千级记录，中文�
 - code: 物料编码（唯一，如 LPY0001、207012），用户常用编码或名称指代物料
 - name: 物料名称（如「铜排」「指示灯」；同名不同规格的物料有多条记录，如 38 种「铜排」）
 - spec: 规格型号（如 140*6、AD16-22D/S红色、M8*20；可能含颜色/单位后缀）
-- brand: 品牌；category/unit/supplier: 关联类别、计量单位、供应商
+- brand: 品牌；storage_location: 存放库位（选填，便于快速找料及按库位盘点，与库位管理开关无关）；category/unit/supplier: 关联类别、计量单位、供应商
 - stock: 当前库存（冗余汇总值，精确库存按仓库流水聚合）
 - min_stock: 最低库存（红线）；reorder_point: 安全库存（对外叫「安全库存」，低于它建议补货）
 - status: active/inactive（停用物料历史数据照常可查）

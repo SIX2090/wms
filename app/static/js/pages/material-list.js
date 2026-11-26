@@ -389,6 +389,7 @@ var MATERIAL_COL_DEFAULTS = [
     {key: 'name',     label: '物料名称'},
     {key: 'brand',    label: '品牌'},
     {key: 'spec',     label: '规格'},
+    {key: 'storage_location', label: '库位'},
     {key: 'unit',     label: '单位'},
     {key: 'category', label: '分类'},
     {key: 'supplier', label: '供应商'},
@@ -503,6 +504,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 code: 120,
                 name: 140,
                 spec: 100,
+                storage_location: 90,
                 unit: 70,
                 category: 90,
                 supplier: 110,
@@ -655,6 +657,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setQuickSelectValue('edit_supplier_id', mat.supplier_id || '');
             document.getElementById('edit_spec').value = mat.spec || '';
             document.getElementById('edit_brand').value = mat.brand || '';
+            setInputValueIfExists('edit_storage_location', mat.storage_location || '');
             document.getElementById('edit_purpose').value = mat.purpose || '';
             document.getElementById('edit_price').value = mat.price || 0;
             setInputValueIfExists('edit_min_stock', mat.min_stock || 0);
@@ -790,6 +793,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         setQuickSelectValue('add_supplier_id', mat.supplier_id || '');
                         document.getElementById('add_spec').value = mat.spec || '';
                         document.getElementById('add_brand').value = mat.brand || '';
+                        setInputValueIfExists('add_storage_location', mat.storage_location || '');
                         document.getElementById('add_purpose').value = mat.purpose || '';
                         document.getElementById('add_price').value = mat.price || 0;
                         setInputValueIfExists('add_min_stock', mat.min_stock || 0);
@@ -1657,7 +1661,8 @@ if (cellFieldSelect) {
     cellFieldSelect.addEventListener('change', function() {
         if (selectedCell && this.value) {
             var labels = {
-                code: '物料编码', name: '物料名称', brand: '品牌', spec: '规格', unit_name: '单位',
+                code: '物料编码', name: '物料名称', brand: '品牌', spec: '规格',
+                storage_location: '库位', unit_name: '单位',
                 category_name: '分类', stock: '库存', price: '单价', barcode: '条码',
                 qrcode: '二维码', date: '日期', supplier_name: '供应商'
             };
@@ -2267,6 +2272,7 @@ function __labelFieldKey(field) {
 
 function __labelFieldText(field) {
     var labels = {code: '物料编码', name: '物料名称', spec: '规格', brand: '品牌',
+        storage_location: '库位',
         unit_name: '单位', category_name: '分类', supplier_name: '供应商',
         stock: '库存', price: '单价', barcode: '条码', qrcode: '二维码', date: '日期'};
     return '[' + (Object.prototype.hasOwnProperty.call(labels, field) ? labels[field] : field) + ']';
@@ -2465,6 +2471,7 @@ var labelSampleData = {
     code: 'MAT-0001',
     name: '深沟球轴承 6204-2RS',
     spec: '内径20×外径47×厚14',
+    storage_location: 'A-01-02',
     unit_name: '套',
     category_name: '轴承',
     stock: '128',

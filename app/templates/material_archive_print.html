@@ -104,12 +104,14 @@
                     <tr>
                         <th>供应商</th>
                         <td class="value">{{ material.supplier.name if material.supplier else '-' }}</td>
-                        <th>参考单价</th>
-                        <td class="value">{{ '%.2f'|format(material.price or 0) }}</td>
+                        <th>库位</th>
+                        <td class="value">{{ material.storage_location or '-' }}</td>
                     </tr>
                     <tr>
+                        <th>参考单价</th>
+                        <td class="value">{{ '%.2f'|format(material.price or 0) }}</td>
                         <th>用途说明</th>
-                        <td colspan="3">{{ material.purpose or '-' }}</td>
+                        <td>{{ material.purpose or '-' }}</td>
                     </tr>
                     {% if material.remark %}
                     <tr>

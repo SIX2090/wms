@@ -404,6 +404,7 @@ def _material_label_data(m):
         'code': m.code or '',
         'name': m.name or '',
         'spec': m.spec or '',
+        'storage_location': getattr(m, 'storage_location', None) or '',
         'unit_name': m.unit.name if m.unit else '',
         'category_name': m.category.name if m.category else '',
         'supplier_name': m.supplier.name if m.supplier else '',

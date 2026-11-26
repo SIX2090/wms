@@ -56,6 +56,7 @@
                 }
                 body.replaceChildren();
                 [['code', '编码'], ['name', '名称'], ['spec', '规格'], ['brand', '品牌'],
+                    ['storage_location', '库位'],
                     ['unit', '库存单位'], ['status', '状态'], ['stock', '库存数量']].forEach(function (field) {
                     var row = document.createElement('tr'), key = field[0];
                     cell(row, field[1]);

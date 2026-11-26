@@ -63,8 +63,8 @@ def _parse_optional_fk(raw_val, label):
 def _material_edit_revision(material):
     """Fingerprint fields replaced by the archive editor, independent of stock movements."""
     fields = ('id', 'code', 'name', 'status', 'category_id', 'unit_id', 'supplier_id',
-              'brand', 'spec', 'purpose', 'min_stock', 'max_stock', 'reorder_point',
-              'expiry_date', 'alert_days', 'price', 'remark')
+              'brand', 'spec', 'storage_location', 'purpose', 'min_stock', 'max_stock',
+              'reorder_point', 'expiry_date', 'alert_days', 'price', 'remark')
     values = [getattr(material, field) for field in fields]
     return hashlib.sha256(json.dumps(values, default=str).encode()).hexdigest()
 
@@ -111,7 +111,7 @@ def register_material_routes(app):
         # BUG-F02-01 修复：默认按 code 升序，与其他基础资料一致
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
-        allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
+        allowed_sorts = {'code', 'name', 'brand', 'spec', 'storage_location', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
         if sort_by not in allowed_sorts:
             sort_by = 'code'
         if sort_order not in ('asc', 'desc'):
@@ -134,7 +134,8 @@ def register_material_routes(app):
                     Material.code.like(f'%{search}%'),
                     Material.name.like(f'%{search}%'),
                     Material.brand.like(f'%{search}%'),
-                    Material.spec.like(f'%{search}%')
+                    Material.spec.like(f'%{search}%'),
+                    Material.storage_location.like(f'%{search}%')
                 )
             )
         if category_id:
@@ -193,7 +194,8 @@ def register_material_routes(app):
                 'code': m.code,
                 'name': m.name,
                 'brand': m.brand or '',
-                'spec': m.spec
+                'spec': m.spec,
+                'storage_location': m.storage_location or '',
             } for m in pagination.items],
             'total': pagination.total,
             'page': page,
@@ -324,8 +326,9 @@ def register_material_routes(app):
 
         spec = sanitize_text_input(request.form.get('spec'), max_len=100)
         brand = sanitize_text_input(request.form.get('brand'), max_len=100)
+        raw_storage_location = (request.form.get('storage_location') or '').strip()
         # BUG-F02-02 修复：物料主数据长度截断防护
-        # 防止 DB 静默截断（DB 列宽：code=50/name=100/brand=100/spec=100/purpose=200/remark=500）
+        # 防止 DB 静默截断（DB 列宽：code=50/name=100/brand=100/spec=100/storage_location=100/purpose=200/remark=500）
         if len(code) > 50:
             return api_error(f'物料编码不能超过 50 个字符（当前 {len(code)}）')
         if len(name) > 100:
@@ -334,6 +337,9 @@ def register_material_routes(app):
             return api_error('品牌不能超过 100 个字符')
         if len(spec) > 100:
             return api_error(f'物料规格不能超过 100 个字符（当前 {len(spec)}）')
+        if len(raw_storage_location) > 100:
+            return api_error(f'库位不能超过 100 个字符（当前 {len(raw_storage_location)}）')
+        storage_location = sanitize_text_input(raw_storage_location, max_len=100)
         purpose = sanitize_text_input(request.form.get('purpose'), max_len=200)
         if len(purpose) > 200:
             return api_error(f'用途不能超过 200 个字符（当前 {len(purpose)}）')
@@ -392,6 +398,7 @@ def register_material_routes(app):
             supplier_id=sup_id,
             brand=brand or None,
             spec=spec,
+            storage_location=storage_location or None,
             stock=initial_stock,
             purpose=request.form.get('purpose'),
             min_stock=min_stock_val,
@@ -453,6 +460,7 @@ def register_material_routes(app):
                 'name': material.name,
                 'spec': material.spec or '',
                 'brand': material.brand or '',
+                'storage_location': material.storage_location or '',
                 'category_id': material.category_id,
                 'unit_id': material.unit_id,
                 'supplier_id': material.supplier_id,
@@ -485,6 +493,7 @@ def register_material_routes(app):
                 'supplier_id': material.supplier_id,
                 'brand': material.brand or '',
                 'spec': material.spec or '',
+                'storage_location': material.storage_location or '',
                 'purpose': material.purpose or '',
                 'min_stock': material.min_stock or 0,
                 'max_stock': material.max_stock or 0,
@@ -610,6 +619,7 @@ def register_material_routes(app):
                     'supplier_id': source.supplier_id,
                     'brand': source.brand or '',
                     'spec': source.spec or '',
+                    'storage_location': source.storage_location or '',
                     'purpose': source.purpose or '',
                     'min_stock': source.min_stock or 0,
                     'max_stock': source.max_stock or 0,
@@ -650,6 +660,7 @@ def register_material_routes(app):
             parse_date_value,
             parse_float_value,
             parse_int_value,
+            sanitize_text_input,
             save_upload_image,
         )
         from utils import sync_material_primary_image
@@ -690,6 +701,14 @@ def register_material_routes(app):
         new_purpose = (request.form.get('purpose') or '').strip()
         if len(new_purpose) > 200:
             return jsonify({'status': 'error', 'msg': f'用途不能超过 200 个字符（当前 {len(new_purpose)}）'}), 400
+        if 'storage_location' in request.form:
+            raw_storage_location = (request.form.get('storage_location') or '').strip()
+            if len(raw_storage_location) > 100:
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': f'库位不能超过 100 个字符（当前 {len(raw_storage_location)}）'}), 400
+            new_storage_location = sanitize_text_input(raw_storage_location, max_len=100) or None
+        else:
+            new_storage_location = material.storage_location
         new_remark = (request.form.get('remark') or '').strip()
         if len(new_remark) > 500:
             return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
@@ -719,7 +738,8 @@ def register_material_routes(app):
         # BUG-2026-08-16-012：修改前捕获完整旧值，供结构化变更审计（含单价/角色等敏感字段）
         _audit_old = {
             'code': material.code, 'name': material.name, 'spec': material.spec or '',
-            'brand': material.brand or '', 'category_id': material.category_id,
+            'brand': material.brand or '', 'storage_location': material.storage_location or '',
+            'category_id': material.category_id,
             'unit_id': material.unit_id, 'supplier_id': material.supplier_id,
             'price': material.price or 0, 'min_stock': material.min_stock or 0,
             'max_stock': material.max_stock or 0, 'remark': material.remark or '',
@@ -750,6 +770,7 @@ def register_material_routes(app):
         material.supplier_id = sup_id
         material.brand = new_brand or None
         material.spec = new_spec
+        material.storage_location = new_storage_location
         material.status = new_status
         material.purpose = new_purpose or None
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
@@ -839,7 +860,8 @@ def register_material_routes(app):
             old_data=_audit_old,
             new_data={
                 'code': material.code, 'name': material.name, 'spec': material.spec or '',
-                'brand': material.brand or '', 'category_id': material.category_id,
+                'brand': material.brand or '', 'storage_location': material.storage_location or '',
+                'category_id': material.category_id,
                 'unit_id': material.unit_id, 'supplier_id': material.supplier_id,
                 'price': material.price or 0, 'min_stock': material.min_stock or 0,
                 'max_stock': material.max_stock or 0, 'remark': material.remark or '',
@@ -939,11 +961,12 @@ def register_material_routes(app):
             query = query.filter(Material.id != source_id)
         if keyword:
             query = query.filter(or_(*(column.contains(keyword, autoescape=True)
-                                      for column in (Material.code, Material.name, Material.spec, Material.brand))))
+                                      for column in (Material.code, Material.name, Material.spec, Material.brand, Material.storage_location))))
         rows = query.order_by(Material.code, Material.id).paginate(page=page, per_page=20, error_out=False)
         return jsonify(status='success', data=[{
             'id': row.id, 'code': row.code, 'name': row.name, 'spec': row.spec or '',
-            'brand': row.brand or '', 'unit': row.unit.name if row.unit else '',
+            'brand': row.brand or '', 'storage_location': row.storage_location or '',
+            'unit': row.unit.name if row.unit else '',
             'status': row.status or 'active',
         } for row in rows.items], page=rows.page, page_size=20, total=rows.total, total_pages=rows.pages)
 
@@ -1213,8 +1236,8 @@ def register_material_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '物料导入模板'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '单价']
-        example = ['MAT-001', '示例物料', 'ABB', '示例规格', '个', '原材料', '默认供应商', 0]
+        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '单价']
+        example = ['MAT-001', '示例物料', 'ABB', '示例规格', 'A-01-01', '个', '原材料', '默认供应商', 0]
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存'])
             example.extend([0, 0])
@@ -1240,7 +1263,7 @@ def register_material_routes(app):
         wb = Workbook()
         ws = wb.active
         ws.title = '物料数据'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '单位', '分类', '供应商', '当前库存', '单价']
+        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '当前库存', '单价']
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存'])
         ws.append(headers)
@@ -1254,7 +1277,7 @@ def register_material_routes(app):
             status_filter = 'active'
         sort_by = request.args.get('sort', 'code')
         sort_order = request.args.get('order', 'asc')
-        allowed_sorts = {'code', 'name', 'brand', 'spec', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
+        allowed_sorts = {'code', 'name', 'brand', 'spec', 'storage_location', 'category_id', 'supplier_id', 'stock', 'price', 'created_at'}
         if sort_by not in allowed_sorts:
             sort_by = 'code'
         if sort_order not in ('asc', 'desc'):
@@ -1272,7 +1295,8 @@ def register_material_routes(app):
                     Material.code.like(f'%{search}%'),
                     Material.name.like(f'%{search}%'),
                     Material.brand.like(f'%{search}%'),
-                    Material.spec.like(f'%{search}%')
+                    Material.spec.like(f'%{search}%'),
+                    Material.storage_location.like(f'%{search}%')
                 )
             )
         if category_id:
@@ -1299,7 +1323,7 @@ def register_material_routes(app):
             flash(f'当前筛选结果 {total_rows} 条，超过系统参数设置的导出上限 {max_rows} 条，请缩小筛选范围后再导出。', 'warning')
             return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, status=status_filter, sort=sort_by, order=sort_order))
         for m in query.all():
-            row = [m.code, m.name, m.brand or '', m.spec or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
+            row = [m.code, m.name, m.brand or '', m.spec or '', m.storage_location or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
             if inventory_alert_enabled():
                 safety_stock = max(m.reorder_point or 0, m.min_stock or 0)
                 row.extend([m.min_stock or 0, safety_stock])
@@ -1357,6 +1381,7 @@ def register_material_routes(app):
                 'code': ('物料编码', '物料代码', '存货编码', '商品编码', '材料编码', '编码', '代码'),
                 'name': ('物料名称', '物料名字', '存货名称', '商品名称', '名称', '名字'),
                 'brand': ('品牌', '物料品牌', 'brand'), 'spec': ('规格', '规格型号', '物料规格', '型号规格'),
+                'storage_location': ('库位', '存放库位', '货位', '存放位置', '默认库位', 'storage_location'),
                 'unit': ('单位', '计量单位', '库存单位', '单位名称', '单位编码', '单位代码', '计量单位名称', '计量单位编码'),
                 'category': ('分类', '类别', '物料分类', '分类名称', '分类编码', '分类代码', '类别名称', '类别编码', '物料分类编码', '物料分类名称'),
                 'supplier': ('供应商', '供应商名称', '供应商编码', '供应商代码'),
@@ -1420,6 +1445,7 @@ def register_material_routes(app):
                     continue
                 raw_spec = str(row[col_map['spec']]).strip() if 'spec' in col_map and len(row) > col_map['spec'] and row[col_map['spec']] else ''
                 raw_brand = str(row[col_map['brand']]).strip() if 'brand' in col_map and len(row) > col_map['brand'] and row[col_map['brand']] else ''
+                raw_storage_location = str(row[col_map['storage_location']]).strip() if 'storage_location' in col_map and len(row) > col_map['storage_location'] and row[col_map['storage_location']] else ''
                 if len(raw_spec) > 100:
                     skip += 1
                     skip_details.append(f'第{row_idx}行：规格不能超过100个字符')
@@ -1428,8 +1454,13 @@ def register_material_routes(app):
                     skip += 1
                     skip_details.append(f'第{row_idx}行：品牌不能超过100个字符')
                     continue
+                if len(raw_storage_location) > 100:
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：库位不能超过100个字符')
+                    continue
                 spec = sanitize_text_input(raw_spec, max_len=100)
                 brand = sanitize_text_input(raw_brand, max_len=100)
+                storage_location = sanitize_text_input(raw_storage_location, max_len=100)
                 # BUG-2026-08-04-008: 价格校验与 add_material 一致（0 至 MAX_REASONABLE_PRICE）。
                 # 注意 parse_bounded_number 内部 parse_float_value 会把负数静默转 0，
                 # 因此先显式检查原始值是否为负，负数行跳过并告知用户。
@@ -1531,6 +1562,7 @@ def register_material_routes(app):
                     name=name,
                     brand=brand or None,
                     spec=spec,
+                    storage_location=storage_location or None,
                     stock=0,
                     price=price_val,
                     min_stock=min_stock_val,

@@ -49,6 +49,7 @@ def register_label_routes(app):
                 **qr,
                 'name': m.name or '',
                 'spec': m.spec or '',
+                'storage_location': getattr(m, 'storage_location', None) or '',
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
                 'stock': format_quantity(m.stock or 0),
@@ -85,7 +86,9 @@ def register_label_routes(app):
         if len(materials) != len(set(ids)):
             return jsonify(status='error', msg='部分所选物料不存在，请重新选择后打印'), 404
         rows = [dict(code=m.code or '', barcode=m.code or '', brand=m.brand or '',
-                     name=m.name or '', spec=m.spec or '', unit_name=m.unit.name if m.unit else '',
+                     name=m.name or '', spec=m.spec or '',
+                     storage_location=getattr(m, 'storage_location', None) or '',
+                     unit_name=m.unit.name if m.unit else '',
                      category_name=m.category.name if m.category else '',
                      supplier_name=m.supplier.name if m.supplier else '',
                      price=str(m.price) if m.price is not None else '', stock=format_quantity(m.stock or 0))
@@ -128,6 +131,7 @@ def register_label_routes(app):
                 'code': m.code or '',
                 'name': m.name or '',
                 'spec': m.spec or '',
+                'storage_location': getattr(m, 'storage_location', None) or '',
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
                 'supplier_name': m.supplier.name if m.supplier else '',

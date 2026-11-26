@@ -953,11 +953,17 @@ def auto_migrate_database():
                 cursor.execute(
                     "ALTER TABLE material ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'")
                 modified = True
+            if 'storage_location' not in _mat_cols:
+                cursor.execute(
+                    "ALTER TABLE material ADD COLUMN storage_location VARCHAR(100)")
+                modified = True
             # 回填：历史行 status 为 NULL 或空串时按启用处理，避免下拉把老物料全过滤掉
             cursor.execute(
                 "UPDATE material SET status='active' WHERE status IS NULL OR TRIM(status)=''")
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_material_status ON material(status)")
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_material_storage_location ON material(storage_location)")
 
         # out_order 字段迁移
         if not _table_exists('out_order'):
@@ -2872,16 +2878,25 @@ def ensure_material_status_column(db_path: str | None = None):
         if not cols:
             return
         added = False
+        added_location = False
         if 'status' not in cols:
             cur.execute(
                 "ALTER TABLE material ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'")
             added = True
+        if 'storage_location' not in cols:
+            cur.execute(
+                "ALTER TABLE material ADD COLUMN storage_location VARCHAR(100)")
+            added_location = True
         cur.execute(
             "UPDATE material SET status='active' WHERE status IS NULL OR TRIM(status)=''")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_material_status ON material(status)")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_material_storage_location ON material(storage_location)")
         conn.commit()
         if added:
             logging.getLogger(__name__).info('[DB] 已补 material.status 列（物料停用功能）')
+        if added_location:
+            logging.getLogger(__name__).info('[DB] 已补 material.storage_location 列（物料存放库位，选填）')
     except Exception as e:
         try:
             logging.getLogger(__name__).error(
@@ -7686,6 +7701,7 @@ def api_material_payload(material, warehouse=None, warehouse_stock_map=None, loc
         'name': material.name or '',
         'brand': material.brand or '',
         'spec': material.spec or '',
+        'storage_location': getattr(material, 'storage_location', None) or '',
         'unit': material.unit.name if material.unit else '',
         'price': float(material.price or 0),
         'stock': float(format_quantity(stock) or 0),
@@ -9703,9 +9719,11 @@ def material_merge_preview(target_id, source_id, allow_identity_difference=False
     return {
         'target': {'id': target.id, 'code': target.code, 'name': target.name,
                    'spec': target.spec or '', 'brand': target.brand or '',
+                   'storage_location': target.storage_location or '',
                    'stock': float(format_quantity(target.stock or 0) or 0), 'unit': target.unit.name if target.unit else '', 'status': target.status},
         'source': {'id': source.id, 'code': source.code, 'name': source.name,
                    'spec': source.spec or '', 'brand': source.brand or '',
+                   'storage_location': source.storage_location or '',
                    'stock': float(format_quantity(source.stock or 0) or 0), 'unit': source.unit.name if source.unit else '', 'status': source.status},
         'stock_after': float(format_quantity(float(target.stock or 0) + float(source.stock or 0)) or 0),
         'tables': tables,
@@ -27271,6 +27289,7 @@ def material_search_api():
             Material.name.like(f'%{keyword}%'),
             Material.spec.like(f'%{keyword}%'),
             Material.brand.like(f'%{keyword}%'),
+            Material.storage_location.like(f'%{keyword}%'),
         ]
         signs = r'[*xX×＊ｘＸ]'
         sides = [side.strip() for side in re.split(signs, keyword, maxsplit=3)]
