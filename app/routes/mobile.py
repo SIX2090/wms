@@ -1192,6 +1192,18 @@ def register_mobile_routes(app):
             else:
                 if not order.items:
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
+                if order.business_type == '销售出库':
+                    from app import sales_outbound_remaining_check
+                    valid, message = sales_outbound_remaining_check(order)
+                    if not valid:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'success': False, 'msg': message}), 400
+                elif order.business_type == '采购退货出库':
+                    from app import purchase_return_remaining_check
+                    valid, message = purchase_return_remaining_check(order)
+                    if not valid:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'success': False, 'msg': message}), 400
                 last_movement_id = db.session.query(db.func.max(StockTransaction.id)).filter(
                     StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == order.id,
                 ).scalar() or 0
@@ -1209,6 +1221,9 @@ def register_mobile_routes(app):
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
                 order.status = 'completed'
+                if order.business_type == '销售出库':
+                    from app import sync_sales_order_shipment
+                    sync_sales_order_shipment(order, quantity_sign=1)
                 enqueue_auto_print_job('out_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_out')
                 order_no = order.order_no
             stage_stock_document_snapshot(

@@ -50,9 +50,24 @@ def case(monkeypatch):
                     location=wh.code if historical else wh.name,
                     reference_type='opening', reference_id=1))
         wms.set_system_setting('location_management_enabled', '0')
+        cust = wms.Customer(code='DC-CUST', name='隔离客户')
+        db.session.add(cust)
+        db.session.flush()
+        sale_order = wms.SalesOrder(
+            order_no='DC-SO-1', customer_id=cust.id,
+            warehouse=a.name, warehouse_id=a.id, status='confirmed', operator_id=u.id,
+        )
+        db.session.add(sale_order)
+        db.session.flush()
+        sale_items = [wms.SalesOrderItem(
+            sales_order_id=sale_order.id, material_id=mat.id,
+            quantity=50, shipped_quantity=0, price=2, amount=100,
+        ) for mat in mats]
+        db.session.add_all(sale_items)
         db.session.commit()
         ids = dict(user=u.id, a=a.id, b=b.id, dep=dep.id,
-                   mats=[m.id for m in mats], names=[a.name, b.name])
+                   mats=[m.id for m in mats], names=[a.name, b.name],
+                   sale_order=sale_order.id, sale_items=[si.id for si in sale_items])
     clients = [wms.app.test_client(), wms.app.test_client()]
     for client in clients:
         with client.session_transaction() as session:
@@ -78,6 +93,9 @@ def payload(kind, ids, number, second=False):
     if kind in ('sale', 'other', 'requisition'):
         data['business_type'] = {'sale': '销售出库', 'other': '其他出库',
                                  'requisition': '领料单'}[kind]
+    if kind == 'sale':
+        data['source_sales_order_id'] = ids['sale_order']
+        data['items'][0]['source_sales_order_item_id'] = ids['sale_items'][index]
     return data
 
 

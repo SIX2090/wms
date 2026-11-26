@@ -4322,6 +4322,13 @@ SYSTEM_SETTING_GROUPS = [
                 'default': '1',
                 'remark': '开启后入库单、出库单、标签等允许维护多套打印模板。',
             },
+            {
+                'key': 'sales_outbound_requires_order',
+                'label': '销售出库必须关联销售订单',
+                'type': 'bool',
+                'default': '1',
+                'remark': '开启（默认）时，销售出库单保存与完成必须关联来源销售订单（或成品入库下推来源），确保防超发校验和已发货数量回写生效；无来源发货请改用「其他出库」或关闭本开关。',
+            },
         ],
     },
     {
@@ -4743,6 +4750,11 @@ def purchase_in_order_requires_order():
 def purchase_return_requires_order():
     # P1-7 采购退货出库：默认必须关联来源采购入库单（配置 purchase_return_requires_order，默认 1）。
     return get_system_setting_bool('purchase_return_requires_order', True)
+
+def sales_outbound_requires_order():
+    # BUG-2026-11-26-009：默认开启，要求销售出库必须关联来源销售订单（或成品入库下推来源），
+    # 堵住无来源销售出库跳过防超发校验与 shipped_quantity 回写的旁路。
+    return get_system_setting_bool('sales_outbound_requires_order', True)
 
 def purchase_receipt_strict_order():
     return get_system_setting_bool('purchase_receipt_strict_order', True)
@@ -36697,6 +36709,19 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         recalculate_sales_order(affected_order, recalculate_amounts=False)
     return order or next(iter(affected_orders.values()), None)
 
+def _has_active_product_sales_source(outbound):
+    """判断销售出库是否具有有效的成品入库下推来源（DocumentPushLine）。"""
+    oid = getattr(outbound, 'id', None)
+    if not oid:
+        return False
+    return DocumentPushLine.query.filter_by(
+        source_document_type='product_in_order',
+        target_document_type='sales_out',
+        target_document_id=oid,
+        status='active',
+    ).first() is not None
+
+
 def sales_outbound_remaining_check(outbound):
     """按真实销售来源行合计；老单仅在物料唯一对应时恢复来源。"""
     if not outbound or not outbound.items:
@@ -36723,7 +36748,14 @@ def sales_outbound_remaining_check(outbound):
     ids = {row.source_sales_order_item_id for row in outbound.items if row.source_sales_order_item_id}
     if not header_id and outbound.purpose == '选单生成销售出库' and any(not row.source_sales_order_item_id for row in outbound.items):
         return False, '选单生成的销售出库缺少来源明细，请从原销售订单下推'
+    require_source = (
+        getattr(outbound, 'business_type', None) == '销售出库'
+        and sales_outbound_requires_order()
+        and not _has_active_product_sales_source(outbound)
+    )
     if not ids and not header_id:
+        if require_source:
+            return False, '销售出库必须关联来源销售订单，请从销售订单下推；无来源发货请使用「其他出库」（或在系统设置关闭「销售出库必须关联销售订单」）'
         return True, ''
     condition = SalesOrderItem.id.in_(ids)
     if header_id:
@@ -36741,6 +36773,8 @@ def sales_outbound_remaining_check(outbound):
             if len(candidates) != 1:
                 return False, '无法唯一确定销售订单明细，请从原销售订单下推'
             sid = candidates[0]
+        if not sid and require_source:
+            return False, '销售出库明细必须关联来源销售订单行，请从原销售订单下推'
         if sid:
             source = sources.get(sid)
             if not source or source.material_id != item.material_id or (header_id and source.sales_order_id != header_id):

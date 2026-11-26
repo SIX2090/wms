@@ -3626,3 +3626,11 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：全仓检索 `ExcelTable` 确认仅 `in_order_detail.html` 与 `out_order_detail.html` 实例化该组件；扫描全仓 26 个无角色装饰器的非 GET 路由确认无其余会阻塞只读/低权用户正常会话或已显露编辑按钮的入口。
 - 回归：在 `tests/test_pc_audit_gap_closure_20261126.py` 与 `tests/test_pc_desktop_audit_fixes_20261126.py` 新增模板 `data-total` 属性、`api_csrf_refresh` 三角色放行及 `edit_my_profile` 权限边界回归用例，经本地验证、R8 回滚证明与官方 Linux CI 全量验收。
 - 生效确认：待确认（含 `in_order_detail.html`/`out_order_detail.html` 模板与 `app/utils.py` 改动，部署生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-009: 堵住无来源销售出库旁路并恢复生产每日 09:00 三账巡检
+
+- 根因：① `sales_outbound_remaining_check` 对无来源销售出库直接返回 `(True, '')`，`sync_sales_order_shipment` 跳过 `shipped_quantity` 回写；`copy_out_order` 和 `add_out_order_item` 仅拦截已带来源的销售出库；移动端 `mobile_scan_draft_confirm` 确认出库草稿时未调用 `sales_outbound_remaining_check`、`purchase_return_remaining_check` 及 `sync_sales_order_shipment`。② 生产封存入口 `serve_images.py`/`controlled_server.py` 未启动应用内定时调度器，导致 `2026-11-01` 后 `inventory_reconciliation` 每日 `09:00` 三账巡检从未落库（实测核心三账 `0` 差异，仅 `location_inventory` 留 1 条关库位前残行 `207005@WH002=0.4`）。
+- 修复：① 新增默认开启的系统设置 `sales_outbound_requires_order`（`app/app.py`），在 `sales_outbound_remaining_check` 拦截整单无来源或夹带无来源行的销售出库（保留成品入库 `DocumentPushLine` 下推来源与关闭开关后的兼容路径，并同步支持 `/out_order/add` 携带 `source_sales_order_id`）；② 在 `copy_out_order`（409）、`add_out_order_item` 及 `app/templates/out_order_add.html` 同步提示与拦截；③ 补齐 `app/routes/mobile.py:mobile_scan_draft_confirm` 出库确认的防超发/防超退校验与 `sync_sales_order_shipment` 回写；④ 新增不加载应用、零侵入封存包的独立巡检工具 `tools/run_scheduled_ledger_check.py`，注册生产每日 `09:00` 计划任务 `WMS-Warehouse-DailyLedgerCheck` 并验跑落库。
+- 同类点已排查：全仓检索 `销售出库` 全部保存、编辑、复制、裸增行、单张完成、批量完成、手机确认、成品入库转销售出库及全部 AST/Node 消费测试；同步更新 `test_menu_document_regressions.py` 与 `test_document_create_number_conflicts.py` 的销售出库测试夹具并保留全部原有断言。
+- 回归：新增 `tests/test_sales_outbound_source_guard_20261126.py` 覆盖系统开关、全入口无来源拦截、混合行拦截、手机确认防超发与回写、关开关兼容、其他出库不受影响及独立三账巡检计算/通知幂等；经本地离线/AST/Node 回归、R8 回退验证、`lint_wms_rules.py` 及官方 Linux CI 全量验收。
+- 生效确认：每日 `09:00` 独立三账巡检任务 `WMS-Warehouse-DailyLedgerCheck` 已于 2026-11-26 22:03 在生产注册并首次验跑成功（返回码 `0`，通知 ID `477` 已落库，状态「数量相符」，未触碰现役封存包与 `8080` 服务）；销售出库强制来源代码含 `out_order_add.html` 模板改动，生产需重启 WMS 服务并在下次封存发布生效，待部署确认。

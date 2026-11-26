@@ -275,6 +275,10 @@ def register_out_order_routes(app):
         if (source.source_sales_order_id or any(row.source_sales_order_item_id for row in source.items)
                 or (source.business_type == '销售出库' and ('来源销售订单' in (source.purpose or '') or source.purpose == '选单生成销售出库'))):
             return api_error('请从原销售订单下推剩余发货数量', 409)
+        if source.business_type == '销售出库':
+            from app import sales_outbound_requires_order
+            if _active_outbound_allocations(source).first() or sales_outbound_requires_order():
+                return api_error('销售出库单不能直接复制；请从原销售订单下推剩余发货数量，无来源发货请使用「其他出库」', 409)
         if not source.items:
             return api_error('原出库单没有明细，不能复制')
 
@@ -601,6 +605,7 @@ def register_out_order_routes(app):
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          location_management_enabled, purchase_return_requires_order,
+                         sales_outbound_requires_order,
                          serialize_customer, serialize_material_with_stock, serialize_unit,
                          validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
@@ -653,6 +658,7 @@ def register_out_order_routes(app):
                              is_other_out=is_other_out,
                              is_purchase_return=is_purchase_return,
                              purchase_return_requires_order=purchase_return_requires_order(),
+                             sales_outbound_requires_order=sales_outbound_requires_order(),
                              default_business_type=entry_type,
                              # BUG-MENU-2026-07-29-A1: ?type=sale 是"销售出库"业务（单号前缀 SO），
                              # 原本 page_title="新增销售单"会让用户误以为是新建销售订单，改为"新增销售出库单"
@@ -748,6 +754,7 @@ def register_out_order_routes(app):
             project_name = (data.get('project_name') or '').strip()
 
             sales_warehouse = None
+            source_sales_order = None
             if business_type == '销售出库':
                 sales_warehouse, warehouse_error = validate_sales_warehouse(
                     warehouse, data.get('warehouse_id')
@@ -755,6 +762,22 @@ def register_out_order_routes(app):
                 if warehouse_error:
                     return jsonify({'status': 'error', 'msg': warehouse_error}), 400
                 warehouse = sales_warehouse.name
+                raw_src_so_id = data.get('source_sales_order_id')
+                if not order_id and raw_src_so_id not in (None, '', 'None', 'null'):
+                    try:
+                        source_sales_order = db.session.get(SalesOrder, int(raw_src_so_id))
+                    except (TypeError, ValueError):
+                        source_sales_order = None
+                    if not source_sales_order:
+                        return jsonify({'status': 'error', 'msg': '来源销售订单不存在'}), 400
+                    if source_sales_order.status == 'cancelled':
+                        return jsonify({'status': 'error', 'msg': f'销售订单 {source_sales_order.order_no} 已取消，不能创建销售出库'}), 400
+                    if source_sales_order.status == 'draft':
+                        return jsonify({'status': 'error', 'msg': f'销售订单 {source_sales_order.order_no} 尚未确认，请先确认后再出库'}), 400
+                    if source_sales_order.warehouse_id and source_sales_order.warehouse_id != sales_warehouse.id:
+                        return jsonify({'status': 'error', 'msg': '销售出库仓库必须与来源销售订单一致'}), 400
+                    if not customer and source_sales_order.customer:
+                        customer = source_sales_order.customer.name
             else:
                 # BUG-2026-08-02-002 修复：领料单/其他出库仓库是必填字段，与库位管理无关。
                 # 未填写时优先自动带入默认仓库，无默认仓库则拒绝保存。
@@ -852,7 +875,8 @@ def register_out_order_routes(app):
                     order = OutOrder(
                         order_no=order_no,
                         status='pending',
-                        operator_id=current_user.id
+                        operator_id=current_user.id,
+                        source_sales_order_id=source_sales_order.id if source_sales_order else None,
                     )
             if business_type == '领料单':
                 department_id, error = _issue_department_id(department_id, order)
@@ -926,6 +950,14 @@ def register_out_order_routes(app):
                 # SALES-AUDIT-005：优先用前端回传的来源，其次按 material_id 恢复
                 candidates = source_item_by_material.get(material.id, set())
                 preserved_source_id = submitted_item.get('source_sales_order_item_id')
+                if preserved_source_id in ('', 'None', 'null'):
+                    preserved_source_id = None
+                elif preserved_source_id is not None:
+                    try:
+                        preserved_source_id = int(preserved_source_id)
+                    except (TypeError, ValueError):
+                        db.session.rollback()
+                        return api_error('销售订单明细来源无效')
                 if preserved_source_id and business_type != '销售出库':
                     db.session.rollback()
                     return api_error('只有销售出库可以关联销售订单明细')
@@ -1045,15 +1077,17 @@ def register_out_order_routes(app):
         if order.business_type == '采购退货出库':
             return api_error('采购退货出库单的明细必须关联来源采购入库行，'
                              '请使用编辑页维护退货明细')
-        # PC-P1-04：关联销售订单的销售出库单禁止用裸新增行绕过来源行超发校验
-        if (order.business_type == '销售出库'
-                and (
-                    order.source_sales_order_id
+        # PC-P1-04 / BUG-2026-11-26-009：销售出库开启强制来源或已关联销售订单时，禁止裸新增无来源明细
+        if order.business_type == '销售出库':
+            from app import sales_outbound_requires_order
+            if (
+                    sales_outbound_requires_order()
+                    or order.source_sales_order_id
                     or (order.purpose or '').strip() == '选单生成销售出库'
                     or (order.purpose or '').strip().startswith('来源销售订单 ')
                     or any(item.source_sales_order_item_id for item in order.items)
-                )):
-            return api_error('关联销售订单的销售出库单不能直接追加无来源明细，请从原销售订单重新下推或使用编辑页维护')
+            ):
+                return api_error('销售出库单不能直接追加无来源明细，请从原销售订单重新下推或使用编辑页维护')
 
         material_code = (request.form.get('material_code') or request.form.get('code') or '').strip()
         if not material_code:

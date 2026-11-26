@@ -474,6 +474,11 @@ textarea.form-control {
 
 <div class="card">
     <div class="card-body">
+        {% if is_sale_order and not order_id and sales_outbound_requires_order %}
+        <div class="alert alert-info py-2 mb-3 small" data-sales-source-required-notice>
+            当前已开启「销售出库必须关联销售订单」：请从 <a href="/sales" class="alert-link">销售订单</a> 下推或选单生成销售出库草稿；无来源发货请改用 <a href="/other_out_order/add" class="alert-link">其他出库</a>。
+        </div>
+        {% endif %}
         <form id="addForm">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="order_id" value="{{ order_id or '' }}">

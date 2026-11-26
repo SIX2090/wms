@@ -304,6 +304,12 @@ def test_outbound_list_new_page_saves_a_draft_of_the_same_type(menu_documents,bu
             payload['customer']=source.supplier.name
             payload['items'][0]['source_in_order_item_id']=source.items[0].id
             w.db.session.commit()
+    elif business=='销售出库':
+        with w.app.app_context():
+            source=w.db.session.get(w.SalesOrder,ids['sales'])
+            payload['source_sales_order_id']=source.id
+            payload['items'][0]['source_sales_order_item_id']=source.items[0].id
+            w.db.session.commit()
     result=c.post('/out_order/add',json=payload)
     assert result.status_code==200 and result.json['status']=='success',result.json
     oid=result.json.get('id') or result.json.get('order_id')
