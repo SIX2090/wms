@@ -603,7 +603,7 @@
                         <td data-column-key="colStock"></td>
                         <td data-column-key="colBatchNo"></td>
                         <td data-column-key="colExpiryDate"></td>
-                        <td class="text-end" data-column-key="colQty" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                        <td class="text-end" data-column-key="colQty" data-total="quantity" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
                         {% if order.business_type not in ['产品入库', '销售退货入库'] %}
                         <td data-column-key="colSourcePo"></td>
                         <td data-column-key="colSourceQty"></td>
@@ -613,7 +613,7 @@
                         {% endif %}
                         {% if order.business_type == '销售退货入库' %}<td data-column-key="colSourceSales"></td>{% endif %}
                         <td data-column-key="colPrice"></td>
-                        <td class="text-end fs-6" data-column-key="colAmount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        <td class="text-end fs-6" data-column-key="colAmount" data-total="amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="colRemark"></td>
                         <td data-column-key="label"></td>
                         {% if order.status == 'pending' %}

@@ -477,9 +477,9 @@
                         <td data-column-key="project_name"></td>
                         <td data-column-key="unit"></td>
                         <td data-column-key="stock"></td>
-                        <td data-column-key="quantity" class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
+                        <td data-column-key="quantity" data-total="quantity" class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
                         <td data-column-key="price"></td>
-                        <td data-column-key="amount" class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        <td data-column-key="amount" data-total="amount" class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="remark"></td>
                         <td data-column-key="label"></td>
                         {% if editable_lines %}

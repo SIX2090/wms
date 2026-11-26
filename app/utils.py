@@ -759,6 +759,7 @@ WRITE_RESTRICTED_ROLES = frozenset({'viewer', 'user'})
 WRITE_RESTRICTED_SELF_GATED_ENDPOINTS = frozenset({
     'ai.chat_clear',
     'ai.conversation_create',
+    'edit_my_profile',
     'ai_document_job_retry',
     'mobile_recognize_material',
     'mobile_asr',
@@ -816,9 +817,9 @@ READ_ONLY_DENIED_PREFIXES = (
 
 READ_ONLY_DENY_MSG = '当前账号为只读权限，不能新增、修改或删除数据'
 
-# 这些端点在只读角色被拒时要放行，否则登录后连退出、改自己的密码都做不到。
+# 这些端点在只读角色被拒时要放行，否则登录后连退出、刷新 CSRF 或改自己的密码都做不到。
 READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS = frozenset({
-    'static', 'login', 'logout', 'change_own_password', 'index', 'favicon',
+    'static', 'login', 'logout', 'change_own_password', 'api_csrf_refresh', 'index', 'favicon',
 })
 
 

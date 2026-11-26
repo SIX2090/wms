@@ -199,3 +199,28 @@ def test_bug_2026_11_26_007_closed_po_and_sqlite_coalesce_source_contracts():
     assert "func.max(" not in sync_fn
     assert "func.coalesce(SalesOrderItem.shipped_quantity, 0)" in sync_fn
     assert "sa_case(" in sync_fn
+
+
+def test_bug_2026_11_26_008_excel_table_tfoot_and_session_endpoints():
+    """BUG-2026-11-26-008: 出入库详情页合计行挂 data-total，且 api_csrf_refresh / edit_my_profile 纳入正确白名单。"""
+    for rel, qty_key, amt_key in (
+        ("templates/in_order_detail.html", "colQty", "colAmount"),
+        ("templates/out_order_detail.html", "quantity", "amount"),
+    ):
+        text = (APP_DIR / rel).read_text(encoding="utf-8-sig")
+        tfoot = text.split("<tfoot>", 1)[1].split("</tfoot>", 1)[0]
+        assert f'data-column-key="{qty_key}"' in tfoot and 'data-total="quantity"' in tfoot, rel
+        assert f'data-column-key="{amt_key}"' in tfoot and 'data-total="amount"' in tfoot, rel
+
+    tree = ast.parse((APP_DIR / "utils.py").read_text(encoding="utf-8-sig"))
+    consts = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id in (
+                    "READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS",
+                    "WRITE_RESTRICTED_SELF_GATED_ENDPOINTS",
+                ):
+                    consts[target.id] = ast.literal_eval(node.value.args[0])
+    assert "api_csrf_refresh" in consts["READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS"]
+    assert "edit_my_profile" in consts["WRITE_RESTRICTED_SELF_GATED_ENDPOINTS"]

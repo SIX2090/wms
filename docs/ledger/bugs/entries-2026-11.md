@@ -3618,3 +3618,11 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：核对全仓 `is_read_only_role`/`READ_ONLY_ROLES`/`require_role`/`enforce_read_only_role` 消费点、`viewer`/`user` 全部测试与通用合成提取测试（`test_inventory_confirmation_flask_memory_20261109.py`）；同步修齐 `build_purchase_request_execution` 显式关联与兜底分摊两条 SQL；同步核验 `sync_sales_order_shipment` 的全部 AST 合成测试消费者（`test_sales_progress_money_contract_20261113.py` 与 `test_recorded_order_quantity_source_20261113.py`）。
 - 回归：在 `tests/test_pc_audit_gap_closure_20261126.py` 与 `tests/test_pc_desktop_audit_fixes_20261126.py` 新增 `viewer`/`user` 写拦截、关闭部分入库采购单保实收防超推、SQLite `NULL` `shipped_quantity` 原子回写测试，经本地合成测试、R8 文件备份回退验证及官方 Linux CI 全量验收。
 - 生效确认：待确认（含后端安全/账务及 `api.js` 注释更新，部署生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-008: 补齐 PC 审计复核 3 处边缘项（出入库详情页合计行 `data-total`、只读角色 CSRF 自动刷新与 `viewer`/`user` 个人资料编辑对齐）
+
+- 根因：对 `v2026.11.200` 做全量 40 项复核与写闸全路由扫描时发现 3 处轻微遗漏/边缘问题：① `PC-P2-08` `excel-table.js` 已优先按 `[data-total="quantity"]`/`[data-total="amount"]` 定位合计单元格，但实际使用 `ExcelTable` 的 `in_order_detail.html` 与 `out_order_detail.html` 合计行单元格未挂 `data-total` 属性，仍回退 `td:nth-last-child(3/2)`；② `base.html` 每 25 分钟自动 `POST /api/csrf_refresh` 刷新 CSRF Token，但 `READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS` 漏列 `'api_csrf_refresh'`，导致 `finance`/`viewer`/`user` 长会话后台刷新 403；③ `my_profile.html` 对 `viewer`/`user` 保留可编辑表单与保存按钮，但 `WRITE_RESTRICTED_ROLES` 写闸拦截了 `POST /profile/edit`（仅修改当前用户自身邮箱/电话/简介），造成前后端口径不一致。
+- 修复：① 在 `app/templates/in_order_detail.html` 与 `app/templates/out_order_detail.html` 合计行数量/金额单元格补齐 `data-total="quantity"` 与 `data-total="amount"`；② 在 `app/utils.py` 将 `'api_csrf_refresh'` 加入 `READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS`，将 `'edit_my_profile'` 加入 `WRITE_RESTRICTED_SELF_GATED_ENDPOINTS`（`finance` 仍保持个人资料只读）。
+- 同类点已排查：全仓检索 `ExcelTable` 确认仅 `in_order_detail.html` 与 `out_order_detail.html` 实例化该组件；扫描全仓 26 个无角色装饰器的非 GET 路由确认无其余会阻塞只读/低权用户正常会话或已显露编辑按钮的入口。
+- 回归：在 `tests/test_pc_audit_gap_closure_20261126.py` 与 `tests/test_pc_desktop_audit_fixes_20261126.py` 新增模板 `data-total` 属性、`api_csrf_refresh` 三角色放行及 `edit_my_profile` 权限边界回归用例，经本地验证、R8 回滚证明与官方 Linux CI 全量验收。
+- 生效确认：待确认（含 `in_order_detail.html`/`out_order_detail.html` 模板与 `app/utils.py` 改动，部署生产需重启 WMS 服务生效，待部署与人工核验）。

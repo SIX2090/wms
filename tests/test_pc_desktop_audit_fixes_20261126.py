@@ -1507,3 +1507,66 @@ def test_pc_audit_approved_contract_updates_20261126():
     refreshed = db.session.get(app_module.SalesOrderItem, soi.id)
     assert refreshed.shipped_quantity == 4.0
     assert db.session.get(app_module.SalesOrder, so.id).shipment_status == "partial"
+
+
+
+def test_bug_2026_11_26_008_csrf_refresh_profile_and_order_detail_totals():
+    """BUG-2026-11-26-008: finance/viewer/user 可刷新 CSRF，viewer/user 可保存个人资料（finance 仍拒），出入库详情渲染 data-total。"""
+    _reset()
+    admin = _seed_user("admin_c8", "admin")
+    finance = _seed_user("finance_c8", "finance")
+    viewer = _seed_user("viewer_c8", "viewer")
+    normal_user = _seed_user("user_c8", "user")
+    wh = _seed_warehouse("WH-C8", "主仓", is_default=True)
+    unit = _seed_unit("个", "PCS")
+    mat = _seed_material("M-C8", "详情合计物料", unit, warehouse=wh, stock=20, price=5)
+
+    in_order = app_module.InOrder(
+        order_no="IN-C8-001", date=date.today(), business_type="采购入库",
+        warehouse=wh.name, status="pending", operator_id=admin.id,
+    )
+    out_order = app_module.OutOrder(
+        order_no="OUT-C8-001", date=date.today(), business_type="其他出库",
+        warehouse=wh.name, status="pending", operator_id=admin.id,
+    )
+    db.session.add_all([in_order, out_order])
+    db.session.flush()
+    db.session.add_all([
+        app_module.InOrderItem(in_order_id=in_order.id, material_id=mat.id, quantity=3, price=5, amount=15),
+        app_module.OutOrderItem(out_order_id=out_order.id, material_id=mat.id, quantity=2, price=5, amount=10),
+    ])
+    db.session.commit()
+
+    client = app_module.app.test_client()
+    # 1) finance / viewer / user 均可 POST /api/csrf_refresh
+    for acct in (finance, viewer, normal_user):
+        _login_web(client, acct)
+        r_csrf = client.post("/api/csrf_refresh")
+        assert r_csrf.status_code == 200, (acct.role, r_csrf.status_code)
+        assert (r_csrf.get_json() or {}).get("status") == "success"
+
+    # 2) viewer / user 可保存自己的资料，finance 仍被只读拦截
+    for acct in (viewer, normal_user):
+        _login_web(client, acct)
+        r_prof = client.post(
+            "/profile/edit",
+            data={"email": f"{acct.username}@example.test", "phone": "13800138000", "bio": "ok"},
+            headers={"X-Requested-With": "XMLHttpRequest"},
+        )
+        assert r_prof.status_code == 200, (acct.role, r_prof.status_code, r_prof.get_data(as_text=True)[:200])
+        assert (r_prof.get_json() or {}).get("status") == "success"
+
+    _login_web(client, finance)
+    r_fin_prof = client.post(
+        "/profile/edit",
+        data={"email": "fin@example.test", "phone": "", "bio": ""},
+        headers={"X-Requested-With": "XMLHttpRequest"},
+    )
+    assert r_fin_prof.status_code == 403, r_fin_prof.status_code
+
+    # 3) 入库/出库详情页渲染 data-total="quantity" 与 data-total="amount"
+    _login_web(client, admin)
+    for url in (f"/in_order/{in_order.id}", f"/out_order/{out_order.id}"):
+        html = client.get(url).get_data(as_text=True)
+        assert 'data-total="quantity"' in html, url
+        assert 'data-total="amount"' in html, url
