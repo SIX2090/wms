@@ -440,6 +440,8 @@ function showDetail(id) {
         $('#detailContent').html(data);
         document.querySelectorAll('#detailContent table[data-detail-sort]').forEach(setupDetailRowSorting);
         $('#detailModal').modal('show');
+    }).fail(function(xhr) {
+        showToast('加载收货详情失败：' + ((xhr && xhr.statusText) || '请稍后重试'), 'danger');
     });
 }
 

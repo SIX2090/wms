@@ -124,22 +124,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const data = Object.fromEntries(formData.entries());
         
         try {
-            const resp = await fetch('/api/ai/data_retention_config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify(data)
-            });
-            const result = await resp.json();
-            if (result.status === 'success') {
+            const result = await WMS.api.postRaw('/api/ai/data_retention_config', data);
+            if (result && result.status === 'success') {
                 showToast('配置已保存', 'success');
             } else {
-                showToast('保存失败：' + (result.msg || '未知错误'), 'danger');
+                showToast('保存失败：' + ((result && result.msg) || '未知错误'), 'danger');
             }
         } catch (err) {
-            showToast('请求失败：' + err.message, 'danger');
+            showToast('请求失败：' + (err.message || '未知错误'), 'danger');
         }
     });
 
@@ -149,17 +141,9 @@ document.addEventListener('DOMContentLoaded', function() {
         previewBtn.textContent = '预览中...';
         
         try {
-            const resp = await fetch('/api/ai/data_cleanup_preview', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify({ dry_run: true })
-            });
-            const result = await resp.json();
+            const result = await WMS.api.postRaw('/api/ai/data_cleanup_preview', { dry_run: true });
             
-            if (result.status === 'success') {
+            if (result && result.status === 'success') {
                 const preview = result.preview;
                 document.getElementById('cutoffDate').textContent = preview.cutoff_date;
                 document.getElementById('deleteCount').textContent = preview.delete_count;
@@ -211,17 +195,9 @@ document.addEventListener('DOMContentLoaded', function() {
         executeBtn.textContent = '执行中...';
         
         try {
-            const resp = await fetch('/api/ai/data_cleanup_execute', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRFToken': '{{ csrf_token() }}'
-                },
-                body: JSON.stringify({ dry_run: false })
-            });
-            const result = await resp.json();
+            const result = await WMS.api.postRaw('/api/ai/data_cleanup_execute', { dry_run: false });
             
-            if (result.status === 'success') {
+            if (result && result.status === 'success') {
                 const exec = result.execution;
                 showToast(`清理完成\n删除：${exec.deleted_count}\n保护：${exec.protected_count}\n豁免：${exec.exempt_count}\n保留：${exec.kept_count}\n失败：${exec.failed_count}`, 'success');
                 previewResult.classList.add('d-none');

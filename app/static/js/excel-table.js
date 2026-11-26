@@ -313,7 +313,15 @@ class ExcelTable {
         return csrfFetch('/in_order/item/update', {
             method: 'POST',
             body: formData
-        }).then(r => r.json());
+        }).then(r => {
+            if (!r.ok) {
+                return r.json().catch(() => ({})).then(err => {
+                    const msg = (err && err.msg) || ('保存失败 (' + r.status + ')');
+                    throw new Error(msg);
+                });
+            }
+            return r.json();
+        });
     }
 
     /**
@@ -355,11 +363,11 @@ class ExcelTable {
             }
         });
 
-        // 更新合计行
+        // 更新合计行（PC-P2-08：优先按 data-total 定位，缺失时兼容 nth-last-child）
         const tfoot = this.table.querySelector('tfoot');
         if (tfoot) {
-            const qtyTotal = tfoot.querySelector('td:nth-last-child(3)');
-            const amountTotal = tfoot.querySelector('td:nth-last-child(2)');
+            const qtyTotal = tfoot.querySelector('[data-total="quantity"]') || tfoot.querySelector('td:nth-last-child(3)');
+            const amountTotal = tfoot.querySelector('[data-total="amount"]') || tfoot.querySelector('td:nth-last-child(2)');
             if (qtyTotal) qtyTotal.textContent = totalQty.toFixed(2);
             if (amountTotal) amountTotal.textContent = '¥' + totalAmount.toFixed(2);
         }

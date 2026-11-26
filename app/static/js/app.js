@@ -691,11 +691,7 @@ window.WmsTabs = (function() {
             el.dataset.ctxBound = '1';
             el.addEventListener('contextmenu', function(e) {
                 e.preventDefault();
-                // 通过按钮内文本匹配 key 不稳，改用 dataset 标记
-                const allKeys = Array.from(tabs.keys());
-                // 用 iframe src 反查 key
-                const iframe = document.querySelector('iframe[src*="' + el.querySelector('.tab-title').textContent + '"]');
-                // 简化：用 buttons 数组与 key 对应
+                // PC-P1-13：直接按 tab 顺序索引对应 key，移除未转义标题的无效 querySelector
                 const idx = Array.from(el.parentNode.children).indexOf(el);
                 let foundKey = '';
                 let i = 0;
@@ -1930,7 +1926,9 @@ const WMS_ACTION_MODULES = {
         navigator: true,
         detailUrl: '/subcontract/{id}',
         addTarget: '#addModal',
-        listUrl: '/subcontract',        deleteUrl: '/subcontract/batch_delete',
+        listUrl: '/subcontract',
+        tableId: 'dataTable',
+        deleteUrl: '/subcontract/batch_delete',
         detailDeleteUrl: '/subcontract/{id}/delete',
         exportUrl: '/subcontract/export',
         importUrl: '/subcontract/import',
@@ -1942,6 +1940,7 @@ const WMS_ACTION_MODULES = {
         detailUrl: '/subcontract_issue/{id}',
         addTarget: '#addModal',
         listUrl: '/subcontract_issue',
+        tableId: 'dataTable',
         // BUG-2026-09-23-008：/subcontract/issue 与 /subcontract_issue 由同一路由
         // 装饰器对提供（subcontract.py:969-970，同一函数、同一模板），服务的是
         // **同一个列表页**。若不在 isWmsListPage 里同等对待，则 005 的导航组整组
@@ -1961,6 +1960,7 @@ const WMS_ACTION_MODULES = {
         detailUrl: '/subcontract_receive/{id}',
         addTarget: '#addModal',
         listUrl: '/subcontract_receive',
+        tableId: 'dataTable',
         // BUG-2026-09-23-008：同 subcontract_issue 的说明——/subcontract/receive
         // 是同一路由装饰器对的别名（subcontract.py:1630-1631），同一列表页。
         listAliases: ['/subcontract/receive'],
@@ -3893,32 +3893,19 @@ function setupDetailRowSorting(table) {
 
 // DOM加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
-    if (isWmsEmbeddedPage()) {
-        document.addEventListener('click', function(event) {
-            if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-            const link = event.target.closest && event.target.closest('a[href]');
-            if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
-            const rawHref = link.getAttribute('href');
-            if (!rawHref || rawHref[0] === '#' || rawHref.startsWith('javascript:')) return;
-            let target;
-            try { target = new URL(rawHref, window.location.href); } catch (error) { return; }
-            if (target.origin !== window.location.origin) return;
-            target.searchParams.set('embedded', '1');
-            link.href = target.pathname + target.search + target.hash;
-        }, true);
-    }
-
     // 确认及输入框共用事件和键盘边界
     initDialogEvents();
 
-    // 嵌入页面链接处理
+    // PC-P1-13：合并重复的嵌入页面链接点击拦截，统一放行 target(_blank/_top 等)、download、静态/导出/下载与修饰键
     if (isWmsEmbeddedPage()) {
         document.addEventListener('click', function(event) {
-            const link = event.target.closest('a[href]');
+            if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            const link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
             if (!link || link.target || link.hasAttribute('download')) return;
             const href = link.getAttribute('href');
-            if (!href || href.startsWith('#') || href.startsWith('javascript:')) return;
-            const parsed = new URL(href, window.location.origin);
+            if (!href || href[0] === '#' || href.startsWith('javascript:')) return;
+            let parsed;
+            try { parsed = new URL(href, window.location.href); } catch (error) { return; }
             if (parsed.origin !== window.location.origin) return;
             if (parsed.pathname.startsWith('/static') || parsed.pathname.startsWith('/export') || parsed.pathname.includes('/download')) return;
             event.preventDefault();

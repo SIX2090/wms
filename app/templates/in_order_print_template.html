@@ -744,8 +744,12 @@ G12: 收货：（起点对齐"单价"列，G:I 合并留签字空间）</code></
             addScrollHint();
         });
 
-        // 确保键盘滚动正常
+        // 确保键盘滚动正常（PC-P1-13：焦点在输入框或可编辑区域时不劫持空格/方向键）
         document.addEventListener('keydown', function(e) {
+            const target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+                return;
+            }
             if (e.key === 'ArrowDown' || e.key === 'PageDown' || e.key === ' ') {
                 e.preventDefault();
                 window.scrollBy({

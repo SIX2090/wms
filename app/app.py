@@ -10752,7 +10752,8 @@ def _ai_analysis_inventory_turnover(top_n=10, days=90, warehouse=None, category=
     out_rows = (
         base_query
         .group_by(Material.id)
-        .order_by(func.coalesce(func.sum(StockTransaction.quantity), 0).desc())
+        .having(func.abs(func.coalesce(func.sum(StockTransaction.quantity), 0)) > 0)
+        .order_by(func.abs(func.coalesce(func.sum(StockTransaction.quantity), 0)).desc())
         .limit(top_n)
         .all()
     )
@@ -10771,11 +10772,20 @@ def _ai_analysis_inventory_turnover(top_n=10, days=90, warehouse=None, category=
         name = (row.name or '')[:12]
         spec = (row.spec or '')[:10]
         lines.append(f'| {idx} | {row.code} | {name} | {spec} | {row.stock:.0f} | {abs(row.out_qty):.0f} |')
-    # 滞销品：库存>0 但 N 天无出库
+    # PC-P1-14：滞销品应排除窗口内有任意出库记录的全部物料（原实现只看 top_n 且判断 out_qty > 0，因出库为负恒为空）
+    active_subq = (
+        db.session.query(StockTransaction.material_id)
+        .filter(
+            StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+            StockTransaction.created_at >= cutoff,
+            *([StockTransaction.location.like(f'%{warehouse}%')] if warehouse else []),
+        )
+        .distinct()
+    )
     slow_query = (
         Material.query
         .filter(Material.stock > 0)
-        .filter(~Material.id.in_([r.id for r in out_rows if r.out_qty > 0]))
+        .filter(~Material.id.in_(active_subq))
     )
     if category:
         slow_query = slow_query.join(MaterialCategory, MaterialCategory.id == Material.category_id).filter(MaterialCategory.name.like(f'%{category}%'))
@@ -11242,12 +11252,20 @@ def _ai_analyze_out_order_anomalies(order_id):
     ).group_by(StockTransaction.material_id).all()
     avg_daily = {mid: float(qty or 0) / 30.0 for mid, qty in avg_rows}
 
+    # PC-P1-15：按单据所属仓库读取实时仓库库存（A11/R2），不再用全局 Material.stock
+    from services.warehouse_identity import resolve_warehouse_text
+    wh_obj = resolve_warehouse_text(order.warehouse) if (order.warehouse or '').strip() else None
+    wh_stock_map = (
+        get_warehouse_stock_quantities(wh_obj)
+        if wh_obj is not None else get_all_warehouses_stock_quantities()
+    )
+
     anomalies = []
     for item in order.items:
         m = item.material
         if not m:
             continue
-        current_stock = float(m.stock or 0)
+        current_stock = float(wh_stock_map.get(m.id, 0) or 0)
         min_stock = float(m.min_stock or 0)
         item_qty = float(item.quantity or 0)
         item_price = float(item.price or 0)
@@ -11264,8 +11282,8 @@ def _ai_analyze_out_order_anomalies(order_id):
                 'severity': 'danger',
             })
 
-        # 2. 出库数量异常偏大（超过30天日均的3倍且日均>0）
-        if avg_out > 0 and item_qty > avg_out * 3 * 30:
+        # 2. 出库数量异常偏大（超过30天日均的3倍且日均>0，PC-P1-15 修复原 avg_out * 3 * 30 误乘 30）
+        if avg_out > 0 and item_qty > avg_out * 3:
             anomalies.append({
                 'material_code': m.code,
                 'material_name': m.name,
@@ -12146,7 +12164,7 @@ def _ai_warehouse_error():
     return '无法确定仓库：请在系统设置里配置默认仓库，或在指令中写明仓库（如：项目仓）。'
 
 
-def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
+def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text', resolved_items=None):
     allowed, error = _ai_draft_execution_allowed('out_order_draft', manual_confirmation)
     if not allowed:
         return None, error
@@ -12159,7 +12177,7 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
     warehouse = _ai_resolve_draft_warehouse(message)
     if warehouse is None:
         return None, _ai_warehouse_error()
-    items = _ai_parse_material_lines(message)
+    items = list(resolved_items) if resolved_items is not None else _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成领料单 A001 20 B002 5'
     business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
@@ -12219,7 +12237,7 @@ def _ai_create_out_order_draft(message, manual_confirmation=False, confirmation_
         _ai_draft_idempotency().fail(slot.record, str(exc))
         raise
 
-def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
+def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text', resolved_items=None):
     allowed, error = _ai_draft_execution_allowed('in_order_draft', manual_confirmation)
     if not allowed:
         return None, error
@@ -12234,7 +12252,7 @@ def _ai_create_in_order_draft(message, manual_confirmation=False, confirmation_t
     warehouse = _ai_resolve_draft_warehouse(message)
     if warehouse is None:
         return None, _ai_warehouse_error()
-    items = _ai_parse_material_lines(message)
+    items = list(resolved_items) if resolved_items is not None else _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：生成产品入库单 A001 20 B002 5'
     business_key = _ai_draft_business_key_from_items(items, extra={'message': (message or '')[:200]})
@@ -12321,7 +12339,7 @@ def _ai_extract_transfer_locations(message):
                 return from_loc, to_loc
     return None, None
 
-def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text'):
+def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_token=None, document_job_id=None, source='text', resolved_items=None):
     """AI 助手生成库存调拨单草稿。
     示例：从A仓库转到B仓库 M001 100 M002 20
     """
@@ -12345,7 +12363,7 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     if from_warehouse.id == to_warehouse.id:
         return None, '调出仓库与调入仓库不能相同'
 
-    items = _ai_parse_material_lines(message)
+    items = list(resolved_items) if resolved_items is not None else _ai_parse_material_lines(message)
     if not items:
         return None, '没有识别到物料和数量。可以这样说：从A仓库转到B仓库 M001 100 M002 20'
 
@@ -12367,13 +12385,15 @@ def _ai_create_transfer_draft(message, manual_confirmation=False, confirmation_t
     if not slot.acquired:
         return None, slot.conflict_reason
 
+    # PC-P1-16：关闭库位管理时不把仓库名误填进 from_location/to_location
+    use_location = location_management_enabled()
     order = TransferOrder(
         transfer_no=generate_order_no('TF'),
         date=date.today(),
         from_warehouse=from_warehouse.name,
         to_warehouse=to_warehouse.name,
-        from_location=from_warehouse.name,
-        to_location=to_warehouse.name,
+        from_location=(from_warehouse.name if use_location else ''),
+        to_location=(to_warehouse.name if use_location else ''),
         remark=(message or '')[:200],
         status='pending',
         operator_id=current_user.id,
@@ -14076,14 +14096,20 @@ def _ai_call_llm_vision(message, images, context=None, system_prompt=None):
     # vision 模型处理图片耗时较长，超时给足 120 秒（原 60 秒可能不够）
     vision_timeout = max(_ai_llm_timeout_seconds(), 120)
     
-    # 双模型降级：vision 场景取前两个模型（GLM-5.3-Flash 主力 + GLM-5v-Turbo 备用）
-    # 存 (model_id, display_name) 元组，降级提示用友好名称
-    vision_models = [(m[0], m[1]) for m in sorted(_AI_MODEL_POOL, key=lambda x: x[2])[:2]]
-    current_model = payload.get('model')
-    # 如果当前模型不在 vision 前二里，强制用第一优先级
-    if current_model not in [m[0] for m in vision_models]:
-        payload['model'] = vision_models[0][0]
-        current_model = vision_models[0][0]
+    # PC-P1-17：优先保留系统设置中配置的视觉模型，仅在其失败时按 _AI_MODEL_POOL 顺次降级
+    pool_models = [(m[0], m[1]) for m in sorted(_AI_MODEL_POOL, key=lambda x: x[2])[:2]]
+    current_model = (payload.get('model') or '').strip()
+    vision_models = []
+    if current_model:
+        display_name = next((m[1] for m in _AI_MODEL_POOL if m[0] == current_model), current_model)
+        vision_models.append((current_model, display_name))
+    for model_id, model_name in pool_models:
+        if all(existing_id != model_id for existing_id, _ in vision_models):
+            vision_models.append((model_id, model_name))
+    if not vision_models:
+        vision_models = pool_models
+    payload['model'] = vision_models[0][0]
+    current_model = vision_models[0][0]
     
     last_error = None
     for model_idx, (model_id, model_name) in enumerate(vision_models):
@@ -16090,11 +16116,12 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         if purchase_in_order_requires_order():
             return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
         draft, error = _ai_create_in_order_draft(
-            draft_message,
+            ((source_text or '') + ' ' + draft_message).strip(),
             manual_confirmation=True,
             confirmation_token=confirmation_token,
             document_job_id=document_job_id,
             source='confirmation',
+            resolved_items=[(row['material'], row['quantity']) for row in matched],
         )
         if draft:
             order = InOrder.query.filter_by(order_no=draft.get('order_no')).first()
@@ -16104,11 +16131,12 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 db.session.commit()
     elif doc_type in ('out_order', 'sales_out_order'):
         draft, error = _ai_create_out_order_draft(
-            draft_message,
+            ((source_text or '') + ' ' + draft_message).strip(),
             manual_confirmation=True,
             confirmation_token=confirmation_token,
             document_job_id=document_job_id,
             source='confirmation',
+            resolved_items=[(row['material'], row['quantity']) for row in matched],
         )
         if draft:
             order = OutOrder.query.filter_by(order_no=draft.get('order_no')).first()
@@ -16126,6 +16154,7 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
             confirmation_token=confirmation_token,
             document_job_id=document_job_id,
             source='confirmation',
+            resolved_items=[(row['material'], row['quantity']) for row in matched],
         )
     elif doc_type == 'adjustment':
         resolved_adj_type = 'surplus' if str(adjustment_type or '').lower() == 'surplus' else 'loss'
@@ -16847,15 +16876,19 @@ def _ai_pf_query_unlinked_notices():
     try:
         from datetime import date as _date, timedelta as _timedelta
         since = _date.today() - _timedelta(days=7)
+        notice_type_cond = db.or_(
+            AIDocumentJob.document_type.in_(['in_order', 'delivery_note', 'purchase_in']),
+            AIDocumentJob.document_type.like('%送货%'),
+        )
         count = AIDocumentJob.query.filter(
             AIDocumentJob.source_purchase_order_id.is_(None),
-            AIDocumentJob.document_type.like('%送货%'),
+            notice_type_cond,
             AIDocumentJob.created_at >= since,
         ).count()
         records = (
             AIDocumentJob.query.filter(
                 AIDocumentJob.source_purchase_order_id.is_(None),
-                AIDocumentJob.document_type.like('%送货%'),
+                notice_type_cond,
                 AIDocumentJob.created_at >= since,
             )
             .order_by(AIDocumentJob.created_at.desc())
@@ -17248,7 +17281,7 @@ def _ai_sf_query_customer_followup_list():
         for order in orders:
             cid = order.customer_id or 0
             if cid not in customer_map:
-                cname = (order.customer.name if order.customer else '') or f'??#{cid}'
+                cname = (order.customer.name if order.customer else '') or f'客户#{cid}'
                 customer_map[cid] = {'customer_id': cid, 'customer_name': cname,
                                      'pending_count': 0, 'overdue_count': 0,
                                      'short_stock_count': 0, 'order_ids': []}
@@ -17669,16 +17702,25 @@ def _ai_dr_query_expired(category: str, cutoff_iso: str):
         return []
 
 def _ai_dr_delete_records(category: str, ids: list) -> int:
-    """AI-R14 删除记录。返回实际删除数。"""
+    """AI-R14 删除记录（PC-P1-18：先清理/解绑子表外键，避免 SQLite/PG 外键约束失败与孤儿行）。"""
     if not ids:
         return 0
     try:
         deleted = 0
         if category == 'conversations':
+            AIToolCall.query.filter(AIToolCall.ai_run_id.in_(ids)).delete(synchronize_session=False)
+            if 'AIFeedback' in globals():
+                AIFeedback.query.filter(AIFeedback.ai_run_id.in_(ids)).delete(synchronize_session=False)
+            for ref_model in (AIRequestIdempotency, AIDraftIdempotency, AIFieldFeedback, AIDocumentJob, AIAgentTask):
+                ref_model.query.filter(ref_model.ai_run_id.in_(ids)).update(
+                    {ref_model.ai_run_id: None}, synchronize_session=False
+                )
             deleted = AIRun.query.filter(AIRun.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'images':
             deleted = AIDocumentAttempt.query.filter(AIDocumentAttempt.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'tasks':
+            for child_model in (AIDocumentItem, AIDocumentFieldConfirmation, AIDocumentAttempt, AIDocumentFeedback):
+                child_model.query.filter(child_model.job_id.in_(ids)).delete(synchronize_session=False)
             deleted = AIDocumentJob.query.filter(AIDocumentJob.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'feedback':
             deleted = AIFieldFeedback.query.filter(AIFieldFeedback.id.in_(ids)).delete(synchronize_session=False)
@@ -24317,10 +24359,13 @@ def _ai_handle_warehouse_assistant_request(payload):
                 _ai_append_history(user_id, 'user', message)
                 _ai_append_history(user_id, 'assistant', str(body.get('reply') or ''))
                 return query_response
-        # BUG-2026-10-07-009：文件内容拼到 message 前面
+        # BUG-2026-10-07-009 / PC-P1-17：文件内容拼到 message 前面后再次执行高风险指令拦截
         if files:
             file_context = '\n\n'.join([f'# 文件「{f["name"]}」内容：\n{f["text"]}' for f in files])
             augmented_message = f'{file_context}\n\n# 用户问题：\n{message}'
+            file_high_risk = _ai_high_risk_denied_response(augmented_message)
+            if file_high_risk:
+                return file_high_risk
         else:
             augmented_message = message
         
@@ -24591,14 +24636,18 @@ def _ai_handle_chat_stream_request(payload):
             _ai_append_history(user_id, 'assistant', reply)
         return Response(stream_with_context(_query_generate()), content_type='text/event-stream; charset=utf-8',
                         headers={'Cache-Control':'no-cache', 'X-Accel-Buffering':'no'})
-    intent_payload = _ai_call_llm_intent(message)
-    force_general_chat = bool(
-        intent_payload
-        and intent_payload.get('intent') == 'general_chat'
-        and not _ai_is_inventory_discrepancy_question(message)
-    )
-    priority_response = None
-    if intent_payload and not force_general_chat:
+    # PC-P1-16：流式对话入口与 /api/ai/warehouse_assistant 对齐，文本制单先走确认台响应
+    priority_response = _ai_try_text_document_response(message, context)
+    intent_payload = None
+    force_general_chat = False
+    if priority_response is None:
+        intent_payload = _ai_call_llm_intent(message)
+        force_general_chat = bool(
+            intent_payload
+            and intent_payload.get('intent') == 'general_chat'
+            and not _ai_is_inventory_discrepancy_question(message)
+        )
+    if priority_response is None and intent_payload and not force_general_chat:
         priority_response = _ai_execute_intent(message, intent_payload, context)
     if priority_response is None and not force_general_chat:
         priority_response = _ai_basic_conversation_response(message)
@@ -35903,14 +35952,24 @@ def api_recommend_location():
     # WMS-AI-GATE-001：统计评分不门禁大模型——无 LLM 时 ai_analysis 自动降级为提示文案，
     # 仅保留能力门禁（防刷计费）；此前未配置 LLM 时整个统计功能被误锁。
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
     material_id = data.get('material_id')
+    req_warehouse_id = _clean_int(data.get('warehouse_id'))
+    req_warehouse_name = (data.get('warehouse') or '').strip()
+    target_warehouse = None
+    if req_warehouse_id:
+        target_warehouse = db.session.get(Warehouse, req_warehouse_id)
+    elif req_warehouse_name:
+        from services.warehouse_identity import resolve_warehouse_text
+        target_warehouse = resolve_warehouse_text(req_warehouse_name)
     
-    # 获取所有物料供选择
-    # BUG-2026-08-04-006: Material 模型无 status 字段，filter_by(status='active')
-    # 会触发 SQLAlchemy "Unknown column material.status" 错误，导致 AI 库位推荐
-    # 和需求预测 API 直接 500。移除该过滤条件，所有物料均视为可用。
-    materials = Material.query.all()
+    # PC-P1-15：排除停用物料并按编码稳定排序
+    materials = (
+        Material.query
+        .filter(db.or_(Material.status.is_(None), Material.status != 'inactive'))
+        .order_by(Material.code.asc(), Material.id.asc())
+        .all()
+    )
     material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else ''} for m in materials]
     
     if not material_id:
@@ -35951,25 +36010,38 @@ def api_recommend_location():
         turnover_level = '低'
         turnover_desc = '低频周转物料，可放置在偏远或高层库位'
     
-    # 2. 获取当前库位分布
-    current_locations = LocationInventory.query.filter(
+    wh_names = {w.id: w.name for w in Warehouse.query.all()}
+
+    # 2. 获取当前库位分布（PC-P1-15：按仓库隔离，不把不同仓库的同名库位混在一起）
+    current_loc_query = LocationInventory.query.filter(
         LocationInventory.material_id == material_id,
         LocationInventory.quantity > 0
-    ).all()
+    )
+    if target_warehouse is not None:
+        current_loc_query = current_loc_query.filter(LocationInventory.warehouse_id == target_warehouse.id)
+    current_locations = current_loc_query.all()
     
     current_dist = [{
+        'warehouse_id': loc.warehouse_id,
+        'warehouse_name': wh_names.get(loc.warehouse_id, ''),
         'location': loc.location,
         'quantity': loc.quantity,
     } for loc in current_locations]
     
-    # 3. 获取所有库位的使用情况
-    all_location_stats = db.session.query(
+    # 3. 获取库位的使用情况（按 (warehouse_id, location) 分组隔离多仓库）
+    stats_query = db.session.query(
+        LocationInventory.warehouse_id,
         LocationInventory.location,
         db.func.count(LocationInventory.material_id).label('material_count'),
         db.func.sum(LocationInventory.quantity).label('total_qty')
-    ).group_by(LocationInventory.location).all()
+    )
+    if target_warehouse is not None:
+        stats_query = stats_query.filter(LocationInventory.warehouse_id == target_warehouse.id)
+    all_location_stats = stats_query.group_by(LocationInventory.warehouse_id, LocationInventory.location).all()
     
     location_usage = [{
+        'warehouse_id': stat.warehouse_id,
+        'warehouse_name': wh_names.get(stat.warehouse_id, ''),
         'location': stat.location,
         'material_count': stat.material_count,
         'total_qty': stat.total_qty or 0,
@@ -36001,11 +36073,13 @@ def api_recommend_location():
             if loc['material_count'] > 15:
                 score += 25  # 混放区加分
         
-        # 如果该物料已在此库位，加分（保持一致性）
-        if any(cl['location'] == loc['location'] for cl in current_dist):
+        # 如果该物料已在此仓库此库位，加分（保持一致性）
+        if any(cl['location'] == loc['location'] and cl['warehouse_id'] == loc['warehouse_id'] for cl in current_dist):
             score += 15
         
         recommendations.append({
+            'warehouse_id': loc['warehouse_id'],
+            'warehouse_name': loc['warehouse_name'],
             'location': loc['location'],
             'score': min(score, 100),
             'material_count': loc['material_count'],
@@ -36104,12 +36178,11 @@ def api_demand_forecast():
     forecast_days = data.forecast_days
     category = data.category
     
-    # 获取物料列表
-    # BUG-2026-08-04-006: Material 模型无 status 字段，移除 filter_by(status='active')
-    materials_query = Material.query
+    # PC-P1-15：过滤停用物料并按编码稳定排序，汇总仓库级库存（A11/R2）
+    materials_query = Material.query.filter(db.or_(Material.status.is_(None), Material.status != 'inactive'))
     if category:
         materials_query = materials_query.filter(Material.category.has(MaterialCategory.name == category))
-    materials = materials_query.limit(100).all()
+    materials = materials_query.order_by(Material.code.asc(), Material.id.asc()).limit(100).all()
     
     if not materials:
         return jsonify({'status': 'success', 'forecasts': [], 'msg': '暂无物料数据'})
@@ -36123,14 +36196,15 @@ def api_demand_forecast():
     # 历史数据周期
     history_days = 180
     history_start = date.today() - timedelta(days=history_days)
+    stock_by_material = get_all_warehouses_stock_quantities()
     
     forecasts = []
     
     for material in materials[:50]:  # 限制处理数量，避免超时
-        # 查询近180天出库记录
+        # PC-P1-15：仅统计真实消耗出库（排除内部仓间调拨 transfer_out）
         out_transactions = StockTransaction.query.filter(
             StockTransaction.material_id == material.id,
-            StockTransaction.transaction_type.in_(['out', 'transfer_out', 'adjustment_out']),
+            StockTransaction.transaction_type.in_(['out', 'adjustment_out']),
             StockTransaction.created_at >= history_start
         ).all()
         
@@ -36148,7 +36222,8 @@ def api_demand_forecast():
         total_out = sum(daily_out.values())
         avg_daily = total_out / history_days if history_days > 0 else 0
         
-        # 标准差
+        # 标准差与同口径变异系数（PC-P1-15：分子分母均基于出库日序列 mean，避免混合口径）
+        mean = 0.0
         if days_with_out >= 2:
             values = list(daily_out.values())
             mean = sum(values) / len(values)
@@ -36157,8 +36232,7 @@ def api_demand_forecast():
         else:
             std = 0
         
-        # 变异系数
-        cv = std / avg_daily if avg_daily > 0 else 0
+        cv = std / mean if (days_with_out >= 2 and mean > 0) else 0
         
         # 需求稳定性
         if cv < 0.3:
@@ -36171,8 +36245,8 @@ def api_demand_forecast():
         # 预测未来需求量（均值 × 天数）
         forecast_qty = avg_daily * forecast_days
         
-        # 当前库存
-        current_stock = material.stock or 0
+        # 当前库存（全部启用仓库汇总，不直接依赖全局 Material.stock）
+        current_stock = float(stock_by_material.get(material.id, 0) or 0)
         
         # 预计库存缺口
         gap = forecast_qty - current_stock
@@ -36209,9 +36283,9 @@ def api_demand_forecast():
             'urgency': urgency,
         })
     
-    # 按紧急程度排序（需补货 > 库存充足 > 库存积压）
+    # PC-P1-15：按紧急程度排序（需补货 > 库存充足 > 库存积压），同组内缺口最大排最前
     priority = {'需补货': 0, '库存充足': 1, '库存积压': 2}
-    forecasts.sort(key=lambda x: (priority.get(x['action'], 9), x['gap']))
+    forecasts.sort(key=lambda x: (priority.get(x['action'], 9), -x['gap']))
     
     # AI分析
     need_restock = [f for f in forecasts if f['action'] == '需补货']
