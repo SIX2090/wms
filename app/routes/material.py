@@ -46,6 +46,20 @@ def _resolve_alert_thresholds(min_stock, reorder_point):
     return reorder_point, None
 
 
+def _parse_optional_fk(raw_val, label):
+    """严格解析可选外键正整数 ID；非法文本或非正整数返回友好错误，不做 minimum 夹紧。"""
+    raw_str = (raw_val or '').strip()
+    if not raw_str:
+        return None, None
+    try:
+        parsed = int(raw_str)
+    except (TypeError, ValueError):
+        return None, f'{label}参数格式无效'
+    if parsed < 1 or parsed >= 2**63:
+        return None, f'{label}参数格式无效'
+    return parsed, None
+
+
 def _material_edit_revision(material):
     """Fingerprint fields replaced by the archive editor, independent of stock movements."""
     fields = ('id', 'code', 'name', 'status', 'category_id', 'unit_id', 'supplier_id',
@@ -360,12 +374,22 @@ def register_material_routes(app):
         if threshold_err:
             return api_error(threshold_err)
 
+        cat_id, cat_err = _parse_optional_fk(request.form.get('category_id'), '物料分类')
+        if cat_err:
+            return api_error(cat_err)
+        unit_id_val, unit_err = _parse_optional_fk(request.form.get('unit_id'), '计量单位')
+        if unit_err:
+            return api_error(unit_err)
+        sup_id, sup_err = _parse_optional_fk(request.form.get('supplier_id'), '默认供应商')
+        if sup_err:
+            return api_error(sup_err)
+
         material = Material(
             code=code,
             name=name,
-            category_id=request.form.get('category_id') or None,
-            unit_id=request.form.get('unit_id') or None,
-            supplier_id=request.form.get('supplier_id') or None,
+            category_id=cat_id,
+            unit_id=unit_id_val,
+            supplier_id=sup_id,
             brand=brand or None,
             spec=spec,
             stock=initial_stock,
@@ -705,15 +729,6 @@ def register_material_routes(app):
         spec_changed = (old_spec != new_spec)  # 必须在 material.spec = new_spec 之前比较
         if code_changed and not material_code_editable():
             return api_error('系统参数已禁止修改物料编码')
-
-        def _parse_optional_fk(raw_val, label):
-            raw_str = (raw_val or '').strip()
-            if not raw_str:
-                return None, None
-            parsed = parse_int_value(raw_str, None, minimum=1)
-            if parsed is None:
-                return None, f'{label}参数格式无效'
-            return parsed, None
 
         cat_id, cat_err = _parse_optional_fk(request.form.get('category_id'), '物料分类')
         if cat_err:

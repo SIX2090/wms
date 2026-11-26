@@ -147,11 +147,13 @@ def parse_int_value(value, default=0, minimum=None, maximum=None):
     """
     try:
         if value is None or value == '':
-            parsed = int(default)
+            parsed = None if default is None else int(default)
         else:
             parsed = int(value)
     except (TypeError, ValueError):
-        parsed = int(default)
+        parsed = None if default is None else int(default)
+    if parsed is None:
+        return None
     if minimum is not None and parsed < minimum:
         parsed = minimum
     if maximum is not None and parsed > maximum:

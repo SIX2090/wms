@@ -1053,6 +1053,19 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
     assert mat_err["status"] == "error"
     assert "物料分类" in (mat_err.get("msg") or "")
 
+    r_mat_neg = client.post(
+        f"/material/edit/{mat_on.id}",
+        data={
+            "edit_revision": rev,
+            "code": mat_on.code,
+            "name": mat_on.name,
+            "unit_id": unit.id,
+            "category_id": "-5",
+        },
+    )
+    assert r_mat_neg.status_code in (200, 400)
+    assert r_mat_neg.get_json()["status"] == "error"
+
     r_mat_ok = client.post(
         f"/material/edit/{mat_on.id}",
         data={
