@@ -26,8 +26,8 @@ def _print_page_branches():
 
 def test_designer_fields_nonempty_baseline():
     fields = _designer_fields()
-    # 基线锁：设计器 11 个字段，若左栏被改动此测试迫使人工复核本契约
-    assert len(fields) == 11, f"设计器字段数变化（{len(fields)}），需复核打印页覆盖契约"
+    # 基线锁：设计器 12 个字段（2026-11-26 新增选填库位 storage_location，已复核打印页覆盖），若左栏被改动此测试迫使人工复核本契约
+    assert len(fields) == 12, f"设计器字段数变化（{len(fields)}），需复核打印页覆盖契约"
 
 
 def test_print_label_covers_all_designer_fields():

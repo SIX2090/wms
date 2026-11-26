@@ -953,17 +953,11 @@ def auto_migrate_database():
                 cursor.execute(
                     "ALTER TABLE material ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'")
                 modified = True
-            if 'storage_location' not in _mat_cols:
-                cursor.execute(
-                    "ALTER TABLE material ADD COLUMN storage_location VARCHAR(100)")
-                modified = True
             # 回填：历史行 status 为 NULL 或空串时按启用处理，避免下拉把老物料全过滤掉
             cursor.execute(
                 "UPDATE material SET status='active' WHERE status IS NULL OR TRIM(status)=''")
             cursor.execute(
                 "CREATE INDEX IF NOT EXISTS idx_material_status ON material(status)")
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_material_storage_location ON material(storage_location)")
 
         # out_order 字段迁移
         if not _table_exists('out_order'):
@@ -1231,6 +1225,9 @@ def auto_migrate_database():
             modified = True
         if material_columns and 'remark' not in material_columns:
             cursor.execute("ALTER TABLE material ADD COLUMN remark VARCHAR(500)")
+            modified = True
+        if material_columns and 'storage_location' not in material_columns:
+            cursor.execute("ALTER TABLE material ADD COLUMN storage_location VARCHAR(100)")
             modified = True
 
         # material_category 新增 code 字段
@@ -27289,8 +27286,9 @@ def material_search_api():
             Material.name.like(f'%{keyword}%'),
             Material.spec.like(f'%{keyword}%'),
             Material.brand.like(f'%{keyword}%'),
-            Material.storage_location.like(f'%{keyword}%'),
         ]
+        if hasattr(Material, 'storage_location'):
+            matches.append(Material.storage_location.like(f'%{keyword}%'))
         signs = r'[*xX×＊ｘＸ]'
         sides = [side.strip() for side in re.split(signs, keyword, maxsplit=3)]
         if len(sides) in (2, 3) and all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?', side) for side in sides):

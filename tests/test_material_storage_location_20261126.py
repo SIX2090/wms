@@ -129,7 +129,7 @@ def test_add_material_storage_location_optional_and_independent_of_switch(client
         ).count() == 0
         # Audit log captured storage_location
         audit = wms.OperationAudit.query.filter_by(
-            action="add_material", target_id=m2.id
+            operation="add_material", target_id=m2.id
         ).first()
         assert audit is not None and "A-01-02tag" in (audit.new_data or "")
 
