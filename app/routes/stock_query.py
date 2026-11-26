@@ -207,8 +207,10 @@ def register_stock_query_routes(app):
                     location_map.setdefault(row.material_id, []).append(row)
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.name.asc()).all()
         filters.update(warehouse_id=0 if all_warehouses_mode else (warehouse_id or ''), per_page=per_page)
+        from services.warehouse_stock_service import count_null_warehouse_transactions
         return render_template('stock_query.html', materials=materials, categories=categories, filters=filters, sort_by=sort_by, sort_order=sort_order, location_map=location_map, warehouse_stock_map=warehouse_stock_map, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse(),
                                    all_warehouses_mode=all_warehouses_mode,
+                                   null_warehouse_txn_count=count_null_warehouse_transactions(),
                                    pagination=pagination, page=page, per_page=per_page)
 
     @app.route('/api/query/search', methods=['POST'])

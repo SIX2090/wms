@@ -177,3 +177,101 @@ def test_fix2_check_complete_notice_without_stock_change(env):
     assert report_resp.status_code == 200
     assert notice in report_resp.get_data(as_text=True)
 
+
+def test_count_null_warehouse_transactions(env):
+    """修复 3（A9 对应函数锁）：只读统计 warehouse_id 为空的历史流水条数。"""
+    from services.warehouse_stock_service import count_null_warehouse_transactions
+
+    wms, ctx = env
+    wh1, mat, user = ctx["wh1"], ctx["mat"], ctx["user"]
+    assert count_null_warehouse_transactions() == 0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="in",
+            quantity=50.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime(2026, 11, 10, 9, 0, 0),
+        )
+    )
+    wms.db.session.commit()
+    assert count_null_warehouse_transactions() == 0
+
+    null_txn = wms.StockTransaction(
+        material_id=mat.id,
+        transaction_type="in",
+        quantity=25.0,
+        warehouse_id=None,
+        location=None,
+        operator_id=user.id,
+        created_at=datetime(2026, 11, 12, 9, 0, 0),
+    )
+    wms.db.session.add(null_txn)
+    wms.db.session.commit()
+    assert count_null_warehouse_transactions() == 1
+    assert wms.db.session.get(wms.StockTransaction, null_txn.id).warehouse_id is None
+
+
+def test_fix3_null_warehouse_txn_notice_keeps_numbers_unchanged(env):
+    """修复 3：造一条 NULL 仓流水，按仓查询数字不变且显示提示，NULL 保持不回填。"""
+    wms, ctx = env
+    wh1, mat, user = ctx["wh1"], ctx["mat"], ctx["user"]
+    mat.stock = 50.0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="in",
+            quantity=50.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime(2026, 11, 10, 9, 0, 0),
+        )
+    )
+    wms.db.session.commit()
+
+    notice = "存在 warehouse_id 为空的历史流水，按仓统计不包含这部分"
+    clean_html = ctx["client"].get(f"/stock_query?warehouse_id={wh1.id}").get_data(as_text=True)
+    assert "50.00" in clean_html
+    assert notice not in clean_html
+
+    # 造一条 warehouse_id IS NULL 且无归属的历史流水
+    mat.stock = 75.0
+    null_txn = wms.StockTransaction(
+        material_id=mat.id,
+        transaction_type="in",
+        quantity=25.0,
+        warehouse_id=None,
+        location=None,
+        operator_id=user.id,
+        created_at=datetime(2026, 11, 12, 9, 0, 0),
+    )
+    wms.db.session.add(null_txn)
+    wms.db.session.commit()
+
+    # 按仓查询页：数字仍为 50.00（不猜归属、不回填），但可见明确提示
+    after_html = ctx["client"].get(f"/stock_query?warehouse_id={wh1.id}").get_data(as_text=True)
+    assert "50.00" in after_html
+    assert "75.00" not in after_html
+    assert notice in after_html
+
+    all_wh_html = ctx["client"].get("/stock_query?warehouse_id=0").get_data(as_text=True)
+    assert "50.00" in all_wh_html
+    assert notice in all_wh_html
+
+    for report_type in ("inventory", "warehouse_monthly", "material_movement", "ledger"):
+        r_html = ctx["client"].get(f"/report/view/{report_type}").get_data(as_text=True)
+        assert notice in r_html, f"{report_type} 缺少空仓库历史流水提示"
+
+    monthly_api = ctx["client"].get(
+        "/report/api/warehouse_monthly",
+        query_string={"warehouse_id": wh1.id, "start_month": "2026-11", "end_month": "2026-11"},
+    ).get_json()
+    row = next(r for r in monthly_api["data"] if r["material_code"] == mat.code)
+    assert row["ending_quantity"] == pytest.approx(50.0)
+    # 确认 NULL 未被猜测回填
+    assert wms.db.session.get(wms.StockTransaction, null_txn.id).warehouse_id is None
+
+

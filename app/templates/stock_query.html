@@ -79,6 +79,12 @@
     </div>
 </div>
 
+{% if null_warehouse_txn_count|default(0) > 0 %}
+<div class="alert alert-warning py-2 px-3 mb-3 small" id="nullWarehouseTxnNotice" role="note">
+    <i class="bi bi-exclamation-triangle me-1"></i>存在 warehouse_id 为空的历史流水，按仓统计不包含这部分（共 {{ null_warehouse_txn_count }} 条）。
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-header py-2 d-flex justify-content-between align-items-center">
         <span><i class="bi bi-file-text"></i> 查询结果{% if all_warehouses_mode %}<small class="text-muted ms-2">全部仓库逐仓汇总，与库存预警页全局口径可能不同</small>{% endif %}</span>

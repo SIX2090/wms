@@ -1335,3 +1335,15 @@ def inventory_reconciliation_summary():
     if examples:
         summary += ' 差异示例：' + '；'.join(examples)
     return '全仓账簿核对 · ' + status, summary
+
+
+def count_null_warehouse_transactions() -> int:
+    """只读统计 warehouse_id 为空的历史流水条数；保留 NULL，不猜测归属、不写库。"""
+    from app import StockTransaction, db
+
+    return int(
+        db.session.query(db.func.count(StockTransaction.id))
+        .filter(StockTransaction.warehouse_id.is_(None))
+        .scalar()
+        or 0
+    )

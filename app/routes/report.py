@@ -243,12 +243,17 @@ def register_report_routes(app):
             from app import Notification
             reconciliation = Notification.query.filter_by(type='inventory_reconciliation').order_by(
                 Notification.created_at.desc(), Notification.id.desc()).first()
+        null_warehouse_txn_count = 0
+        if report_type in ('inventory', 'warehouse_monthly', 'material_movement', 'ledger'):
+            from services.warehouse_stock_service import count_null_warehouse_transactions
+            null_warehouse_txn_count = count_null_warehouse_transactions()
         # BUG-2026-08-02-014：报表筛选器加仓库下拉框，传 warehouses / default_warehouse 给模板
         return render_template(
             'report_view.html',
             report_type=report_type,
             title=definition['title'],
             reconciliation=reconciliation,
+            null_warehouse_txn_count=null_warehouse_txn_count,
             category_rows=category_rows,
             warehouses=warehouses,
             default_warehouse=get_default_warehouse(),

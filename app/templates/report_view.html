@@ -280,6 +280,11 @@
 {% if report_type in ('ledger', 'material_movement', 'warehouse_monthly') %}
 <div class="small text-muted mb-3" id="balanceRoundingFootnote">口径说明：期初+本期入库−本期出库 与期末可能存在 ≤0.01 的舍入尾差，属显示口径，非账务错误。</div>
 {% endif %}
+{% if null_warehouse_txn_count|default(0) > 0 %}
+<div class="alert alert-warning py-2 px-3 mb-3 small" id="nullWarehouseTxnNotice" role="note">
+    <i class="bi bi-exclamation-triangle me-1"></i>存在 warehouse_id 为空的历史流水，按仓统计不包含这部分（共 {{ null_warehouse_txn_count }} 条）。
+</div>
+{% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">
     {% if report_type in ('material_movement', 'warehouse_monthly') %}
