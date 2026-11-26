@@ -314,13 +314,21 @@ def validate_draft_creation_allowed(
     if specification_conflict:
         reasons.append('规格冲突未处理，禁止创建草稿')
 
-    # 6. 高风险物料未确认时拒绝
+    # 6. 高风险物料未确认时拒绝（正向要求：至少有已确认的物料记录且无待确认/已拒绝物料记录）
     if high_risk_material:
-        unconfirmed_high_risk = [
+        material_records = [
             r for r in field_records
-            if r.field_name == 'material_name' and r.confirmation_status == STATUS_PENDING
+            if r.field_name in ('material_name', 'material_id')
         ]
-        if unconfirmed_high_risk:
+        confirmed_material = [
+            r for r in material_records
+            if r.confirmation_status in (STATUS_CONFIRMED_ORIGINAL, STATUS_CORRECTED)
+        ]
+        unconfirmed_high_risk = [
+            r for r in material_records
+            if r.confirmation_status not in (STATUS_CONFIRMED_ORIGINAL, STATUS_CORRECTED)
+        ]
+        if not confirmed_material or unconfirmed_high_risk:
             reasons.append('高风险物料未确认，禁止创建草稿')
 
     if reasons:

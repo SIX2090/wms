@@ -425,11 +425,13 @@ def _install(app, prefix):
 
     @app.route(f'/{prefix}_print_template/<int:template_id>/edit', endpoint=page_ep)
     @login_required
+    @require_role('admin')
     def _edit_page(template_id, _prefix=prefix):
         return _grid_page(_prefix, template_id)
 
     @app.route(f'/{prefix}_print_template/<int:template_id>/grid', endpoint=read_ep)
     @login_required
+    @require_role('admin')
     def _read_grid(template_id, _prefix=prefix):
         return _grid_read(_prefix, template_id)
 
@@ -443,5 +445,6 @@ def _install(app, prefix):
     @app.route(f'/{prefix}_print_template/<int:template_id>/preview_data',
                endpoint=preview_ep)
     @login_required
+    @require_role('admin')
     def _preview(template_id, _prefix=prefix):
         return _preview_data(_prefix, template_id)

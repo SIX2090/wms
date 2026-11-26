@@ -526,11 +526,11 @@ function showDropdown(row, showAll = false) {
     }
 
     dropdown.innerHTML = filtered.map(m => `
-        <div class="material-dropdown-item" data-code="${m.code}">
-            <span class="dropdown-code">${m.code}</span> - <span class="dropdown-name">${m.name}</span>
-            <span class="dropdown-spec">${m.brand || ''}</span>
-            <span class="dropdown-spec">${m.spec || ''}</span>
-            <span class="dropdown-unit">${m.unit ? m.unit.name : ''}</span>
+        <div class="material-dropdown-item" data-code="${escapeHtml(m.code || '')}">
+            <span class="dropdown-code">${escapeHtml(m.code || '')}</span> - <span class="dropdown-name">${escapeHtml(m.name || '')}</span>
+            <span class="dropdown-spec">${escapeHtml(m.brand || '')}</span>
+            <span class="dropdown-spec">${escapeHtml(m.spec || '')}</span>
+            <span class="dropdown-unit">${escapeHtml(m.unit ? (m.unit.name || '') : '')}</span>
         </div>
     `).join('');
 

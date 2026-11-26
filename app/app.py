@@ -15850,6 +15850,8 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
         material = Material.query.options(joinedload(Material.unit)).get(material_id)
         if not material:
             continue
+        if getattr(material, 'status', None) == 'inactive':
+            return None, f'物料已停用，无法生成草稿：{material.code} {material.name}'
         _ai_learn_material_alias(row.get('raw') or '', material.id, source='ai_confirm')
         matched.append({'material': material, 'quantity': quantity, 'raw': material.code or material.name})
     if not matched:
@@ -15943,29 +15945,35 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
             _ai_draft_idempotency().fail(slot.record, str(exc))
             raise
     if doc_type == 'in_order':
-        if source_purchase_order_id:
-            context_po_result = _ai_try_create_in_order_from_context_purchase_order(
-                matched,
-                {'page_url': f'/purchase_order/{source_purchase_order_id}'},
-                source_text or 'AI识别结果确认',
+        if inbound_business_type != 'purchase_in':
+            warehouse = _ai_resolve_draft_warehouse(source_text)
+            if warehouse is None:
+                return None, _ai_warehouse_error()
+            if location_management_enabled():
+                return None, '库位管理已启用，AI 确认草稿暂不支持自动分配库位，请在电脑端入库页指定库位后保存'
+            business_items = sorted(
+                ((int(row['material'].id), round(float(row['quantity'] or 0), 6)) for row in matched),
+                key=lambda entry: (entry[0], entry[1]),
+            )
+            business_key = {
+                'inbound_business_type': inbound_business_type or 'other_in',
+                'warehouse': warehouse.name,
+                'items': business_items,
+                'confirmation_token': confirmation_token or '',
+            }
+            slot = _ai_draft_idempotency().acquire(
+                capability='in_order_draft',
+                source='confirmation',
+                business_fields=business_key,
+                draft_type='in_order',
+                request_snapshot={'source_text': (source_text or '')[:200], 'rows': len(matched)},
                 confirmation_token=confirmation_token,
                 document_job_id=document_job_id,
             )
-            if context_po_result:
-                return context_po_result
-        po_result = _ai_try_create_in_order_from_purchase_order_matches(
-            matched,
-            source_text or 'AI识别结果确认',
-            confirmation_token=confirmation_token,
-            document_job_id=document_job_id,
-        )
-        if po_result:
-            return po_result
-        if inbound_business_type == 'purchase_in' and purchase_in_order_requires_order():
-            return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
-        if inbound_business_type != 'purchase_in':
-            warehouse = _ai_resolve_draft_warehouse(source_text)
-            if warehouse is None: return None, _ai_warehouse_error()
+            if slot.is_replay and slot.replay:
+                return slot.replay, None
+            if not slot.acquired:
+                return None, slot.conflict_reason
             try:
                 order = InOrder(
                     order_no=generate_order_no('IN'), date=date.today(),
@@ -15990,18 +15998,47 @@ def _ai_create_confirmed_document_draft(doc_type, rows, source_text='', adjustme
                 order.total_amount = round_to_2_decimals(total_amount)
                 db.session.commit()
                 log_operation('AI人工确认生成其他入库草稿', f'入库单：{order.order_no}', 'in_order', order.id)
-                return {
+                response = {
                     'order_no': order.order_no,
                     'url': url_for('in_order_detail', id=order.id),
                     'items': [
                         {'code': row['material'].code, 'name': row['material'].name, 'quantity': row['quantity']}
                         for row in matched
                     ],
-                }, None
+                }
+                _ai_draft_idempotency().complete(
+                    slot.record,
+                    draft_type='in_order',
+                    draft_id=order.id,
+                    draft_no=order.order_no,
+                    response=response,
+                )
+                return response, None
             except Exception as exc:
                 db.session.rollback()
+                _ai_draft_idempotency().fail(slot.record, str(exc))
                 app.logger.exception('AI confirmed other inbound draft failed: %s', exc)
                 return None, '其他入库草稿创建失败，请稍后重试。'
+        if source_purchase_order_id:
+            context_po_result = _ai_try_create_in_order_from_context_purchase_order(
+                matched,
+                {'page_url': f'/purchase_order/{source_purchase_order_id}'},
+                source_text or 'AI识别结果确认',
+                confirmation_token=confirmation_token,
+                document_job_id=document_job_id,
+            )
+            if context_po_result:
+                return context_po_result
+        po_result = _ai_try_create_in_order_from_purchase_order_matches(
+            matched,
+            source_text or 'AI识别结果确认',
+            confirmation_token=confirmation_token,
+            document_job_id=document_job_id,
+        )
+        if po_result:
+            return po_result
+        if purchase_in_order_requires_order():
+            return None, '采购入库要求关联采购订单。没有找到可下推的采购订单，请先维护或选择采购订单后再入库。'
         draft, error = _ai_create_in_order_draft(
             draft_message,
             manual_confirmation=True,
@@ -33712,6 +33749,17 @@ def api_ai_document_feedback():
         if not isinstance(corrections, dict):
             return jsonify({'status': 'error', 'msg': 'corrections 必须是字典'}), 400
 
+        parsed_job_id = None
+        if document_job_id not in (None, ''):
+            parsed_job_id = _clean_int(document_job_id)
+            if not parsed_job_id or parsed_job_id <= 0:
+                return jsonify({'status': 'error', 'msg': 'document_job_id 无效'}), 400
+            job = db.session.get(AIDocumentJob, parsed_job_id)
+            if job is None:
+                return jsonify({'status': 'error', 'msg': '文档任务不存在'}), 404
+            if current_user.role != 'admin' and job.user_id != current_user.id:
+                return jsonify({'status': 'error', 'msg': '无权操作他人的文档任务'}), 403
+
         # AI-R09: 保存到 AIFieldFeedback 表
         from ai.documents.field_feedback import (
             build_field_correction_records as _ff_build,
@@ -33728,7 +33776,7 @@ def api_ai_document_feedback():
         
         # AI-R08-F01: 同时写入 AIDocumentFieldConfirmation 表（供门禁校验）
         confirmation_records_saved = 0
-        if document_job_id:
+        if parsed_job_id:
             from datetime import datetime
             from ai.documents.document_confirmation_status import (
                 STATUS_CORRECTED,
@@ -33756,7 +33804,7 @@ def api_ai_document_feedback():
                 
                 # 创建确认记录
                 confirmation_record = AIDocumentFieldConfirmation(
-                    job_id=document_job_id,
+                    job_id=parsed_job_id,
                     item_id=None,  # 行级字段用 field_name 区分
                     field_name=field_key,
                     confirmation_status=confirmation_status,
@@ -33775,7 +33823,7 @@ def api_ai_document_feedback():
             
             if confirmation_records_saved > 0:
                 db.session.commit()
-                app.logger.info(f'文档任务 {document_job_id} 保存了 {confirmation_records_saved} 条字段确认记录')
+                app.logger.info(f'文档任务 {parsed_job_id} 保存了 {confirmation_records_saved} 条字段确认记录')
         
         return jsonify({
             'status': 'success',

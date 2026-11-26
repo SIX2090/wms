@@ -134,12 +134,17 @@ def stock_transactions(material_id: int, limit: int = 8) -> list[dict[str, Any]]
         ).order_by(StockTransaction.created_at.desc()).limit(limit).all()
 
         for t in transactions:
+            related = (
+                f'{t.reference_type}#{t.reference_id}'
+                if (t.reference_type and t.reference_id is not None)
+                else (t.reference_type or '')
+            )
             results.append({
                 'id': t.id,
                 'date': t.created_at.strftime('%Y-%m-%d %H:%M') if t.created_at else '',
                 'type': t.transaction_type,
                 'quantity': t.quantity,
-                'related_order': t.related_order_no or '',
+                'related_order': related,
                 'remark': t.remark or '',
             })
     except Exception as exc:

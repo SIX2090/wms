@@ -1352,13 +1352,14 @@ def register_subcontract_routes(app):
             '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" data-detail-sort>',
             '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">数量</th><th>单位</th><th>备注</th></tr></thead><tbody>'
         ]
+        from markupsafe import escape as html_escape
         for item in issue.items:
             rows.append(
-                f'<tr><td>{item.material.code if item.material else ""}</td>'
-                f'<td>{item.material.name if item.material else ""}</td>'
+                f'<tr><td>{html_escape(item.material.code) if item.material else ""}</td>'
+                f'<td>{html_escape(item.material.name) if item.material else ""}</td>'
                 f'<td class="text-end">{item.quantity or 0:.2f}</td>'
-                f'<td>{item.unit.name if item.unit else ""}</td>'
-                f'<td>{item.remark or ""}</td></tr>'
+                f'<td>{html_escape(item.unit.name) if item.unit else ""}</td>'
+                f'<td>{html_escape(item.remark or "")}</td></tr>'
             )
         if not issue.items:
             rows.append('<tr><td colspan="5" class="text-center text-muted">暂无明细</td></tr>')
@@ -2089,13 +2090,14 @@ def register_subcontract_routes(app):
             '<div class="table-responsive"><table class="table table-sm table-bordered mb-0" data-detail-sort>',
             '<thead><tr><th>物料编码</th><th>物料名称</th><th class="text-end">收货数量</th><th class="text-end">报废数量</th><th>单位</th><th class="text-end">单位加工费</th><th class="text-end">加工费金额</th></tr></thead><tbody>'
         ]
+        from markupsafe import escape as html_escape
         for item in receive.items:
             rows.append(
-                f'<tr><td>{item.material.code if item.material else ""}</td>'
-                f'<td>{item.material.name if item.material else ""}</td>'
+                f'<tr><td>{html_escape(item.material.code) if item.material else ""}</td>'
+                f'<td>{html_escape(item.material.name) if item.material else ""}</td>'
                 f'<td class="text-end">{item.quantity or 0:.2f}</td>'
                 f'<td class="text-end">{item.scrap_quantity or 0:.2f}</td>'
-                f'<td>{item.unit.name if item.unit else ""}</td>'
+                f'<td>{html_escape(item.unit.name) if item.unit else ""}</td>'
                 f'<td class="text-end">{item.price or 0:.2f}</td>'
                 f'<td class="text-end">{item.amount or 0:.2f}</td></tr>'
             )

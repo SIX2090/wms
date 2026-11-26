@@ -108,25 +108,40 @@
     }
 
     /* ==================== 渲染 ==================== */
+    function sanitizeCssColor(value) {
+        const text = String(value || '').trim();
+        if (/^#[0-9a-fA-F]{3,8}$/.test(text)) return text;
+        if (/^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/.test(text)) return text;
+        return '';
+    }
+    function sanitizeFontFamily(value) {
+        return String(value || '').replace(/['"\\;<>{}()]/g, '').trim();
+    }
     function styleToCssText(style) {
         style = style || {};
         let css = '';
         if (style.bold) css += 'font-weight:700;';
         if (style.italic) css += 'font-style:italic;';
         if (style.underline) css += 'text-decoration:underline;';
-        if (style.font_name) css += "font-family:'" + style.font_name + "';";
-        if (style.font_size) css += 'font-size:' + style.font_size + 'pt;';
-        if (style.font_color) css += 'color:' + style.font_color + ';';
-        if (style.bg_color) css += 'background:' + style.bg_color + ';';
-        if (style.h_align) css += 'text-align:' + style.h_align + ';';
-        css += 'vertical-align:' + (style.v_align === 'center' ? 'middle' : (style.v_align || 'middle')) + ';';
+        const safeFont = sanitizeFontFamily(style.font_name);
+        if (safeFont) css += "font-family:'" + safeFont + "';";
+        const fontSize = Number(style.font_size);
+        if (Number.isFinite(fontSize) && fontSize > 0 && fontSize <= 200) css += 'font-size:' + fontSize + 'pt;';
+        const safeColor = sanitizeCssColor(style.font_color);
+        if (safeColor) css += 'color:' + safeColor + ';';
+        const safeBg = sanitizeCssColor(style.bg_color);
+        if (safeBg) css += 'background:' + safeBg + ';';
+        const safeHAlign = { left: 'left', center: 'center', right: 'right', justify: 'justify' }[style.h_align];
+        if (safeHAlign) css += 'text-align:' + safeHAlign + ';';
+        const safeVAlign = { top: 'top', center: 'middle', middle: 'middle', bottom: 'bottom' }[style.v_align] || 'middle';
+        css += 'vertical-align:' + safeVAlign + ';';
         if (style.wrap) css += 'white-space:pre-wrap;';
         const b = style.border || {};
         ['top', 'right', 'bottom', 'left'].forEach(function(e) {
             const v = borderEdgeCss(b[e]);
             if (v) css += 'border-' + e + ':' + v + ';';
         });
-        return css;
+        return escapeHtml(css);
     }
     function borderEdgeCss(v) {
         if (!v) return '';

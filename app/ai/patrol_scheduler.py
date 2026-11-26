@@ -71,7 +71,19 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
     alerts = []
 
     if rule.rule_type == RULE_TYPE_NEGATIVE_STOCK:
-        negative_materials = Material.query.filter(Material.stock < 0).all()
+        from app import get_active_warehouses, get_all_warehouses_stock_quantities, get_warehouse_stock_quantities
+        negative_ids = set()
+        for wh in get_active_warehouses():
+            for mid, qty in get_warehouse_stock_quantities(wh).items():
+                if (qty or 0) < 0:
+                    negative_ids.add(mid)
+        for mid, qty in get_all_warehouses_stock_quantities().items():
+            if (qty or 0) < 0:
+                negative_ids.add(mid)
+        negative_materials = (
+            Material.query.filter(Material.id.in_(sorted(negative_ids))).order_by(Material.id).all()
+            if negative_ids else []
+        )
         if negative_materials:
             alerts.append({
                 'title': f'发现 {len(negative_materials)} 项负库存物料',
@@ -84,11 +96,16 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
             })
 
     elif rule.rule_type == RULE_TYPE_LOW_STOCK:
+        from app import get_all_warehouses_stock_quantities, inventory_alert_enabled
+        if not inventory_alert_enabled():
+            return alerts
         threshold = rule.threshold_value or 0
-        low_stock_materials = Material.query.filter(
-            Material.stock <= Material.min_stock,
-            Material.min_stock > threshold,
-        ).all()
+        all_wh_stock = get_all_warehouses_stock_quantities()
+        candidates = Material.query.filter(Material.min_stock > threshold).order_by(Material.id).all()
+        low_stock_materials = [
+            m for m in candidates
+            if (all_wh_stock.get(m.id, 0) or 0) <= (m.min_stock or 0)
+        ]
         if low_stock_materials:
             alerts.append({
                 'title': f'发现 {len(low_stock_materials)} 项低库存物料',
@@ -141,17 +158,21 @@ def _evaluate_rule(rule, db, models: dict[str, Any]) -> list[dict[str, Any]]:
             })
 
     elif rule.rule_type == RULE_TYPE_PURCHASE_DELAY:
+        PurchaseOrderItem = models.get('PurchaseOrderItem')
+        if PurchaseOrderItem is None:
+            from app import PurchaseOrderItem
         threshold_days = rule.threshold_days or 30
         cutoff_date = date.today() - timedelta(days=threshold_days)
         delayed_materials = (
             db.session.query(Material)
-            .join(PurchaseOrder)
+            .join(PurchaseOrderItem, PurchaseOrderItem.material_id == Material.id)
+            .join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id)
             .filter(
                 PurchaseOrder.date >= cutoff_date,
                 PurchaseOrder.status.in_(['pending', 'partial']),
             )
             .group_by(Material.id)
-            .having(func.count(PurchaseOrder.id) >= 3)
+            .having(func.count(func.distinct(PurchaseOrder.id)) >= 3)
             .all()
         )
         if delayed_materials:
@@ -199,6 +220,11 @@ def _create_alert(rule, alert_data: dict[str, Any]):
         existing.message = alert_data['message']
         existing.data_context = json.dumps(alert_data.get('data_context', {}), ensure_ascii=False)
         existing.severity = alert_data.get('severity', rule.severity)
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
         return existing
 
     # 创建新告警

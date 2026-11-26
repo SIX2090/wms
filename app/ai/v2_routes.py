@@ -116,6 +116,7 @@ def _get_llm_config() -> OpenAICompatibleConfig:
 
 @v2_bp.get('/tools/inventory/material')
 @login_required
+@require_ai_role
 def v2_material_query():
     """物料库存查询。"""
     keyword = request.args.get('keyword', '')
@@ -128,6 +129,7 @@ def v2_material_query():
 
 @v2_bp.get('/tools/inventory/transactions')
 @login_required
+@require_ai_role
 def v2_stock_transactions():
     """物料流水查询。"""
     material_id = request.args.get('material_id', type=int)
@@ -140,6 +142,7 @@ def v2_stock_transactions():
 
 @v2_bp.get('/tools/inventory/health')
 @login_required
+@require_ai_role
 def v2_inventory_health():
     """库存健康分析。"""
     days = _safe_int(request.args.get('days', '30'), 30, minimum=1, maximum=365)
@@ -150,6 +153,7 @@ def v2_inventory_health():
 
 @v2_bp.get('/tools/inventory/low-stock')
 @login_required
+@require_ai_role
 def v2_low_stock():
     """低库存报告。"""
     results = low_stock_report()
@@ -158,6 +162,7 @@ def v2_low_stock():
 
 @v2_bp.get('/tools/inventory/value')
 @login_required
+@require_ai_role
 def v2_stock_value():
     """库存价值分析。"""
     category = request.args.get('category', '')
@@ -167,6 +172,7 @@ def v2_stock_value():
 
 @v2_bp.get('/tools/purchase/insights')
 @login_required
+@require_ai_role
 def v2_purchase_insights():
     """采购工作台概览。"""
     days = _safe_int(request.args.get('days', '30'), 30, minimum=1, maximum=365)
@@ -176,6 +182,7 @@ def v2_purchase_insights():
 
 @v2_bp.get('/tools/purchase/suppliers')
 @login_required
+@require_ai_role
 def v2_supplier_analysis():
     """供应商分析。"""
     days = _safe_int(request.args.get('days', '90'), 90, minimum=1, maximum=365)
@@ -186,6 +193,7 @@ def v2_supplier_analysis():
 
 @v2_bp.get('/tools/purchase/pending')
 @login_required
+@require_ai_role
 def v2_pending_purchase_orders():
     """待处理采购单。"""
     limit = _safe_int(request.args.get('limit', '12'), 12, minimum=1, maximum=50)
@@ -195,6 +203,7 @@ def v2_pending_purchase_orders():
 
 @v2_bp.get('/tools/navigation/skills')
 @login_required
+@require_ai_role
 def v2_skill_catalog():
     """AI技能清单。"""
     results = skill_catalog()
@@ -203,6 +212,7 @@ def v2_skill_catalog():
 
 @v2_bp.get('/tools/navigation/apis')
 @login_required
+@require_ai_role
 def v2_system_api_catalog():
     """系统API清单。"""
     results = system_api_catalog()
@@ -211,6 +221,7 @@ def v2_system_api_catalog():
 
 @v2_bp.get('/tools/navigation/help')
 @login_required
+@require_ai_role
 def v2_usage_help():
     """使用帮助。"""
     topic = request.args.get('topic', '')
@@ -303,12 +314,16 @@ def v2_feedback():
         return jsonify({'status': 'error', 'msg': 'rating must be thumbs_up or thumbs_down'}), 400
 
     from app import db, AIFeedback
+    raw_run_id = payload.get('ai_run_id')
+    ai_run_id = _safe_int(raw_run_id, 0, minimum=0) or None if raw_run_id not in (None, '') else None
+    note_text = str(payload.get('note') or payload.get('reason') or '')[:500]
+    error_type = str(payload.get('error_type') or '')[:50] or None
     feedback = AIFeedback(
-        ai_run_id=payload.get('ai_run_id'),
+        ai_run_id=ai_run_id,
         user_id=current_user.id,
         rating=rating,
-        reason=payload.get('reason', '')[:500],
-        reply_snapshot=payload.get('reply_snapshot', '')[:5000],
+        error_type=error_type,
+        note=note_text or None,
     )
     db.session.add(feedback)
     db.session.commit()
@@ -321,26 +336,34 @@ def v2_feedback():
 @login_required
 def v2_conversations():
     """获取当前用户的对话历史。"""
-    from app import db, AIConversation
+    from app import db, AIConversation, AIMessage
 
-    session_id = request.args.get('session_id', '')
+    session_id = (request.args.get('session_id') or '').strip()
     limit = _safe_int(request.args.get('limit', '50'), 50, minimum=1, maximum=200)
 
-    query = AIConversation.query.filter_by(user_id=current_user.id)
+    query = db.session.query(AIMessage, AIConversation).join(
+        AIConversation, AIMessage.conversation_id == AIConversation.id
+    ).filter(AIConversation.user_id == current_user.id)
     if session_id:
-        query = query.filter_by(session_id=session_id)
+        if session_id.isdigit():
+            query = query.filter(db.or_(
+                AIConversation.id == int(session_id),
+                AIConversation.title == session_id,
+            ))
+        else:
+            query = query.filter(AIConversation.title == session_id)
 
-    conversations = query.order_by(AIConversation.created_at.desc()).limit(limit).all()
+    rows = query.order_by(AIMessage.created_at.desc(), AIMessage.id.desc()).limit(limit).all()
     data = [
         {
-            'id': c.id,
-            'session_id': c.session_id,
-            'role': c.role,
-            'content': c.content,
-            'intent': c.intent,
-            'created_at': c.created_at.isoformat() if c.created_at else None,
+            'id': msg.id,
+            'conversation_id': conv.id,
+            'session_id': conv.title or str(conv.id),
+            'role': msg.role,
+            'content': msg.content,
+            'created_at': msg.created_at.isoformat() if msg.created_at else None,
         }
-        for c in conversations
+        for msg, conv in rows
     ]
     return jsonify({'status': 'success', 'data': data, 'count': len(data)})
 
@@ -349,26 +372,40 @@ def v2_conversations():
 @login_required
 def v2_save_conversation():
     """保存对话记录。"""
-    from app import db, AIConversation
+    from app import db, AIConversation, AIMessage
 
     payload = request.get_json(silent=True) or {}
-    session_id = payload.get('session_id', f'session-{current_user.id}-{datetime.now().strftime("%Y%m%d%H%M%S")}')
+    session_id = str(payload.get('session_id') or f'session-{current_user.id}-{datetime.now().strftime("%Y%m%d%H%M%S")}').strip()[:200]
     role = payload.get('role', 'user')
-    content = payload.get('content', '')
+    content = str(payload.get('content') or '')
 
     if role not in ('user', 'assistant', 'system'):
         return jsonify({'status': 'error', 'msg': 'role must be user/assistant/system'}), 400
     if not content:
         return jsonify({'status': 'error', 'msg': 'content is required'}), 400
 
-    conv = AIConversation(
-        user_id=current_user.id,
-        session_id=session_id,
+    conv = AIConversation.query.filter_by(user_id=current_user.id, title=session_id).first()
+    if conv is None and session_id.isdigit():
+        conv = AIConversation.query.filter_by(user_id=current_user.id, id=int(session_id)).first()
+    if conv is None:
+        conv = AIConversation(user_id=current_user.id, title=session_id, status='active')
+        db.session.add(conv)
+        db.session.flush()
+    else:
+        conv.touch_activity()
+
+    attachment_summary = None
+    if payload.get('tool_calls'):
+        attachment_summary = json.dumps(payload['tool_calls'], ensure_ascii=False)[:500]
+    elif payload.get('intent'):
+        attachment_summary = str(payload.get('intent'))[:500]
+
+    msg = AIMessage(
+        conversation_id=conv.id,
         role=role,
         content=content[:10000],
-        intent=payload.get('intent', '')[:100],
-        tool_calls_json=json.dumps(payload['tool_calls'], ensure_ascii=False)[:5000] if payload.get('tool_calls') else None,
+        attachment_summary=attachment_summary,
     )
-    db.session.add(conv)
+    db.session.add(msg)
     db.session.commit()
-    return jsonify({'status': 'success', 'data': {'id': conv.id}})
+    return jsonify({'status': 'success', 'data': {'id': msg.id, 'conversation_id': conv.id, 'session_id': conv.title or str(conv.id)}})

@@ -229,16 +229,14 @@ $(document).ready(function() {
 });
 
 function loadMaterials() {
-    fetch('/api/ai/recommend_location', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({})
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/api/ai/recommend_location', {})
     .then(data => {
-        if (data.status === 'success' && data.materials) {
+        if (data && data.status === 'success' && data.materials) {
             allMaterials = data.materials;
         }
+    })
+    .catch(err => {
+        showToast('加载物料失败：' + ((err && err.message) || '请稍后重试'), 'danger');
     });
 }
 
@@ -319,23 +317,18 @@ function generateRecommendation() {
     $('#loadingArea').show();
     $('#resultArea').hide();
     
-    fetch('/api/ai/recommend_location', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({material_id: selectedMaterialId})
-    })
-    .then(r => r.json())
+    WMS.api.postRaw('/api/ai/recommend_location', {material_id: selectedMaterialId})
     .then(data => {
         $('#loadingArea').hide();
-        if (data.status === 'error') {
-            showToast(data.msg || '生成失败', 'danger');
+        if (!data || data.status === 'error') {
+            showToast((data && data.msg) || '生成失败', 'danger');
             return;
         }
         renderResult(data);
     })
     .catch(err => {
         $('#loadingArea').hide();
-        showToast('请求失败：' + err.message, 'danger');
+        showToast('请求失败：' + ((err && err.message) || '请稍后重试'), 'danger');
     });
 }
 

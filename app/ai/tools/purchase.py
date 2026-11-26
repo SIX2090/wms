@@ -23,6 +23,7 @@ def purchase_insights(days: int = 30) -> dict[str, Any]:
     Returns:
         包含 pending_count / completed_count / total_amount / suppliers 的字典
     """
+    from sqlalchemy.orm import joinedload
     from app import db, PurchaseOrder
 
     result = {
@@ -34,7 +35,9 @@ def purchase_insights(days: int = 30) -> dict[str, Any]:
 
     try:
         cutoff_date = datetime.now() - timedelta(days=days)
-        orders = PurchaseOrder.query.filter(
+        orders = PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier)
+        ).filter(
             PurchaseOrder.created_at >= cutoff_date
         ).all()
 
@@ -46,7 +49,7 @@ def purchase_insights(days: int = 30) -> dict[str, Any]:
 
             result['total_amount'] += order.total_amount or 0
 
-            supplier = order.supplier_name or '未知供应商'
+            supplier = (order.supplier.name if order.supplier else '') or '未知供应商'
             if supplier not in result['suppliers']:
                 result['suppliers'][supplier] = {'count': 0, 'amount': 0.0}
             result['suppliers'][supplier]['count'] += 1
@@ -67,18 +70,21 @@ def supplier_analysis(days: int = 90, limit: int = 12) -> list[dict[str, Any]]:
     Returns:
         供应商列表，包含 name/order_count/total_amount/avg_lead_time
     """
+    from sqlalchemy.orm import joinedload
     from app import db, PurchaseOrder
 
     results = []
     try:
         cutoff_date = datetime.now() - timedelta(days=days)
-        orders = PurchaseOrder.query.filter(
+        orders = PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier)
+        ).filter(
             PurchaseOrder.created_at >= cutoff_date
         ).all()
 
         supplier_stats = {}
         for order in orders:
-            supplier = order.supplier_name or '未知供应商'
+            supplier = (order.supplier.name if order.supplier else '') or '未知供应商'
             if supplier not in supplier_stats:
                 supplier_stats[supplier] = {
                     'name': supplier,
@@ -89,8 +95,10 @@ def supplier_analysis(days: int = 90, limit: int = 12) -> list[dict[str, Any]]:
             supplier_stats[supplier]['order_count'] += 1
             supplier_stats[supplier]['total_amount'] += order.total_amount or 0
 
-            if order.lead_time_days:
-                supplier_stats[supplier]['lead_times'].append(order.lead_time_days)
+            if order.expected_date and order.date:
+                lead_days = (order.expected_date - order.date).days
+                if lead_days >= 0:
+                    supplier_stats[supplier]['lead_times'].append(lead_days)
 
         # 计算平均交期
         for stats in supplier_stats.values():
@@ -119,11 +127,14 @@ def pending_purchase_orders(limit: int = 12) -> list[dict[str, Any]]:
     Returns:
         待处理采购单列表
     """
+    from sqlalchemy.orm import joinedload
     from app import db, PurchaseOrder
 
     results = []
     try:
-        orders = PurchaseOrder.query.filter_by(status='pending').order_by(
+        orders = PurchaseOrder.query.options(
+            joinedload(PurchaseOrder.supplier)
+        ).filter_by(status='pending').order_by(
             PurchaseOrder.created_at.asc()
         ).limit(limit).all()
 
@@ -131,7 +142,7 @@ def pending_purchase_orders(limit: int = 12) -> list[dict[str, Any]]:
             results.append({
                 'id': order.id,
                 'order_no': order.order_no,
-                'supplier': order.supplier_name or '',
+                'supplier': order.supplier.name if order.supplier else '',
                 'total_amount': order.total_amount or 0,
                 'created_at': order.created_at.strftime('%Y-%m-%d') if order.created_at else '',
                 'days_pending': (datetime.now() - order.created_at).days if order.created_at else 0,

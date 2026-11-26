@@ -754,6 +754,7 @@ READ_ONLY_ALLOWED_POST_ENDPOINTS = frozenset({
 READ_ONLY_DENIED_PREFIXES = (
     '/user',            # 用户管理
     '/system_settings', # 系统设置
+    '/system_status',   # 系统状态（仅管理员）
     '/backup',          # 数据备份
     '/approval',        # 审批中心
     '/operation_audit', # 操作审计
@@ -763,6 +764,9 @@ READ_ONLY_DENIED_PREFIXES = (
     '/opening_stock',   # 期初库存（写入口）
     '/print_routing',   # 打印路由（运维）
     '/print_templates', # 打印模板（运维）
+    '/in_order_print_template',   # 入库打印模板编辑（运维）
+    '/out_order_print_template',  # 出库打印模板编辑（运维）
+    '/global_print_template',     # 全局打印模板编辑（运维）
     '/print_queue',     # 打印队列（运维）
     '/print_alerts',    # 打印告警（运维）
     '/print_fill',      # 打印填充（运维）
@@ -846,8 +850,11 @@ def require_role(*roles):
             if current_user.role != 'admin':
                 if is_read_only_role(current_user.role):
                     # AI-WMS-FINANCE-ROLE：只读角色靠"能不能写"来划边界，
-                    # 而不是逐个页面加白名单——业务页（单据、库存、报表）一律可看，
-                    # 账号/系统/AI 后台/打印运维仍拒绝，写操作由 before_request 兜底。
+                    # 业务页（单据、库存、报表）一律可看；但仅管理员专属端点
+                    # （@require_role('admin')）和运维/系统/AI 后台路径仍一律拒绝，
+                    # 写操作由 before_request 兜底。
+                    if allowed == {'admin'}:
+                        return deny('当前账号没有权限访问该页面')
                     if (request.endpoint or '') not in READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS and read_only_path_denied():
                         return deny('当前账号没有权限访问该页面')
                 elif current_user.role not in allowed:

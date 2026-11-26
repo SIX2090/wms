@@ -566,7 +566,7 @@ window.WmsTabs = (function() {
         button.className = 'tab-item';
         button.setAttribute('role', 'tab');
         button.innerHTML =
-            '<span class="tab-title">' + tabTitle + '</span>' +
+            '<span class="tab-title">' + escapeHtml(tabTitle) + '</span>' +
             '<button type="button" class="tab-close" aria-label="关闭"><i class="bi bi-x"></i></button>';
 
         const frame = document.createElement('iframe');
