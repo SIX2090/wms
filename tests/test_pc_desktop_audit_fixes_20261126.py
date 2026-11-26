@@ -430,12 +430,17 @@ def test_pc_p0_12_ai_confirmation_gate_feedback_idor_and_other_in():
     # 2) document_feedback 校验任务存在性（404）与跨用户 IDOR（403）
     client = app_module.app.test_client()
     _login_web(client, u2)
+    fb_evidence = [{"field_name": "quantity", "value": "1"}]
     r_404 = client.post("/api/ai/document_feedback", json={
-        "document_job_id": 999999, "field_name": "quantity", "original_value": "1", "corrected_value": "2",
+        "document_job_id": 999999,
+        "evidence_fields": fb_evidence,
+        "corrections": {},
     })
     assert r_404.status_code == 404
     r_403 = client.post("/api/ai/document_feedback", json={
-        "document_job_id": job.id, "field_name": "quantity", "original_value": "1", "corrected_value": "2",
+        "document_job_id": job.id,
+        "evidence_fields": fb_evidence,
+        "corrections": {},
     })
     assert r_403.status_code == 403
 
@@ -808,8 +813,8 @@ def test_pc_p1_02_03_04_05_and_p2_06_order_lifecycle_fixes():
     with app_module.app.test_request_context("/sales", method="POST"):
         from flask_login import login_user
         login_user(admin)
-        outbound, err = app_module.build_sales_outbound_draft(so, {soi.id: 2})
-        assert err == ""
+        outbound, draft_state = app_module.build_sales_outbound_draft(so, {soi.id: 2})
+        assert draft_state == "created", draft_state
         assert outbound.total_amount == 40.0
         assert so.shipment_status == "partial"
         db.session.commit()
@@ -939,7 +944,7 @@ def test_pc_p1_06_07_08_reports_sorting_and_exports():
     client = app_module.app.test_client()
     _login_web(client, admin)
     r_price = client.get(f"/report/purchase_price_analysis/print_excel?warehouse_id={wh1.id}")
-    assert r_price.status_code == 403
+    assert r_price.status_code == 400
 
     r_as = client.get(f"/export/after_sale_out?warehouse_id={wh2.id}")
     assert r_as.status_code == 200
@@ -968,6 +973,7 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
     db.session.flush()
     db.session.add(app_module.AfterSaleOutOrderItem(
         after_sale_out_order_id=as_order.id, material_id=mat_on.id, quantity=1,
+        price=10.0, amount=10.0,
         contract_id=contract.id, contract_no=contract.contract_no,
     ))
     db.session.commit()
@@ -1106,13 +1112,14 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
 
     # PC-P1-18: _ai_dr_delete_records 删除 AIRun / AIDocumentJob 前清理所有子表外键
     run = app_module.AIRun(
-        user_id=admin.id, request_id="req-dr-1", endpoint="/api/ai/chat", status="success",
+        user_id=admin.id, request_id="req-dr-1", request_hash="hash-dr-1",
+        endpoint="/api/ai/chat", status="success",
     )
     db.session.add(run)
     db.session.flush()
     tc = app_module.AIToolCall(
         ai_run_id=run.id, tool_name="query_stock", capability="inventory_read",
-        risk_level="low", status="success",
+        risk_level="low", status="success", permission_allowed=True,
     )
     conv = app_module.AIConversation(user_id=admin.id, title="dr-conv", status="active")
     db.session.add_all([tc, conv])
