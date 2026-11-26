@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 QUANTITY_FIELDS = ('opening_quantity', 'in_quantity', 'out_quantity', 'balance_quantity')
 DEFINITION = {
     'title': '物料收发存汇总表',
-    'description': '按物料查看期初、本期入库、本期出库及期末结存，可联查库存台账。',
+    'description': '按物料查看期初、本期入库、本期出库及期末结存（本期入库/本期出库含反冲流水，如需净额口径请按 revert_* 配对抵销后查看），可联查库存台账。',
     'icon': 'bi-clipboard-data', 'accent': 'warning',
     'summary_labels': {'count': '物料数', 'opening_quantity': '期初数量',
                        'in_quantity': '本期入库', 'out_quantity': '本期出库',

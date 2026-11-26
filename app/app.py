@@ -29031,7 +29031,7 @@ REPORT_DEFINITIONS = {
     },
     'warehouse_monthly': {
         'title': '仓库月报表',
-        'description': '按所选月份期间汇总，每种物料一行，核对期间期初、收发及期末结存。',
+        'description': '按所选月份期间汇总，每种物料一行，核对期间期初、收发及期末结存（本期入库/本期出库含反冲流水，如需净额口径请按 revert_* 配对抵销后查看）。',
         'icon': 'bi-calendar3',
         'accent': 'primary',
         'summary_labels': {

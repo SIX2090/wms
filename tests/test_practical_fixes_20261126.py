@@ -486,5 +486,86 @@ def test_fix5_transfer_removes_dead_cancelled_and_adjustment_keeps_active_withdr
     assert "已撤回" in adj_html
 
 
+def test_fix6_revert_flow_footnote_preserves_ending_balance(env):
+    """修复 6：造一张反提交入库单，月报与收发存明确标注含反冲流水，且期末结存与底层流水不变。"""
+    wms, ctx = env
+    wh1, mat, user, supplier = ctx["wh1"], ctx["mat"], ctx["user"], ctx["supplier"]
+    mat.stock = 100.0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="opening",
+            quantity=100.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime(2026, 10, 15, 9, 0, 0),
+        )
+    )
+    order = wms.InOrder(
+        order_no="IN-FIX6-001",
+        date=date(2026, 11, 10),
+        business_type="采购入库",
+        supplier_id=supplier.id,
+        warehouse=wh1.name,
+        status="pending",
+        operator_id=user.id,
+    )
+    wms.db.session.add(order)
+    wms.db.session.flush()
+    wms.db.session.add(
+        wms.InOrderItem(
+            in_order_id=order.id,
+            material_id=mat.id,
+            quantity=20.0,
+            price=10.0,
+            amount=200.0,
+        )
+    )
+    wms.db.session.commit()
+
+    # 完成后再反提交，生成 in(+20) 与 revert_in(-20) 配对流水
+    assert ctx["client"].post(f"/in_order/{order.id}/complete", json={"force": True}).get_json()["status"] == "success"
+    assert ctx["client"].post(f"/in_order/{order.id}/revert", json={}).get_json()["status"] == "success"
+    txns = wms.StockTransaction.query.filter_by(material_id=mat.id).order_by(wms.StockTransaction.id).all()
+    assert [(t.transaction_type, t.quantity) for t in txns] == [
+        ("opening", 100.0),
+        ("in", 20.0),
+        ("revert_in", -20.0),
+    ]
+    assert wms.db.session.get(wms.Material, mat.id).stock == pytest.approx(100.0)
+
+    footnote = "含反冲流水，如需净额口径请按 revert_* 配对抵销后查看"
+    for report_type in ("warehouse_monthly", "material_movement"):
+        page_html = ctx["client"].get(f"/report/view/{report_type}").get_data(as_text=True)
+        assert footnote in page_html, f"{report_type} 页面缺少反冲流水说明"
+
+    monthly = ctx["client"].get(
+        "/report/api/warehouse_monthly",
+        query_string={"warehouse_id": wh1.id, "start_month": "2026-11", "end_month": "2026-11"},
+    ).get_json()
+    m_row = next(r for r in monthly["data"] if r["material_code"] == mat.code)
+    assert m_row["beginning_quantity"] == pytest.approx(100.0)
+    assert m_row["in_quantity"] == pytest.approx(20.0)
+    assert m_row["out_quantity"] == pytest.approx(20.0)
+    assert m_row["ending_quantity"] == pytest.approx(100.0)
+    assert footnote in m_row["remark"]
+
+    movement = ctx["client"].get(
+        "/report/api/material_movement",
+        query_string={
+            "warehouse_id": wh1.id,
+            "start_date": "2026-11-01",
+            "end_date": "2026-11-30",
+        },
+    ).get_json()
+    mv_row = next(r for r in movement["data"] if r["material_code"] == mat.code)
+    assert mv_row["opening_quantity"] == pytest.approx(100.0)
+    assert mv_row["in_quantity"] == pytest.approx(20.0)
+    assert mv_row["out_quantity"] == pytest.approx(20.0)
+    assert mv_row["balance_quantity"] == pytest.approx(100.0)
+
+
+
 
 

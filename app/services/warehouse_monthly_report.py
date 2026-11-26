@@ -111,7 +111,7 @@ def build_warehouse_monthly_report(filters):
                    price=float(material.price or 0),
                    inventory_amount=round(float(balance * Decimal(str(material.price or 0))), 2),
                    document_count=len(bucket['document_keys']), transaction_count=bucket['transaction_count'],
-                   remark='出入库金额按来源单据实际单价；委外收货及其冲回按物料当前参考价估值，加工费单列在收货单；无单据价及期末金额按当前单价参考估值，非成本核算',
+                   remark='出入库金额按来源单据实际单价；委外收货及其冲回按物料当前参考价估值，加工费单列在收货单；无单据价及期末金额按当前单价参考估值，非成本核算；本期入库/本期出库含反冲流水，如需净额口径请按 revert_* 配对抵销后查看',
                    ledger_url='/report/view/ledger?' + urlencode(params))
         row.update({key: float(bucket[key]) for key in ('in_quantity', 'out_quantity', 'in_amount', 'out_amount',
                                                      'subcontract_in_estimate_amount', 'subcontract_out_estimate_amount')})
