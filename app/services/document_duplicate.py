@@ -4,7 +4,12 @@ Document IDs, creation times, status and free-text notes are not business keys.
 Row order is immaterial; repeated rows retain their multiplicity.
 """
 from collections import Counter
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+
+
+# 重复录入检测回溯窗口（天），覆盖当天及补录的近 7 天历史单据。
+DUPLICATE_ORDER_LOOKBACK_DAYS = 7
 
 
 _HEADER_FIELDS = (
@@ -39,6 +44,21 @@ def _lines(order):
             return None
         rows.append(tuple(_value(item, name) for name in _LINE_FIELDS) + numbers)
     return Counter(rows) if rows else None
+
+
+def is_within_duplicate_check_window(order_date, today=None, lookback_days=DUPLICATE_ORDER_LOOKBACK_DAYS):
+    """判断单据业务日期是否落在近 N 天重复检测窗口内（含当天）。"""
+    if not order_date:
+        return False
+    anchor = today or date.today()
+    return (anchor - timedelta(days=lookback_days)) <= order_date <= anchor
+
+
+def format_duplicate_order_warning_msg(order, existing_order, today=None):
+    """生成重复录入提醒文案：当天称今天单据，补录历史单据注明同日日期。"""
+    anchor = today or date.today()
+    date_label = '今天' if order.date == anchor else f'{order.date.isoformat()} 同日'
+    return f'本单关键字段及全部 {len(order.items)} 行明细（含数量、单价）与{date_label}单据 {existing_order.order_no} 一致，疑似重复录入，请确认是否继续'
 
 
 def documents_match_for_duplicate_warning(order, other):

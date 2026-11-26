@@ -27156,7 +27156,7 @@ def _apply_header_or_item_contract_filters(query, header_model, item_model, orde
 
 def _check_in_order_anomalies(order):
     """同日同往来方，表头关键字段及全部明细一致才提醒（R2-ISSUE-006）。"""
-    from services.document_duplicate import documents_match_for_duplicate_warning
+    from services.document_duplicate import documents_match_for_duplicate_warning, format_duplicate_order_warning_msg, is_within_duplicate_check_window
 
     anomalies = []
     if not order.items:
@@ -27164,15 +27164,15 @@ def _check_in_order_anomalies(order):
 
     today = date.today()
 
-    # 整单重复检测：同日同供应商，仅完整业务内容一致才提醒
-    if order.supplier_id and order.date == today:
+    # 整单重复检测：近 7 天内同日同供应商，仅完整业务内容一致才提醒
+    if order.supplier_id and is_within_duplicate_check_window(order.date, today):
         order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
         if order_material_ids:
             today_orders = (
                 InOrder.query
                 .options(selectinload(InOrder.items))
                 .filter(
-                    InOrder.date == today,
+                    InOrder.date == order.date,
                     InOrder.supplier_id == order.supplier_id,
                     InOrder.id != order.id
                 )
@@ -27184,7 +27184,7 @@ def _check_in_order_anomalies(order):
                         'type': 'duplicate_order',
                         'material': '（整单）',
                         'existing_order': to.order_no,
-                        'msg': f'本单关键字段及全部 {len(order.items)} 行明细（含数量、单价）与今天单据 {to.order_no} 一致，疑似重复录入，请确认是否继续'
+                        'msg': format_duplicate_order_warning_msg(order, to, today)
                     })
 
     return anomalies
@@ -28640,7 +28640,7 @@ def _apply_scan_to_batch(batch, check_scan, warehouse_stock_map, operator_id=Non
 
 def _check_out_order_anomalies(order):
     """同日同往来方，表头关键字段及全部明细一致才提醒（R2-ISSUE-006）。"""
-    from services.document_duplicate import documents_match_for_duplicate_warning
+    from services.document_duplicate import documents_match_for_duplicate_warning, format_duplicate_order_warning_msg, is_within_duplicate_check_window
 
     anomalies = []
     if not order.items:
@@ -28648,13 +28648,13 @@ def _check_out_order_anomalies(order):
 
     today = date.today()
 
-    # 整单重复检测：同日同客户/部门，仅完整业务内容一致才提醒
-    if order.date == today:
+    # 整单重复检测：近 7 天内同日同客户/部门，仅完整业务内容一致才提醒
+    if is_within_duplicate_check_window(order.date, today):
         order_material_ids = {oi.material_id for oi in order.items if oi.material_id}
         if not order_material_ids:
             return anomalies
         today_orders = OutOrder.query.options(selectinload(OutOrder.items)).filter(
-            OutOrder.date == today,
+            OutOrder.date == order.date,
             OutOrder.id != order.id
         )
         # 按客户或部门过滤（OutOrder 使用 customer 字符串字段，非 customer_id 外键）
@@ -28674,7 +28674,7 @@ def _check_out_order_anomalies(order):
                         'type': 'duplicate_order',
                         'material': '（整单）',
                         'existing_order': to.order_no,
-                        'msg': f'本单关键字段及全部 {len(order.items)} 行明细（含数量、单价）与今天单据 {to.order_no} 一致，疑似重复录入，请确认是否继续'
+                        'msg': format_duplicate_order_warning_msg(order, to, today)
                     })
 
     return anomalies

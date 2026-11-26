@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 import sys
 
@@ -273,5 +273,141 @@ def test_fix3_null_warehouse_txn_notice_keeps_numbers_unchanged(env):
     assert row["ending_quantity"] == pytest.approx(50.0)
     # 确认 NULL 未被猜测回填
     assert wms.db.session.get(wms.StockTransaction, null_txn.id).warehouse_id is None
+
+
+def test_is_within_duplicate_check_window():
+    """修复 4（A9 对应函数锁）：近 7 天窗口边界校验（含当天与第 7 天前，不含第 8 天及未来）。"""
+    from services.document_duplicate import DUPLICATE_ORDER_LOOKBACK_DAYS, is_within_duplicate_check_window
+
+    assert DUPLICATE_ORDER_LOOKBACK_DAYS == 7
+    anchor = date(2026, 11, 26)
+    assert is_within_duplicate_check_window(anchor, anchor) is True
+    assert is_within_duplicate_check_window(anchor - timedelta(days=1), anchor) is True
+    assert is_within_duplicate_check_window(anchor - timedelta(days=3), anchor) is True
+    assert is_within_duplicate_check_window(anchor - timedelta(days=7), anchor) is True
+    assert is_within_duplicate_check_window(anchor - timedelta(days=8), anchor) is False
+    assert is_within_duplicate_check_window(anchor + timedelta(days=1), anchor) is False
+    assert is_within_duplicate_check_window(None, anchor) is False
+
+
+def test_format_duplicate_order_warning_msg():
+    """修复 4（A9 对应函数锁）：当天提示今天单据，补录历史单据明确标注同日日期。"""
+    from types import SimpleNamespace
+    from services.document_duplicate import format_duplicate_order_warning_msg
+
+    anchor = date(2026, 11, 26)
+    today_order = SimpleNamespace(date=anchor, items=[1, 2])
+    backdated_order = SimpleNamespace(date=anchor - timedelta(days=3), items=[1])
+    other = SimpleNamespace(order_no="IN-DUP-001")
+    msg_today = format_duplicate_order_warning_msg(today_order, other, anchor)
+    assert "与今天单据 IN-DUP-001 一致" in msg_today and "疑似重复录入" in msg_today
+    msg_back = format_duplicate_order_warning_msg(backdated_order, other, anchor)
+    assert "与2026-11-23 同日单据 IN-DUP-001 一致" in msg_back and "疑似重复录入" in msg_back
+
+
+def test_fix4_backdated_duplicate_orders_warn_within_7_days(env):
+    """修复 4：昨天与 3 天前的重复入/出库单完成前均弹疑似重复录入提示；超 7 天或明细不同不误报。"""
+    wms, ctx = env
+    wh1, mat, user, supplier = ctx["wh1"], ctx["mat"], ctx["user"], ctx["supplier"]
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    three_days_ago = today - timedelta(days=3)
+    eight_days_ago = today - timedelta(days=8)
+
+    # 预置库存供出库单完成前检测
+    mat.stock = 500.0
+    wms.db.session.add(
+        wms.StockTransaction(
+            material_id=mat.id,
+            transaction_type="opening",
+            quantity=500.0,
+            warehouse_id=wh1.id,
+            location=wh1.name,
+            operator_id=user.id,
+            created_at=datetime.combine(today - timedelta(days=15), datetime.min.time()),
+        )
+    )
+
+    def _make_in(order_no, order_date, qty, status="pending"):
+        order = wms.InOrder(
+            order_no=order_no,
+            date=order_date,
+            business_type="采购入库",
+            supplier_id=supplier.id,
+            warehouse=wh1.name,
+            status=status,
+            operator_id=user.id,
+        )
+        wms.db.session.add(order)
+        wms.db.session.flush()
+        wms.db.session.add(
+            wms.InOrderItem(
+                in_order_id=order.id,
+                material_id=mat.id,
+                quantity=qty,
+                price=10.0,
+                amount=qty * 10.0,
+            )
+        )
+        wms.db.session.commit()
+        return order
+
+    def _make_out(order_no, order_date, qty, status="pending"):
+        order = wms.OutOrder(
+            order_no=order_no,
+            date=order_date,
+            business_type="其他出库",
+            customer="测试客户甲",
+            warehouse=wh1.name,
+            status=status,
+            operator_id=user.id,
+        )
+        wms.db.session.add(order)
+        wms.db.session.flush()
+        wms.db.session.add(
+            wms.OutOrderItem(
+                out_order_id=order.id,
+                material_id=mat.id,
+                quantity=qty,
+                price=10.0,
+                amount=qty * 10.0,
+            )
+        )
+        wms.db.session.commit()
+        return order
+
+    # 昨天入库单重复
+    _make_in("IN-YEST-1", yesterday, 20, status="completed")
+    in_yest_dup = _make_in("IN-YEST-2", yesterday, 20, status="pending")
+    r_yest = ctx["client"].post(f"/in_order/{in_yest_dup.id}/check_anomalies").get_json()
+    assert r_yest["has_anomalies"] is True
+    assert r_yest["anomalies"][0]["existing_order"] == "IN-YEST-1"
+    assert "疑似重复录入" in r_yest["anomalies"][0]["msg"]
+
+    # 3 天前入库单重复：完成前阻断并弹疑似重复提示
+    _make_in("IN-3D-1", three_days_ago, 30, status="completed")
+    in_3d_dup = _make_in("IN-3D-2", three_days_ago, 30, status="pending")
+    r_3d_complete = ctx["client"].post(f"/in_order/{in_3d_dup.id}/complete", json={}).get_json()
+    assert r_3d_complete["status"] == "warning"
+    assert "疑似重复录入" in r_3d_complete["anomalies"][0]["msg"]
+    assert wms.db.session.get(wms.InOrder, in_3d_dup.id).status == "pending"
+
+    # 3 天前明细数量不同不误报
+    in_3d_diff = _make_in("IN-3D-DIFF", three_days_ago, 35, status="pending")
+    assert wms._check_in_order_anomalies(in_3d_diff) == []
+
+    # 8 天前超出 7 天窗口不提醒
+    _make_in("IN-8D-1", eight_days_ago, 40, status="completed")
+    in_8d_dup = _make_in("IN-8D-2", eight_days_ago, 40, status="pending")
+    assert wms._check_in_order_anomalies(in_8d_dup) == []
+
+    # R6 同类：3 天前出库单重复同样拦截提示
+    _make_out("OUT-3D-1", three_days_ago, 15, status="completed")
+    out_3d_dup = _make_out("OUT-3D-2", three_days_ago, 15, status="pending")
+    r_out_complete = ctx["client"].post(f"/out_order/{out_3d_dup.id}/complete", json={}).get_json()
+    assert r_out_complete["status"] == "warning"
+    assert "疑似重复录入" in r_out_complete["anomalies"][0]["msg"]
+    assert wms.db.session.get(wms.OutOrder, out_3d_dup.id).status == "pending"
+
 
 
