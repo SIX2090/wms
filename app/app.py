@@ -17708,9 +17708,23 @@ def _ai_dr_delete_records(category: str, ids: list) -> int:
     try:
         deleted = 0
         if category == 'conversations':
+            tc_ids = [
+                row[0] for row in db.session.query(AIToolCall.id)
+                .filter(AIToolCall.ai_run_id.in_(ids)).all()
+            ]
+            if tc_ids:
+                AIDraftIdempotency.query.filter(
+                    AIDraftIdempotency.ai_tool_call_id.in_(tc_ids)
+                ).update({AIDraftIdempotency.ai_tool_call_id: None}, synchronize_session=False)
             AIToolCall.query.filter(AIToolCall.ai_run_id.in_(ids)).delete(synchronize_session=False)
             if 'AIFeedback' in globals():
                 AIFeedback.query.filter(AIFeedback.ai_run_id.in_(ids)).delete(synchronize_session=False)
+            for ref_name in ('AIMessage', 'AIConfirmation'):
+                ref_cls = globals().get(ref_name)
+                if ref_cls is not None:
+                    ref_cls.query.filter(ref_cls.ai_run_id.in_(ids)).update(
+                        {ref_cls.ai_run_id: None}, synchronize_session=False
+                    )
             for ref_model in (AIRequestIdempotency, AIDraftIdempotency, AIFieldFeedback, AIDocumentJob, AIAgentTask):
                 ref_model.query.filter(ref_model.ai_run_id.in_(ids)).update(
                     {ref_model.ai_run_id: None}, synchronize_session=False
@@ -17725,6 +17739,9 @@ def _ai_dr_delete_records(category: str, ids: list) -> int:
         elif category == 'feedback':
             deleted = AIFieldFeedback.query.filter(AIFieldFeedback.id.in_(ids)).delete(synchronize_session=False)
         elif category == 'audit':
+            AIDraftIdempotency.query.filter(
+                AIDraftIdempotency.ai_tool_call_id.in_(ids)
+            ).update({AIDraftIdempotency.ai_tool_call_id: None}, synchronize_session=False)
             deleted = AIToolCall.query.filter(AIToolCall.id.in_(ids)).delete(synchronize_session=False)
         db.session.commit()
         return int(deleted or 0)

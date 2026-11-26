@@ -3563,3 +3563,35 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：核对全仓共享 `document_table_form.html`、`app.js`、`material-cache.js`、`quick-select.js` 及全部既有 Node VM 契约测试消费点。
 - 回归：本地执行 Node.js 真实 VM 测试及 Jinja2/语法/A9/A11/防裸 fetch 门禁全通过，并随完整 CI 套件回归验证。
 - 生效确认：待确认（涉及多处模板与静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-001: PC端安全、越权、AI工具崩溃与高风险确认门禁P0缺陷修复（PC-P0-01~03, 09~12）
+
+- 根因：委外发料/收货 HTML 片段未转义物料编码/名称/单位/备注（PC-P0-01）；售后出库搜索下拉、打印模板编辑器样式注入与标签页标题存在前端 DOM XSS（PC-P0-02）；财务只读角色可访问仅管理员端点 `/system_status` 及打印模板编辑器，`/in|out|global_print_template/<id>/edit|grid|preview_data` 缺少 `@require_role('admin')`，`/api/ai/v2/tools/*` 缺少 AI 角色门禁（PC-P0-03）；`ai_location_recommendation.html` 使用裸 POST `fetch` 缺 CSRF 头（PC-P0-09）；AI 采购/库存工具与 v2 反馈/会话接口引用不存在字段导致 500 崩溃（PC-P0-10）；巡检调度采购逾期联表错误、已有告警更新漏提交且负/低库存用全局 `Material.stock` 而非分仓库存（PC-P0-11）；高风险物料确认门禁仅在有记录时才校验、`/api/ai/document_feedback` 缺少任务存在性与归属校验、确认台创建其他入库草稿误绑定采购订单且未拦截停用物料或做幂等防护（PC-P0-12）。
+- 修复：委外片段接入 `markupsafe.escape`；前端三处补齐 `escapeHtml` 与 CSS 协议/属性清洗；`require_role` 对仅 `admin` 端点阻断只读角色，补齐 `READ_ONLY_DENIED_PREFIXES`、`print_template_editor.py` `@require_role('admin')` 及 11 个 `/api/ai/v2/tools/*` `@require_ai_role`；`ai_location_recommendation.html` 改为 `WMS.api.postRaw`；修复 `ai/tools/purchase.py`、`ai/tools/inventory.py`、`ai/v2_routes.py` 字段/模型引用；修复 `patrol_scheduler.py` 联表、提交与分仓库存；收紧 `validate_draft_creation_allowed`、`/api/ai/document_feedback` 存在性与归属校验及 `_ai_create_confirmed_document_draft` 业务类型分流、停用物料拦截、库位必填与幂等保护。
+- 同类点已排查：核对全仓 HTML 片段拼装、前端模板 `innerHTML`、只读角色路径清单、AI v2 全部工具路由及确认台草稿创建链路；保留 `viewer` 对非 LLM 接口现有 200 JSON 拒绝契约（R8）。
+- 回归：新增 `tests/test_pc_desktop_audit_fixes_20261126.py` 覆盖上述全部安全、权限、AI 工具/巡检/确认门禁路径，随官方 Linux CI（`WMS CI` / `WMS AI Verification`）完整验收。
+- 生效确认：待确认（涉及模板与静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-002: PC端出入库/销售/委外/期初/采购单据生命周期、并发锁与幂等缺陷修复（PC-P0-04~08, PC-P1-01~05, PC-P1-12, PC-P2-06, PC-P2-10）
+
+- 根因：批量完成采购入库单重复计入本单已在草稿预占的 `received_quantity` 导致合法单据误判超收（PC-P0-04）；销售出库复核与发货进度同步未拦截已取消/草稿销售单，取消销售单未检查跨单明细级关联出库草稿（PC-P0-05）；委外反加工未拦有关联收货单，批量改状态绕过写锁/状态机/关联单检查且无审计（PC-P0-06）；期初单据保存缺幂等与防连点，批量导入将头创建放在首行 savepoint 内且未拦停用物料（PC-P0-07）；物料查重合并未将 `opening_stock` 按 `(warehouse_id, doc_id)` 累加导致唯一键冲突（PC-P0-08）；采购申请下推/审批/关闭重开缺少写锁、幂等或停用物料校验（PC-P1-01/02）；销售下推草稿未算 `total_amount` 且硬编码覆盖 `partial` 状态，`func.max(0, ...)` 不兼容非 SQLite（PC-P1-03）；销售关联出库单可新增无来源行或修改 `purpose`（PC-P1-04）；期初保存与批量删调拨缺 `OperationAudit`（PC-P1-05）；`api.js` 幂等键字典键名清理失配（PC-P1-12）；`import_subcontract_products` 缺编辑版本锁保护（PC-P2-06）；售后出库库存不足返回前漏 `db.session.rollback()`（PC-P2-10）。
+- 修复：聚合本单来源数量扣除自身预占以精准校验超收；销售复核/同步/取消补齐状态过滤、写锁与行级草稿拦截；委外反加工与批量改状态补写锁、收发单门禁、空明细校验与审计；期初保存接入 `@web_document_idempotent`、`stage_document_response` 及前端防重，导入移出头创建并拦截停用物料；物料合并将 `opening_stock` 迁入数量合并表；采购/审批/采购单关键路由补写锁、幂等与停用物料校验（保留既有 `test_closed_orders_are_still_excluded` 契约）；销售下推调用重算并替换跨库 `sa_case`；关联销售出库拦截无来源新增行并锁定 `purpose`；补齐期初/调拨删除审计、修复 `api.js` 键清理、接入 `import_subcontract_products` 编辑锁与售后出库异常回滚。
+- 同类点已排查：排查全部单据批量完成/删除/状态变更、编辑锁 `EDIT_ENDPOINTS`、幂等保存键与物料合并表清单。
+- 回归：新增 `tests/test_pc_desktop_audit_fixes_20261126.py` 覆盖核心单据、锁与幂等回归，随官方 Linux CI 完整验收。
+- 生效确认：待确认（涉及静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-003: PC端报表口径、仓库/合同/物料主数据、Excel导入校验与公式注入防护修复（PC-P1-06~11, PC-P2-01~05）
+
+- 根因：销售对账上下文仅统计 `out` 未扣减 `revert_out` 导致反提交重发虚增已发数（PC-P1-06）；库存查询按库存排序误用全局 `Material.stock`，库存预警停用有库存计数混入他仓物料，`_last_outbound_dates` 未限仓且无 500 分片（PC-P1-07）；采购价分析 Excel 导出未校验价格维度开关，售后出库导出不支持仓库筛选（PC-P1-08）；仓库编辑允许停用默认仓、更名漏同步 `warehouse_id IS NULL` 历史库位/流水且未清选项池缓存（PC-P1-09）；合同删除未检查售后明细及采/销/出库行级 `contract_id`（PC-P1-10）；入库/出库/销售批量导入存在未归一化仓库/批次、先建供应商后校验失败、未拦停用物料/负税率及遗留 0 行空单头（PC-P1-11）；Excel 导出缺少公式注入清洗（PC-P2-01）；危险协议检测未清洗控制字符（PC-P2-02）；打印模板上传未校验已注册 `target_code`（PC-P2-03）；采购单/售后复制、领料编辑与 BOM 明细缺少停用物料/布尔值/仓库归一化校验（PC-P2-04）；物料编辑直接 `int()` 转换外键未归一化 `purpose`（PC-P2-05）。
+- 修复：对账上下文按 `('out', 'revert_out')` 净额聚合；库存排序改为所选仓库库存、预警停用计数限仓、`_last_outbound_dates` 支持按仓分片查询；采购价分析导出加价格维度校验、售后导出支持可选仓库筛选；仓库编辑拦截停用默认仓、同步历史遗留记录并刷新缓存；补齐 `_contract_delete_blockers` 全部引用表；加固批量导入校验顺序并自动清理 0 行空单头；全站 `_workbook_response`/售后/期初导出统一 `_sanitize_excel_cell`；强化 `_has_dangerous_protocol` 控制字符剥离；模板上传校验注册码；补齐复制/领料/BOM/物料编辑校验。
+- 同类点已排查：核对全仓报表汇总、导出端点、批量导入、单据复制与主数据删除拦截器。
+- 回归：新增 `tests/test_pc_desktop_audit_fixes_20261126.py` 覆盖全部报表、导入、主数据与安全工具回归，随官方 Linux CI 完整验收。
+- 生效确认：待确认（待部署与人工核验）。
+
+### BUG-2026-11-26-004: PC端前端交互、AI数据分析/流式确认/视觉模型降级与数据留存外键清理修复（PC-P1-13~18, PC-P2-07~09）
+
+- 根因：`app.js` 存在未转义失效 `querySelector` 与重复嵌入点击监听，入库打印模板快捷键未跳过输入控件（PC-P1-13）；AI 库存周转率分析按负数升序排错榜首且滞销品误排除非 TopN 动销物料（PC-P1-14）；出库异常分析用全局库存且阈值误乘 30 天、库位推荐跨仓混算并含停用物料、需求预测未排除调拨出库/CV 分母写错/排序失准（PC-P1-15）；AI 流式聊天未走文本单据直通且确认台多行丢弃已解析明细、无库位模式调拨草稿仍填库位（PC-P1-16）；视觉模型降级丢弃用户配置首选模型、文件上下文未二次过安全拦截（PC-P1-17）；AI 数据留存清理直接删父表触发外键失败或孤儿行、采购跟单未关联通知筛选漏单据类型、客户催发列表空名显示 `??#`（PC-P1-18）；委外三页全局栏缺 `tableId`、非写角色仍显示批量按钮且明细展开无 `.fail()` 处理（PC-P2-07）；`excel-table.js` 未验 `r.ok` 且合计列硬编码倒数定位（PC-P2-08）；`ai_data_retention.html` 存在 3 处裸 POST `fetch`（PC-P2-09）。
+- 修复：清理 `app.js` 死代码与重复监听、打印模板快捷键跳过输入元素；修复 AI 周转率/异常出库/库位推荐/需求预测口径；修复流式聊天单据分流、`resolved_items` 传递与无库位调拨草稿；保留用户配置视觉首选模型并追加文件上下文安全复检；`_ai_dr_delete_records` 先清/解绑子表外键，修正采购通知筛选与客户占位名；补齐委外 `tableId`/按钮角色控制/`.fail()` 错误提示、`excel-table.js` `r.ok` 与 `data-total` 支持；`ai_data_retention.html` 全面改用 `WMS.api.postRaw`。
+- 同类点已排查：排查全部 PC 端 AI 分析/流式/确认/留存/视觉调用点、委外页面与公共 JS 表格工具；裸 POST `fetch` 基线从 58 降至 55。
+- 回归：新增 `tests/test_pc_desktop_audit_fixes_20261126.py` 覆盖 AI 数据分析、确认草稿、视觉模型顺序、留存删除外键及前端脚本静态/行为断言，随官方 Linux CI 完整验收。
+- 生效确认：待确认（涉及多处模板与静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。
