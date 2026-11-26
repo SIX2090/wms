@@ -122,9 +122,14 @@ def _prepare_bom_items(items, *, existing_items=None):
                     if existing_items is not None else None)
         if original is not None and original.material_id != material.id:
             raise ValueError('原BOM明细不能更换物料，请新增明细后移除原行')
+        if original is None and getattr(material, 'status', None) == 'inactive':
+            raise ValueError(f'第{index}行物料 {material.code} 已停用，不能添加到 BOM')
+        raw_qty = raw.get('quantity')
+        cost_value = raw.get('price')
+        if isinstance(raw_qty, bool) or isinstance(cost_value, bool):
+            raise ValueError(f'第{index}行数量或单价不是有效数字')
         try:
-            quantity = float(raw.get('quantity'))
-            cost_value = raw.get('price')
+            quantity = float(raw_qty)
             cost = float(material.price or 0) if cost_value in (None, '') else float(cost_value)
         except (TypeError, ValueError):
             raise ValueError(f'第{index}行数量或单价不是有效数字')

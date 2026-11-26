@@ -408,12 +408,28 @@ _ALLOWED_PRINT_ATTRS = {
 
 def _has_dangerous_protocol(value: str) -> bool:
     """检查 URL 属性值是否包含 javascript:/vbscript:/data: 等危险协议。"""
-    stripped = value.strip().lower()
-    # 去掉前导空白和控制字符后再判断
+    # PC-P2-02：清除全部 ASCII 控制字符与空白（含内嵌换行/制表符），防 java\nscript: 绕过
+    stripped = re.sub(r'[\x00-\x20]+', '', value or '').lower()
     for proto in ('javascript:', 'vbscript:', 'data:', 'file:'):
         if stripped.startswith(proto):
             return True
     return False
+
+
+def _sanitize_excel_cell(value):
+    """防 Excel 公式注入（PC-P2-01）：以 =/+/-/@/Tab/CR 开头的文本前缀单引号，纯数字字符串原样保留。"""
+    if not isinstance(value, str) or not value:
+        return value
+    first = value[0]
+    if first in ('=', '+', '-', '@', '\t', '\r'):
+        if first in ('+', '-'):
+            try:
+                float(value)
+                return value
+            except ValueError:
+                pass
+        return "'" + value
+    return value
 
 
 def _escape_attr(value: str) -> str:

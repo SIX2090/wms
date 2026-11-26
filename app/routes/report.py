@@ -331,6 +331,8 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type, request.args.get('business_type'))
         if definition is None:
             return api_error('Unsupported report type', 400)
+        if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
+            return api_error('价格维度未启用，采购价格分析已下线', 400)
         try:
             filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'), report_type=report_type)
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据

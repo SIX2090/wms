@@ -296,11 +296,13 @@ def register_export_routes(app):
             AfterSaleOutOrder,
             AfterSaleOutOrderItem,
             Material,
+            Warehouse,
             _apply_status_date_filters,
             _get_order_list_filters,
             _status_from_search_keyword,
         )
         from db import db
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         ws.title = '售后出库单'
@@ -313,6 +315,24 @@ def register_export_routes(app):
             selectinload(AfterSaleOutOrder.items).joinedload(AfterSaleOutOrderItem.material).joinedload(Material.unit)
         )
         query = _apply_status_date_filters(query, AfterSaleOutOrder, status_filter, date_start, date_end)
+        # PC-P1-08：支持按仓库筛选售后出库导出，与列表视图口径一致
+        warehouse_id_filter = request.args.get('warehouse_id', type=int)
+        warehouse_text_filter = (request.args.get('warehouse') or '').strip()
+        if warehouse_id_filter:
+            wh_obj = db.session.get(Warehouse, warehouse_id_filter)
+            if wh_obj:
+                aliases = [v for v in ((wh_obj.name or '').strip(), (wh_obj.code or '').strip()) if v]
+                query = query.filter(AfterSaleOutOrder.warehouse.in_(aliases))
+            else:
+                query = query.filter(db.false())
+        elif warehouse_text_filter:
+            from services.warehouse_identity import resolve_warehouse_text
+            wh_obj = resolve_warehouse_text(warehouse_text_filter)
+            if wh_obj:
+                aliases = [v for v in ((wh_obj.name or '').strip(), (wh_obj.code or '').strip()) if v]
+                query = query.filter(AfterSaleOutOrder.warehouse.in_(aliases))
+            else:
+                query = query.filter(AfterSaleOutOrder.warehouse == warehouse_text_filter)
         if search:
             search_like = f'%{search}%'
             status_from_search = _status_from_search_keyword(search, ('pending', 'completed'))
@@ -337,7 +357,7 @@ def register_export_routes(app):
         for order in orders:
             if order.items:
                 for item in order.items:
-                    ws.append([
+                    ws.append([_sanitize_excel_cell(v) for v in [
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order.customer or '',
@@ -353,9 +373,9 @@ def register_export_routes(app):
                         item.amount or 0,
                         '待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                         order.remark or ''
-                    ])
+                    ]])
             else:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or '',
@@ -365,7 +385,7 @@ def register_export_routes(app):
                     '', '', '', '', 0, 0, 0,
                     '待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

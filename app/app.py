@@ -10023,6 +10023,8 @@ def _contract_delete_blockers(contract):
         refs.append('领料出库单(contract_no 字符串)')
     if PurchaseOrder.query.filter_by(contract_id=contract.id).count() > 0:
         refs.append('采购订单(头)')
+    if hasattr(PurchaseOrderItem, 'contract_id') and PurchaseOrderItem.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('采购订单(明细行 contract_id)')
     # M-05：采购订单明细行 contract_no 字符串引用也要校验
     if hasattr(PurchaseOrderItem, 'contract_no') and contract.contract_no and \
             PurchaseOrderItem.query.filter(PurchaseOrderItem.contract_no == contract.contract_no,
@@ -10030,16 +10032,27 @@ def _contract_delete_blockers(contract):
         refs.append('采购订单(明细行 contract_no 字符串)')
     if SalesOrder.query.filter_by(contract_id=contract.id).count() > 0:
         refs.append('销售订单(头)')
+    if hasattr(SalesOrderItem, 'contract_id') and SalesOrderItem.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('销售订单(明细行 contract_id)')
     # M-05：销售订单明细行 contract_no 字符串引用也要校验
     if hasattr(SalesOrderItem, 'contract_no') and contract.contract_no and \
             SalesOrderItem.query.filter(SalesOrderItem.contract_no == contract.contract_no,
                                         SalesOrderItem.contract_id.is_(None)).count() > 0:
         refs.append('销售订单(明细行 contract_no 字符串)')
+    if hasattr(OutOrderItem, 'contract_id') and OutOrderItem.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('领料出库单(明细行 contract_id)')
     # M-05：领料出库单明细行 contract_no 字符串引用也要校验
     if hasattr(OutOrderItem, 'contract_no') and contract.contract_no and \
             OutOrderItem.query.filter(OutOrderItem.contract_no == contract.contract_no,
                                        OutOrderItem.contract_id.is_(None)).count() > 0:
         refs.append('领料出库单(明细行 contract_no 字符串)')
+    # PC-P1-10：补齐售后出库单明细行合同引用校验，避免硬删合同留下悬空引用
+    if hasattr(AfterSaleOutOrderItem, 'contract_id') and AfterSaleOutOrderItem.query.filter_by(contract_id=contract.id).count() > 0:
+        refs.append('售后出库单(明细行 contract_id)')
+    if hasattr(AfterSaleOutOrderItem, 'contract_no') and contract.contract_no and \
+            AfterSaleOutOrderItem.query.filter(AfterSaleOutOrderItem.contract_no == contract.contract_no,
+                                               AfterSaleOutOrderItem.contract_id.is_(None)).count() > 0:
+        refs.append('售后出库单(明细行 contract_no 字符串)')
     if refs:
         blockers.append('已被' + '、'.join(refs) + '引用')
     return blockers
@@ -27461,12 +27474,13 @@ def _build_col_map(header_row, aliases):
 
 def _workbook_response(filename, sheet_title, columns, rows=None):
     from openpyxl import Workbook
+    from utils import _sanitize_excel_cell
     wb = Workbook()
     ws = wb.active
     ws.title = sheet_title
     ws.append(columns)
     for row in rows or []:
-        ws.append(row)
+        ws.append([_sanitize_excel_cell(cell) for cell in row])
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -30175,20 +30189,41 @@ def _abc_classes(value_by_material):
     return result
 
 
-def _last_outbound_dates(material_ids):
-    """per 物料最后出库日期 {material_id: date}（一次分组聚合，非 N+1）。"""
-    if not material_ids:
+def _last_outbound_dates(material_ids, warehouse=None):
+    """per 物料最后出库日期 {material_id: date}（分片分组聚合，支持按仓库限定并避免 SQLite 参数上限，PC-P1-07）。"""
+    ids = list(dict.fromkeys(material_ids or ()))
+    if not ids:
         return {}
-    rows = (db.session.query(
+    wh_cond = None
+    if warehouse is not None:
+        aliases = [v for v in ((warehouse.name or '').strip(), (warehouse.code or '').strip()) if v]
+        wh_parts = [StockTransaction.warehouse_id == warehouse.id]
+        if aliases:
+            wh_parts.append(db.and_(
+                StockTransaction.warehouse_id.is_(None),
+                StockTransaction.location.in_(aliases),
+            ))
+        wh_cond = db.or_(*wh_parts)
+    result = {}
+    for start in range(0, len(ids), 500):
+        chunk = ids[start:start + 500]
+        q = (db.session.query(
                 StockTransaction.material_id,
                 func.max(StockTransaction.created_at))
-            .filter(
-                StockTransaction.material_id.in_(list(material_ids)),
-                StockTransaction.created_at.isnot(None),
-                _outbound_txn_condition(),
-            )
-            .group_by(StockTransaction.material_id).all())
-    return {mid: dt.date() for mid, dt in rows if dt is not None}
+             .filter(
+                 StockTransaction.material_id.in_(chunk),
+                 StockTransaction.created_at.isnot(None),
+                 _outbound_txn_condition(),
+             ))
+        if wh_cond is not None:
+            q = q.filter(wh_cond)
+        for mid, dt in q.group_by(StockTransaction.material_id).all():
+            if dt is not None:
+                d = dt.date()
+                prev = result.get(mid)
+                if prev is None or d > prev:
+                    result[mid] = d
+    return result
 
 
 def _sql_paged_inventory_analysis_report(filters):
@@ -30241,7 +30276,7 @@ def _sql_paged_inventory_analysis_report(filters):
     today_value = date.today()
     idle_threshold = get_system_setting_int(
         'stock_idle_days', INVENTORY_ANALYSIS_IDLE_DAYS_DEFAULT)
-    last_out_map = _last_outbound_dates(stock_by_material.keys())
+    last_out_map = _last_outbound_dates(stock_by_material.keys(), warehouse=warehouse)
 
     def _to_row(material):
         stock = stock_by_material[material.id]

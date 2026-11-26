@@ -225,7 +225,7 @@ def register_sales_routes(app):
                     skip_details.append(f'第 {row_idx} 行：客户、物料编码或数量无效')
                     continue
                 known_material = Material.query.filter_by(code=material_code).first()
-                _, batch_error = resolve_document_batch_no(_get_excel_cell(row, col_map, 'batch_no'))
+                normalized_batch_no, batch_error = resolve_document_batch_no(_get_excel_cell(row, col_map, 'batch_no'))
                 if batch_error:
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：{batch_error}')
@@ -233,6 +233,11 @@ def register_sales_routes(app):
                 if known_material and (known_material.status or 'active') != 'active':
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：物料 {material_code} 已停用，不能新增销售明细')
+                    continue
+                tax_rate = _get_excel_number(row, col_map, 'tax_rate', default=0.13)
+                if tax_rate < 0:
+                    skip += 1
+                    skip_details.append(f'第 {row_idx} 行：税率不能小于 0')
                     continue
                 order = orders_by_no.get(order_no)
                 if not order:
@@ -266,14 +271,18 @@ def register_sales_routes(app):
                     skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
                     continue
                 price = _get_excel_number(row, col_map, 'price')
-                tax_rate = _get_excel_number(row, col_map, 'tax_rate', default=0.13)
                 included_amount = round_money_product(quantity, price)
                 untaxed_amount = round_to_2_decimals(included_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else included_amount
                 tax_amount = round_to_2_decimals(included_amount - untaxed_amount)
                 untaxed_price = round(price / (1 + tax_rate), 4) if quantity > 0 and (1 + tax_rate) > 0 else 0
-                db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, tax_rate=tax_rate, untaxed_price=untaxed_price, untaxed_amount=untaxed_amount, tax_amount=tax_amount, tax_included_amount=included_amount, amount=included_amount, batch_no=_get_excel_cell(row, col_map, 'batch_no'), serial_no=_get_excel_cell(row, col_map, 'serial_no'), remark=_get_excel_cell(row, col_map, 'remark')))
+                db.session.add(SalesOrderItem(sales_order_id=order.id, material_id=material.id, quantity=quantity, price=price, tax_rate=tax_rate, untaxed_price=untaxed_price, untaxed_amount=untaxed_amount, tax_amount=tax_amount, tax_included_amount=included_amount, amount=included_amount, batch_no=normalized_batch_no, serial_no=_get_excel_cell(row, col_map, 'serial_no'), remark=_get_excel_cell(row, col_map, 'remark')))
                 item_count += 1
-            for order in orders_by_no.values():
+            db.session.flush()
+            for order in list(orders_by_no.values()):
+                if not order.items:
+                    db.session.delete(order)
+                    order_count = max(0, order_count - 1)
+                    continue
                 recalculate_sales_order(order)
                 order.status = 'draft'
                 order.shipment_status = 'pending'

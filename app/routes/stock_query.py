@@ -86,6 +86,29 @@ def build_stock_material_query(filters, warehouse_stock_map):
             query = query.filter(Material.id.in_(matched))
         else:
             query = query.filter(Material.id.notin_(miss))
+    if filters['sort'] == 'stock':
+        # PC-P1-07：按所选仓库实时库存排序，不再按全局 Material.stock 排序（A11/R2）
+        nonzero = [
+            (int(mid), float(qty))
+            for mid, qty in (warehouse_stock_map or {}).items()
+            if abs(float(qty or 0)) > 1e-9
+        ]
+        if nonzero:
+            from sqlalchemy import case as sa_case
+            chunk_exprs = [
+                sa_case(dict(nonzero[i:i + 400]), value=Material.id, else_=0.0)
+                for i in range(0, len(nonzero), 400)
+            ]
+            sort_expr = chunk_exprs[0]
+            for extra_expr in chunk_exprs[1:]:
+                sort_expr = sort_expr + extra_expr
+        else:
+            from sqlalchemy import literal as sa_literal
+            sort_expr = sa_literal(0.0)
+        return query.order_by(
+            sort_expr.asc() if filters['order'] == 'asc' else sort_expr.desc(),
+            Material.code.asc(),
+        )
     sort_col = getattr(Material, filters['sort'], Material.code)
     return query.order_by(sort_col.asc() if filters['order'] == 'asc' else sort_col.desc())
 

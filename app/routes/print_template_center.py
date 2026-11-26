@@ -256,6 +256,10 @@ def register_print_template_center_routes(app):
         upload = request.files.get('excel_file')
         if not name or target_type not in TARGET_TYPES or not target_code:
             return jsonify({'status': 'error', 'msg': '请完整填写模板名称、模板分类和业务编码'}), 400
+        # PC-P2-03：上传模板同样校验 target_code 合法性，防止任意未注册编码写入模板表
+        if not (_is_registered_code(target_type, target_code)
+                or (target_type == 'document' and target_code in ('in_order', 'out_order'))):
+            return jsonify({'status': 'error', 'msg': f'未注册的业务编码：{target_code}'}), 400
         if not upload or not upload.filename or os.path.splitext(upload.filename)[1].lower() != '.xlsx':
             return jsonify({'status': 'error', 'msg': '仅支持 .xlsx 格式'}), 400
         from print_fill import validate_template_file

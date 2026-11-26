@@ -183,7 +183,14 @@ def sales_reconciliation_context():
                 inventory_key = (outbound.id, item.material_id)
                 if inventory_key not in inventory_keys:
                     inventory_keys.add(inventory_key)
-                    inventory_qty += abs(float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(StockTransaction.reference_type == 'out_order', StockTransaction.reference_id == outbound.id, StockTransaction.material_id == item.material_id, StockTransaction.transaction_type == 'out').scalar() or 0))
+                    # PC-P1-06：净出库流水须同时汇总 out（负）与 revert_out（正），避免反提交再完成导致流水双计
+                    net_out = -float(db.session.query(func.coalesce(func.sum(StockTransaction.quantity), 0)).filter(
+                        StockTransaction.reference_type == 'out_order',
+                        StockTransaction.reference_id == outbound.id,
+                        StockTransaction.material_id == item.material_id,
+                        StockTransaction.transaction_type.in_(('out', 'revert_out')),
+                    ).scalar() or 0)
+                    inventory_qty += max(0.0, net_out)
         shipped_qty, completed_qty, quantity_diff, quantity_ok = _reconciliation_quantities(
             (item.shipped_quantity for item in order.items), completed_quantities, STOCK_COMPARE_EPSILON)
         amount_diff, amount_ok = _reconciliation_amounts(order.shipped_amount, completed_amounts)

@@ -251,6 +251,10 @@ def register_batch_import_routes(app):
                 material_code = get_val('material_code')
                 if material_code:
                     material = Material.query.filter_by(code=material_code).first()
+                    if material and getattr(material, 'status', None) == 'inactive':
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：物料 {material_code} 已停用，不能导入出库明细')
+                        continue
                     if not material:
                         # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有
                         # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
@@ -352,6 +356,7 @@ def register_batch_import_routes(app):
             location_management_enabled,
             resolve_item_contract,
             reuse_material_by_name_spec,
+            validate_inventory_warehouse,
         )
         file = request.files.get('file')
         if not file:
@@ -467,7 +472,7 @@ def register_batch_import_routes(app):
                 from routes.in_order import _parse_item_expiry_date
                 expiry_raw = row[col_map['expiry_date']] if 'expiry_date' in col_map and col_map['expiry_date'] < len(row) else None
                 _, expiry_error = _parse_item_expiry_date(expiry_raw)
-                _, batch_error = resolve_document_batch_no(get_val('batch_no'))
+                normalized_batch_no, batch_error = resolve_document_batch_no(get_val('batch_no'))
                 row_kind = current_order.business_type if current_order and current_order.order_no == order_no else (get_val('business_type') or '采购入库')
                 row_error = ('物料编码不能为空' if not get_val('material_code') else
                              '数量必须大于 0' if get_num('quantity') <= 0 else
@@ -479,9 +484,13 @@ def register_batch_import_routes(app):
                     skip_details.append(f'第{row_idx}行：{row_error}')
                     continue
                 if current_order and order_no != current_order.order_no:
-                    for item in current_items:
-                        db.session.add(item)
-                    count += 1
+                    if current_items:
+                        for item in current_items:
+                            db.session.add(item)
+                        count += 1
+                    else:
+                        # PC-P1-11：所有明细行均被跳过时清理空单据头，不留 0 行孤儿入库单
+                        db.session.delete(current_order)
                     current_order = None
                     current_items = []
                 if not current_order:
@@ -495,11 +504,12 @@ def register_batch_import_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：仓库为空且未配置默认仓库')
                         continue
-                    warehouse_ok, warehouse_msg = assert_warehouse_active(warehouse, allow_empty=False)
-                    if not warehouse_ok:
+                    wh_obj, wh_err = validate_inventory_warehouse(warehouse)
+                    if wh_err or not wh_obj:
                         skip += 1
-                        skip_details.append(f'第{row_idx}行：{warehouse_msg}')
+                        skip_details.append(f'第{row_idx}行：{wh_err or "仓库无效或已停用"}')
                         continue
+                    warehouse = wh_obj.name
                     location = get_val('location')
                     if location_management_enabled() and not location:
                         skip += 1
@@ -507,6 +517,15 @@ def register_batch_import_routes(app):
                         continue
                     supplier_name = get_val('supplier') or (get_val('party') if business_type == '采购入库' else '')
                     customer_name = get_val('customer') or (get_val('party') if business_type == '其他入库' else '')
+                    # PC-P1-11：先校验必填往来方，再自动创建供应商/客户档案，避免跳过行污染主数据
+                    if business_type == '采购入库' and not supplier_name:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：采购入库缺少供应商')
+                        continue
+                    if business_type == '其他入库' and not customer_name:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：其他入库缺少客户')
+                        continue
                     if InOrder.query.filter_by(order_no=order_no).first():
                         skip += 1
                         skip_details.append(f'第{row_idx}行：单据编号{order_no}已存在')
@@ -527,14 +546,6 @@ def register_batch_import_routes(app):
                         db.session.add(customer)
                         db.session.flush()
                         warnings.append(f'自动创建客户：{customer_name}')
-                    if business_type == '采购入库' and not supplier:
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：采购入库缺少供应商')
-                        continue
-                    if business_type == '其他入库' and not customer:
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：其他入库缺少客户')
-                        continue
                     date_str = get_val('date')
                     date_val = None
                     if date_str:
@@ -579,6 +590,10 @@ def register_batch_import_routes(app):
                 material_code = get_val('material_code')
                 if material_code:
                     material = Material.query.filter_by(code=material_code).first()
+                    if material and getattr(material, 'status', None) == 'inactive':
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：物料 {material_code} 已停用，不能导入入库明细')
+                        continue
                     if not material:
                         # 2026-09-25（判重收敛）：编码查不到时按名称+规格复用已有
                         # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
@@ -632,7 +647,7 @@ def register_batch_import_routes(app):
                     from routes.in_order import _parse_item_expiry_date
                     # P0 批次/有效期捕获：Excel 单元格取原始值（openpyxl 可能给
                     # datetime/date 对象），文本写法再走统一解析器。
-                    batch_no = get_val('batch_no') or None
+                    batch_no = normalized_batch_no
                     if batch_no and len(batch_no) > 50:
                         skip += 1
                         skip_details.append(f'第{row_idx}行：批次号超过50个字符')
@@ -663,6 +678,8 @@ def register_batch_import_routes(app):
                 for item in current_items:
                     db.session.add(item)
                 count += 1
+            elif current_order:
+                db.session.delete(current_order)
             try:
                 db.session.commit()
             except Exception as e:

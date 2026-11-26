@@ -721,14 +721,25 @@ def register_after_sale_out_routes(app):
         # Copy an after-sale outbound order into a new draft order.
         from datetime import date
         from app import (AfterSaleOutOrder, AfterSaleOutOrderItem, api_error,
-                         generate_order_no, log_operation, round_to_2_decimals)
+                         assert_warehouse_active, generate_order_no, log_operation, round_to_2_decimals)
         from sqlalchemy.orm import joinedload
         from flask_login import current_user
         source = AfterSaleOutOrder.query.options(
-            joinedload(AfterSaleOutOrder.items),
+            joinedload(AfterSaleOutOrder.items).joinedload(AfterSaleOutOrderItem.material),
         ).get_or_404(id)
         if not source.items:
             return api_error('原售后出库单没有明细，不能复制')
+        # PC-P2-04：复制售后出库单校验仓库与物料均处于启用状态
+        if source.warehouse:
+            wh_ok, wh_err = assert_warehouse_active(source.warehouse, allow_empty=False)
+            if not wh_ok:
+                return api_error(wh_err or '原单仓库已停用，不能直接复制')
+        inactive_codes = [
+            item.material.code for item in source.items
+            if item.material and getattr(item.material, 'status', None) == 'inactive'
+        ]
+        if inactive_codes:
+            return api_error(f'原售后出库单包含已停用物料（{"、".join(inactive_codes[:5])}），不能直接复制')
 
         try:
             new_order = AfterSaleOutOrder(

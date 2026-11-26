@@ -329,17 +329,26 @@ def register_requisition_routes(app):
     @require_role('production')
     @login_required
     def update_requisition(id):
-        from app import (ProductionRequisition, api_error,
-                         get_default_warehouse, location_management_enabled, log_operation,
+        from app import (BOM, ProductionRequisition, allow_negative_stock, api_error,
+                         get_default_warehouse, get_warehouse_stock_quantities,
+                         is_stock_sufficient, location_management_enabled, log_operation,
                          validate_inventory_warehouse)
         requisition = ProductionRequisition.query.get_or_404(id)
         if requisition.status != 'pending':
             return api_error('只有草稿状态的工单领料单可以修改')
 
         try:
-            bom_id = request.form.get('bom_id')
+            bom_id_raw = (request.form.get('bom_id') or '').strip()
+            resolved_bom_id = None
+            if bom_id_raw:
+                try:
+                    resolved_bom_id = int(bom_id_raw)
+                except (TypeError, ValueError):
+                    return api_error('BOM 标识格式无效')
+                if not db.session.get(BOM, resolved_bom_id):
+                    return api_error('所选 BOM 不存在')
             # BUG-2026-08-05-008：仓库必填，未填写时自动带入默认仓库
-            # P1-6：同时收 warehouse_id（ID 优先）与 warehouse 名称（旧客户端兜底）
+            # P1-6 / PC-P2-04：统一归一为 wh_obj.name，防止把仓库编码直接写入仓库列
             warehouse = (request.form.get('warehouse') or '').strip()
             raw_warehouse_id = request.form.get('warehouse_id')
             if not warehouse and not raw_warehouse_id:
@@ -351,13 +360,27 @@ def register_requisition_routes(app):
             wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
             if wh_err:
                 return api_error(wh_err)
-            if raw_warehouse_id:
-                warehouse = wh_obj.name
+            warehouse = wh_obj.name
             # P1-BUGFIX: 库位（开启库位管理时必填，AGENTS.md 规则二）
             location = (request.form.get('location') or '').strip()
             if location_management_enabled() and not location:
                 return api_error('库位管理已启用，请选择库位')
-            requisition.bom_id = int(bom_id) if bom_id else None
+            # PC-P2-04：换仓后复核目标仓库存是否满足已有明细需求
+            if warehouse != (requisition.warehouse or '') and requisition.items and not allow_negative_stock():
+                wh_stock = get_warehouse_stock_quantities(wh_obj)
+                needed = {}
+                materials_by_id = {}
+                for item in requisition.items:
+                    needed[item.material_id] = needed.get(item.material_id, 0) + float(item.quantity or 0)
+                    if item.material:
+                        materials_by_id[item.material_id] = item.material
+                for mat_id, req_qty in needed.items():
+                    avail = float(wh_stock.get(mat_id, 0) or 0)
+                    if not is_stock_sufficient(avail, req_qty):
+                        mat = materials_by_id.get(mat_id)
+                        code = mat.code if mat else str(mat_id)
+                        return api_error(f'切换仓库后物料 {code} 库存不足，目标仓库存：{avail:.2f}，本单需求：{req_qty:.2f}')
+            requisition.bom_id = resolved_bom_id
             requisition.production_order = (request.form.get('production_order') or '').strip()
             requisition.purpose = (request.form.get('purpose') or '').strip()
             requisition.picker = (request.form.get('picker') or '').strip()

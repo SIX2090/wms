@@ -206,6 +206,7 @@ def register_inventory_alert_routes(app):
             _warehouse_scoped_material_ids(warehouse, warehouse_quantities)
             if warehouse_quantities is not None else None)
 
+        disabled_stock_count = 0
         for material in materials:
             if warehouse_quantities is not None:
                 if scoped_material_ids is not None and material.id not in scoped_material_ids:
@@ -238,6 +239,8 @@ def register_inventory_alert_routes(app):
                 danger_stock.append(display_item)
             elif alert_status == 'normal':
                 normal_stock.append(display_item)
+            else:
+                disabled_stock_count += 1
 
             include_item = alert_status in ('low', 'danger')
             if status_filter:
@@ -263,7 +266,7 @@ def register_inventory_alert_routes(app):
         else:
             alert_materials.sort(key=lambda item: (item.get(sort_by) if item.get(sort_by) is not None else ''), reverse=reverse)
 
-        disabled_stock_count = len(materials) - len(low_stock) - len(danger_stock) - len(normal_stock)
+        # PC-P1-07：disabled_stock_count 已按仓库范围在循环内精确统计，不再把非本仓跳过物料混入未配置数
         filters = {'search': search, 'status': status_filter, 'category_id': category_id,
                    'supplier_id': supplier_id, 'warehouse_id': warehouse_id}
         categories = MaterialCategory.query.order_by(MaterialCategory.code.asc(), MaterialCategory.id.asc()).all()

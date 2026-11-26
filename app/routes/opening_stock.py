@@ -1409,19 +1409,22 @@ def register_opening_stock_routes(app):
         header.append('状态')
         writer.writerow(header)
 
+        from utils import _sanitize_excel_cell
         for material in materials:
             cells, built_count, orphan_qty, has_orphan, is_gap = \
                 _opening_stock_progress_cells(qty_map, material.id, warehouse_ids)
             if only_gap and not is_gap:
                 continue
-            writer.writerow(
-                [material.code, material.name, material.spec or '',
-                 material.unit.name if material.unit else '',
-                 built_count, len(warehouse_ids)]
-                + ['%.2f' % c['quantity'] if c['built'] else '未建账' for c in cells]
-                + ['%.2f' % orphan_qty if has_orphan else '',
-                   '未建账' if is_gap else '已建账']
-            )
+            writer.writerow([
+                _sanitize_excel_cell(v) for v in (
+                    [material.code, material.name, material.spec or '',
+                     material.unit.name if material.unit else '',
+                     built_count, len(warehouse_ids)]
+                    + ['%.2f' % c['quantity'] if c['built'] else '未建账' for c in cells]
+                    + ['%.2f' % orphan_qty if has_orphan else '',
+                       '未建账' if is_gap else '已建账']
+                )
+            ])
         wrapper.flush()
         # detach 交还底层 BytesIO 的所有权，避免 wrapper 析构时关闭 buffer
         wrapper.detach()

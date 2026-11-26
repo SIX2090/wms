@@ -706,15 +706,34 @@ def register_material_routes(app):
         if code_changed and not material_code_editable():
             return api_error('系统参数已禁止修改物料编码')
 
+        def _parse_optional_fk(raw_val, label):
+            raw_str = (raw_val or '').strip()
+            if not raw_str:
+                return None, None
+            parsed = parse_int_value(raw_str, None, minimum=1)
+            if parsed is None:
+                return None, f'{label}参数格式无效'
+            return parsed, None
+
+        cat_id, cat_err = _parse_optional_fk(request.form.get('category_id'), '物料分类')
+        if cat_err:
+            return api_error(cat_err)
+        unit_id_val, unit_err = _parse_optional_fk(request.form.get('unit_id'), '计量单位')
+        if unit_err:
+            return api_error(unit_err)
+        sup_id, sup_err = _parse_optional_fk(request.form.get('supplier_id'), '默认供应商')
+        if sup_err:
+            return api_error(sup_err)
+
         material.code = new_code
         material.name = new_name
-        material.category_id = request.form.get('category_id') or None
-        material.unit_id = request.form.get('unit_id') or None
-        material.supplier_id = request.form.get('supplier_id') or None
+        material.category_id = cat_id
+        material.unit_id = unit_id_val
+        material.supplier_id = sup_id
         material.brand = new_brand or None
         material.spec = new_spec
         material.status = new_status
-        material.purpose = request.form.get('purpose')
+        material.purpose = (request.form.get('purpose') or '').strip() or None
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
         if inventory_alert_enabled():
             # BUG-2026-09-18-002：同新增——安全库存不得小于最低库存。

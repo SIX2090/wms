@@ -153,6 +153,9 @@ def register_warehouse_routes(app):
         # W4：后端校验状态值域，防止绕过前端写入任意状态（仅 active/inactive 合法）
         if status not in ('active', 'inactive'):
             return api_error('状态仅支持 active/inactive')
+        # PC-P1-09：默认仓库禁止直接停用，避免默认仓解析和新建单据大面积失败
+        if status == 'inactive' and warehouse.is_default:
+            return api_error('默认仓库不能直接停用，请先将其他启用仓库设为默认后再停用')
 
         old_name = warehouse.name or ''
         old_code = warehouse.code or ''
@@ -200,7 +203,22 @@ def register_warehouse_routes(app):
                         {column: case(replacements, value=column, else_=column)},
                         synchronize_session=False
                     )
+                # PC-P1-09：同步历史 warehouse_id IS NULL 的库位/流水文本仓库名，避免改名后历史库存失联
+                from app import LocationInventory, StockTransaction
+                for legacy_model in (LocationInventory, StockTransaction):
+                    legacy_model.query.filter(
+                        legacy_model.warehouse_id.is_(None),
+                        legacy_model.location.in_(replacements),
+                    ).update(
+                        {legacy_model.location: case(replacements, value=legacy_model.location, else_=legacy_model.location)},
+                        synchronize_session=False,
+                    )
             db.session.commit()
+            try:
+                from app import invalidate_options_pool
+                invalidate_options_pool('warehouse')
+            except Exception:
+                pass
         except WarehouseIdentityError as exc:
             db.session.rollback()
             return api_error(str(exc))
