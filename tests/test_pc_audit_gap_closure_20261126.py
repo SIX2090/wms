@@ -151,3 +151,35 @@ def test_pc_p2_07_no_duplicate_inline_sortable_header_listeners():
     app_js = (APP_DIR / "static" / "js" / "app.js").read_text(encoding="utf-8")
     assert "function setupSortableHeaders()" in app_js
     assert "setupSortableHeaders();" in app_js
+
+
+def test_bug_2026_11_26_007_read_only_roles_include_viewer_and_user():
+    tree = ast.parse((APP_DIR / "utils.py").read_text(encoding="utf-8-sig"))
+    roles = None
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "READ_ONLY_ROLES":
+                    roles = ast.literal_eval(node.value.args[0])
+    assert roles is not None
+    assert {"finance", "viewer", "user"}.issubset(roles)
+
+
+def test_bug_2026_11_26_007_closed_po_and_sqlite_coalesce_source_contracts():
+    src = (APP_DIR / "app.py").read_text(encoding="utf-8-sig")
+    tree = ast.parse(src)
+    targets = {"build_purchase_request_execution", "sync_sales_order_shipment"}
+    funcs = {
+        n.name: ast.get_source_segment(src, n)
+        for n in tree.body
+        if isinstance(n, ast.FunctionDef) and n.name in targets
+    }
+
+    po_exec = funcs["build_purchase_request_execution"]
+    assert "PurchaseOrder.status != 'closed'" not in po_exec
+    assert "PurchaseOrder.status == 'closed'" in po_exec
+
+    sync_fn = funcs["sync_sales_order_shipment"]
+    assert "func.max(" not in sync_fn
+    assert "func.coalesce(SalesOrderItem.shipped_quantity, 0)" in sync_fn
+    assert "sa_case(" in sync_fn

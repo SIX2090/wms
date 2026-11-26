@@ -176,12 +176,35 @@ def test_completed_facts_do_not_depend_on_pushed_counter(request_receipts):
 
 
 def test_closed_orders_are_still_excluded(request_receipts):
+    # PC-P1-01（2026-11-26 用户拍板更新契约）：
+    # 已关闭采购单仅释放未收货余量，已完成实收量仍计入已执行，防止超额重复采购。
     c = request_receipts
-    c['draft'].status = 'completed'
+    # 1) 未产生任何已完成入库即关闭 → 全量释放
+    c['draft'].status = 'pending'
     c['po'].status = 'closed'
     db.session.commit()
-    assert execution(c)[c['line'].id]['ordered_quantity'] == 0
-    assert execution(c)[c['line'].id]['received_quantity'] == 0
+    ex_zero = execution(c)[c['line'].id]
+    assert ex_zero['ordered_quantity'] == 0
+    assert ex_zero['received_quantity'] == 0
+    assert ex_zero['remaining_to_order'] == 2
+
+    # 2) 部分收货（实收 1 / 订购 2）后关闭 → 保留实收 1，仅释放未收余量 1
+    c['draft'].items[0].quantity = 1
+    c['draft'].status = 'completed'
+    db.session.commit()
+    ex_partial = execution(c)[c['line'].id]
+    assert ex_partial['ordered_quantity'] == 1
+    assert ex_partial['received_quantity'] == 1
+    assert ex_partial['remaining_to_order'] == 1
+    assert ex_partial['remaining_to_receive'] == 0
+
+    # 3) 全部收货（实收 2 / 订购 2）后关闭 → 保留实收 2，不再释放余量
+    c['draft'].items[0].quantity = 2
+    db.session.commit()
+    ex_full = execution(c)[c['line'].id]
+    assert ex_full['ordered_quantity'] == 2
+    assert ex_full['received_quantity'] == 2
+    assert ex_full['remaining_to_order'] == 0
 
 
 def test_query_count_does_not_grow_per_purchase_line(request_receipts):

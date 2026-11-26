@@ -6794,19 +6794,25 @@ def build_purchase_request_execution(valid_items, request_order=None):
     ordered_by_item = {item_id: 0 for item_id in item_ids}
     received_by_item = {item_id: 0 for item_id in item_ids}
     if item_ids:
-        # BUG-2026-10-29-015: the PO counter reserves draft pushes, not receipts.
+        from sqlalchemy import case as sa_case
+        # BUG-2026-10-29-015 / PC-P1-01（2026-11-26 拍板）：
+        # 未关闭采购单按整行采购量占用申请额度；已关闭采购单仅保留已完成实收量，
+        # 释放未收货余量，防止关闭部分入库采购单后实收清零引发超额重复采购。
         receipts = _purchase_completed_receipts_subquery(order_ids=select(
             PurchaseOrderItem.purchase_order_id).where(
                 PurchaseOrderItem.purchase_request_item_id.in_(item_ids)))
+        effective_ordered = sa_case(
+            (PurchaseOrder.status == 'closed', func.coalesce(receipts.c.received_quantity, 0)),
+            else_=PurchaseOrderItem.quantity,
+        )
         rows = db.session.query(
             PurchaseOrderItem.purchase_request_item_id,
-            func.coalesce(func.sum(PurchaseOrderItem.quantity), 0),
+            func.coalesce(func.sum(effective_ordered), 0),
             func.coalesce(func.sum(receipts.c.received_quantity), 0),
         ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).outerjoin(
             receipts, receipts.c.item_id == PurchaseOrderItem.id,
         ).filter(
             PurchaseOrderItem.purchase_request_item_id.in_(item_ids),
-            PurchaseOrder.status != 'closed',
         ).group_by(PurchaseOrderItem.purchase_request_item_id).all()
         for item_id, ordered_qty, received_qty in rows:
             ordered_by_item[item_id] = round_to_2_decimals(ordered_qty or 0)
@@ -6863,17 +6869,21 @@ def build_purchase_request_execution(valid_items, request_order=None):
                 or_clauses.append(PurchaseOrder.remark.like(f'%{request_no}%'))
 
         if or_clauses:
+            from sqlalchemy import case as sa_case
             receipts = _purchase_completed_receipts_subquery(order_ids=select(
-                PurchaseOrder.id).where(db.or_(*or_clauses), PurchaseOrder.status != 'closed'))
+                PurchaseOrder.id).where(db.or_(*or_clauses)))
+            effective_unlinked_ordered = sa_case(
+                (PurchaseOrder.status == 'closed', func.coalesce(receipts.c.received_quantity, 0)),
+                else_=PurchaseOrderItem.quantity,
+            )
             unlinked_rows = db.session.query(
                 PurchaseOrderItem.material_id,
-                func.coalesce(func.sum(PurchaseOrderItem.quantity), 0),
+                func.coalesce(func.sum(effective_unlinked_ordered), 0),
                 func.coalesce(func.sum(receipts.c.received_quantity), 0),
             ).join(PurchaseOrder, PurchaseOrderItem.purchase_order_id == PurchaseOrder.id).outerjoin(
                 receipts, receipts.c.item_id == PurchaseOrderItem.id,
             ).filter(
                 db.or_(*or_clauses),
-                PurchaseOrder.status != 'closed',
                 PurchaseOrderItem.purchase_request_item_id.is_(None),
                 PurchaseOrderItem.material_id.in_(
                     [item.material_id for item in valid_items if item.material_id]
@@ -36646,15 +36656,12 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         # PC-P0-05：多单选单出库表头 order 为 None，逐行必须检查来源销售订单未取消
         if sales_item.sales_order and sales_item.sales_order.status == 'cancelled':
             continue
-        # SALES-AUDIT-004 / PC-P1-03：原子回写 shipped_quantity；非 SQLite 方言用可移植 CASE，SQLite 与合成测试保持 func.max
+        # SALES-AUDIT-004 / PC-P1-03（2026-11-26 拍板）：全方言（含 SQLite）统一使用可移植
+        # CASE + COALESCE 原子回写 shipped_quantity，防止历史 NULL 传播或方言差异。
+        from sqlalchemy import case as sa_case
         delta = quantity_sign * (outbound_item.quantity or 0)
-        dialect_name = getattr(getattr(getattr(db, 'engine', None), 'dialect', None), 'name', 'sqlite')
-        if dialect_name != 'sqlite':
-            from sqlalchemy import case as sa_case
-            next_shipped = func.coalesce(SalesOrderItem.shipped_quantity, 0) + delta
-            shipped_expr = sa_case((next_shipped > 0, next_shipped), else_=0)
-        else:
-            shipped_expr = func.max(0, SalesOrderItem.shipped_quantity + delta)
+        next_shipped = func.coalesce(SalesOrderItem.shipped_quantity, 0) + delta
+        shipped_expr = sa_case((next_shipped > 0, next_shipped), else_=0)
         db.session.execute(
             sa_update(SalesOrderItem)
             .where(SalesOrderItem.id == sales_item.id)

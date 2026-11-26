@@ -191,6 +191,9 @@
         .then(function(res) {
             // BUG-2026-10-17-014-F06：raw 模式返回完整响应（含 status/page/total_pages），
             // 供需要分页元数据的调用方使用；默认模式仍自动解包 data。
+            // PC-P1-12（2026-11-26 拍板保留）：仅清理无单号表单键（pendingDocumentKeys[url]）；
+            // 带单号新建（url:order_no）在同页生命周期刻意保留幂等键以防连点触发单号冲突，
+            // 换新单号或新开页面会自然生成新键（契约见 test_actual_api_attaches_and_retains_retry_keys）。
             if (res && res.status === 'success' && saveKey && pendingDocumentKeys[saveKeyUrl] === saveKey) delete pendingDocumentKeys[saveKeyUrl];
             if (raw) return res;
             // 业务状态判断

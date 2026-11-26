@@ -748,7 +748,9 @@ def _looks_like_image(data: bytes) -> bool:
 #      只挂了 @login_required、没有任何角色校验（如 /opening_stock/import 能改库存），
 #      单靠 require_role 白名单根本挡不住。
 #   3) 只读语义的 POST（查询、导出）进白名单，不影响财务正常查数。
-READ_ONLY_ROLES = frozenset({'finance'})
+# PC-P0-03（2026-11-26 用户拍板）：finance / viewer / user 均纳入只读写闸，
+# 统一受 enforce_read_only_role 拦截，堵住仅挂 @login_required 的写路由敞口。
+READ_ONLY_ROLES = frozenset({'finance', 'viewer', 'user'})
 
 # 可由管理员分配给账号的角色全集。
 # AI-WMS-FINANCE-ROLE：此前这份白名单在 add_user / edit_user 里各硬编码一份，
@@ -793,7 +795,7 @@ READ_ONLY_DENIED_PREFIXES = (
     '/api/ai/',         # AI API
 )
 
-READ_ONLY_DENY_MSG = '财务账号为只读权限，不能新增、修改或删除数据'
+READ_ONLY_DENY_MSG = '当前账号为只读权限，不能新增、修改或删除数据'
 
 # 这些端点在只读角色被拒时要放行，否则登录后连退出、改自己的密码都做不到。
 READ_ONLY_ALWAYS_ALLOWED_ENDPOINTS = frozenset({

@@ -48,6 +48,17 @@ class SalesProgressMoneyContract(unittest.TestCase):
              return_guard.__dict__)
         sqlalchemy = ModuleType('sqlalchemy')
         sqlalchemy.inspect = lambda *args, **kwargs: None
+
+        def _sa_case(*whens, else_=0):
+            def _eval(row):
+                for cond, value in whens:
+                    ok = cond(row) if callable(cond) else cond
+                    if ok:
+                        return value(row) if callable(value) else value
+                return else_(row) if callable(else_) else else_
+            return _eval
+
+        sqlalchemy.case = _sa_case
         for guard in (patch.object(builtins, '__import__', side_effect=guarded_import),
                       patch.object(sqlite3, 'connect', deny),
                       patch.object(sqlite3.dbapi2, 'connect', deny),
@@ -82,12 +93,25 @@ class SalesProgressMoneyContract(unittest.TestCase):
         return tuple(getattr(order, key) for key in HEAD_MONEY), tuple(getattr(line, key) for key in LINE_MONEY)
 
     def wire_sync(self, order, line):
+        class Expr:
+            def __init__(self, fn):
+                self.fn = fn
+
+            def __call__(self, row):
+                return self.fn(row)
+
+            def __add__(self, other):
+                return Expr(lambda row: self.fn(row) + other)
+
+            def __gt__(self, other):
+                return Expr(lambda row: self.fn(row) > other)
+
         class Field:
             def __eq__(self, other):
                 return True
 
             def __add__(self, other):
-                return lambda row: (row.shipped_quantity or 0) + other
+                return Expr(lambda row: (row.shipped_quantity or 0) + other)
 
         class Statement:
             def where(self, *args):
@@ -104,7 +128,10 @@ class SalesProgressMoneyContract(unittest.TestCase):
         model = SimpleNamespace(id=Field(), shipped_quantity=Field())
         self.env.update(SalesOrder=SimpleNamespace(query=SimpleNamespace(get=lambda ident: order)),
                         SalesOrderItem=model, sa_update=lambda model: Statement(),
-                        func=SimpleNamespace(max=lambda floor, expression: lambda row: max(floor, expression(row))),
+                        func=SimpleNamespace(
+                            max=lambda floor, expression: lambda row: max(floor, expression(row)),
+                            coalesce=lambda col, default: Expr(lambda row: default if row.shipped_quantity is None else row.shipped_quantity),
+                        ),
                         db=SimpleNamespace(session=SimpleNamespace(get=lambda model, ident: line,
                                             execute=execute, expire=lambda *args: None)))
         return SimpleNamespace(source_sales_order_id=1, purpose='', items=[

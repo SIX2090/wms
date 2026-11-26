@@ -1384,3 +1384,124 @@ def test_pc_audit_gap_closure_20261126_guard_sales_draft_and_excel_exports():
     assert str(pr_ws.cell(2, pr_headers.index("申请人") + 1).value).startswith("'=evil_user")
     assert pr_ws.cell(2, pr_headers.index("合同编号") + 1).value == "=1+1"
     assert pr_ws.cell(2, pr_headers.index("合同编号") + 1).data_type == "s"
+
+
+def test_pc_audit_approved_contract_updates_20261126():
+    """BUG-2026-11-26-007: 用户拍板更新 3 项旧契约（viewer/user 只读写闸、已关闭部分收货采购单保实收、SQLite shipped_quantity NULL 防护）。"""
+    _reset()
+    admin = _seed_user("admin_c7", "admin")
+    viewer = _seed_user("viewer_c7", "viewer")
+    normal_user = _seed_user("user_c7", "user")
+    wh = _seed_warehouse("WH1", "主仓", is_default=True)
+    unit = _seed_unit("个", "PCS")
+    mat = _seed_material("M-C7", "契约物料", unit, warehouse=wh, stock=50, price=10)
+    cust = app_module.Customer(code="C-C7", name="契约客户")
+    db.session.add(cust)
+    db.session.commit()
+
+    # 1) PC-P0-03: viewer / user 均在 READ_ONLY_ROLES，禁止访问未挂角色装饰器的写接口，但仍可只读浏览业务页
+    from utils import READ_ONLY_ROLES
+    assert {"finance", "viewer", "user"}.issubset(READ_ONLY_ROLES)
+    client = app_module.app.test_client()
+    for ro_user in (viewer, normal_user):
+        _login_web(client, ro_user)
+        assert client.get("/material").status_code == 200
+        assert client.get(f"/stock_query?warehouse_id={wh.id}").status_code == 200
+        r_imp = client.post(
+            "/opening_stock/import",
+            data={"file": (io.BytesIO(b"xlsx"), "x.xlsx")},
+            content_type="multipart/form-data",
+        )
+        assert r_imp.status_code in (302, 403), (ro_user.role, r_imp.status_code)
+        r_fb = client.post("/api/ai/v2/feedback", json={"rating": "thumbs_up"})
+        assert r_fb.status_code == 403, (ro_user.role, r_fb.status_code)
+
+    # 2) PC-P1-01: 关闭部分入库采购单后保留已完成实收量（40），仅释放未收货余量（60），防超额下推
+    pr = app_module.PurchaseRequest(
+        request_no="PR-C7-CLOSE", date=date.today(), applicant="采购", status="approved", operator_id=admin.id,
+    )
+    db.session.add(pr)
+    db.session.flush()
+    pr_item = app_module.PurchaseRequestItem(
+        purchase_request_id=pr.id, material_id=mat.id, material_code=mat.code,
+        material_name=mat.name, quantity=100,
+    )
+    po = app_module.PurchaseOrder(
+        order_no="PO-C7-CLOSE", date=date.today(), purchase_request_id=pr.id,
+        status="closed", operator_id=admin.id,
+    )
+    db.session.add_all([pr_item, po])
+    db.session.flush()
+    po_item = app_module.PurchaseOrderItem(
+        purchase_order_id=po.id, purchase_request_item_id=pr_item.id,
+        material_id=mat.id, quantity=100, received_quantity=40, price=10, amount=1000,
+    )
+    db.session.add(po_item)
+    db.session.flush()
+    in_done = app_module.InOrder(
+        order_no="IN-C7-DONE", date=date.today(), business_type="采购入库",
+        warehouse=wh.name, status="completed", source_purchase_order_id=po.id, operator_id=admin.id,
+    )
+    db.session.add(in_done)
+    db.session.flush()
+    db.session.add(app_module.InOrderItem(
+        in_order_id=in_done.id, material_id=mat.id, source_purchase_order_item_id=po_item.id,
+        quantity=40, price=10, amount=400,
+    ))
+    db.session.commit()
+
+    ex = app_module.build_purchase_request_execution([pr_item], pr)[pr_item.id]
+    assert ex["ordered_quantity"] == 40
+    assert ex["received_quantity"] == 40
+    assert ex["remaining_to_order"] == 60
+    assert ex["remaining_to_receive"] == 0
+
+    _login_web(client, admin)
+    r_over = client.post(
+        f"/purchase_request/{pr.id}/create_purchase_order",
+        json={"items": [{"purchase_request_item_id": pr_item.id, "quantity": 70}]},
+    )
+    assert r_over.get_json()["status"] == "error"
+    r_exact = client.post(
+        f"/purchase_request/{pr.id}/create_purchase_order",
+        json={"items": [{"purchase_request_item_id": pr_item.id, "quantity": 60}]},
+    )
+    assert r_exact.status_code == 200 and r_exact.get_json()["status"] == "success"
+
+    # 3) PC-P1-03: SQLite 下 SalesOrderItem.shipped_quantity 为 NULL 时 sync_sales_order_shipment 不得传播 NULL
+    so = app_module.SalesOrder(
+        order_no="SO-C7-NULL", date=date.today(), customer_id=cust.id,
+        warehouse=wh.name, warehouse_id=wh.id, status="confirmed", shipment_status="pending",
+        total_amount=100, untaxed_amount=100, tax_amount=0, operator_id=admin.id,
+    )
+    db.session.add(so)
+    db.session.flush()
+    soi = app_module.SalesOrderItem(
+        sales_order_id=so.id, material_id=mat.id, quantity=10, price=10, amount=100,
+        tax_included_amount=100, untaxed_amount=100, tax_amount=0, tax_rate=0,
+    )
+    db.session.add(soi)
+    db.session.flush()
+    db.session.execute(
+        app_module.sa_update(app_module.SalesOrderItem)
+        .where(app_module.SalesOrderItem.id == soi.id)
+        .values(shipped_quantity=None)
+    )
+    out = app_module.OutOrder(
+        order_no="OUT-C7-NULL", date=date.today(), business_type="销售出库",
+        warehouse=wh.name, status="completed", source_sales_order_id=so.id, operator_id=admin.id,
+    )
+    db.session.add(out)
+    db.session.flush()
+    db.session.add(app_module.OutOrderItem(
+        out_order_id=out.id, material_id=mat.id, source_sales_order_item_id=soi.id,
+        quantity=4, price=10, amount=40,
+    ))
+    db.session.commit()
+
+    app_module.sync_sales_order_shipment(out, quantity_sign=1)
+    db.session.commit()
+    db.session.expire_all()
+    refreshed = db.session.get(app_module.SalesOrderItem, soi.id)
+    assert refreshed.shipped_quantity == 4.0
+    assert db.session.get(app_module.SalesOrder, so.id).shipment_status == "partial"
