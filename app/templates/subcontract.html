@@ -219,19 +219,7 @@
 </div>
 
 <script>
-// （已移除 DataTable 初始化：项目未引入 DataTables 库）
-
-document.querySelectorAll('.sortable-header').forEach(function(th) {
-    th.addEventListener('click', function() {
-        var sortField = this.dataset.sortable;
-        var url = new URL(window.location.href);
-        var currentSort = url.searchParams.get('sort');
-        var currentOrder = url.searchParams.get('order') || 'desc';
-        url.searchParams.set('sort', sortField);
-        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
-        window.location.href = url.toString();
-    });
-});
+// （已移除 DataTable 初始化：项目未引入 DataTables 库；表头排序统一由 app.js 的 setupSortableHeaders() 绑定）
 
 // 全选/取消全选
 document.getElementById('selectAll').addEventListener('click', function() {

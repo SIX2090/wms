@@ -1817,7 +1817,8 @@ def register_sales_routes(app):
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
             return jsonify({'status': 'error', 'msg': _wh_err or '请选择仓库'}), 400
-        query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+        # PC-P1-06：与 sales_reconciliation_context 保持同口径，默认排除已取消与草稿订单
+        query = SalesOrder.query.filter(SalesOrder.status.notin_(('cancelled', 'draft')))
         query = query.filter(_reconciliation_warehouse_filter(SalesOrder, selected_warehouse))
         aliases = _reconciliation_warehouse_aliases(Warehouse.query.all())
         workbook = Workbook(); sheet = workbook.active; sheet.title = '销售对账'; sheet.append(['销售订单号', '仓库', '订单已发货数量', '出库完成数量', '订单已发货金额', '对账状态'])

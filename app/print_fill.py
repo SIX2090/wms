@@ -282,6 +282,17 @@ class _Filler:
 
         return _PLACEHOLDER_RE.sub(_repl, text)
 
+    def _set_filled_cell(self, cell, orig, resolver):
+        """填充单元格占位符；非公式模板单元格经占位符替换产生文本时强制标为纯字符串（PC-P2-01）。"""
+        if not isinstance(orig, str) or not _PLACEHOLDER_RE.search(orig):
+            if cell.value != orig:
+                cell.value = orig
+            return
+        cell.value = self._replace_cell(orig, resolver)
+        # Keep formulas authored in the template; data supplied via placeholders stays literal text.
+        if not orig.startswith('=') and isinstance(cell.value, str):
+            cell.data_type = 's'
+
     # ---------- 填充 ----------
     def fill(self, ws):
         # Validate even empty detail blocks before they can erase a bad token.
@@ -312,7 +323,7 @@ class _Filler:
                 for c in range(1, max_col + 1):
                     cell = ws.cell(r, c)
                     if isinstance(cell.value, str):
-                        cell.value = self._replace_cell(cell.value, self.order_value)
+                        self._set_filled_cell(cell, cell.value, self.order_value)
             self._embed_order_images(ws)
             return
 
@@ -333,7 +344,7 @@ class _Filler:
             for c in range(1, max_col + 1):
                 cell = ws.cell(r, c)
                 if isinstance(cell.value, str):
-                    cell.value = self._replace_cell(cell.value, self.order_value)
+                    self._set_filled_cell(cell, cell.value, self.order_value)
 
         # 3) 明细行扩展
         sample_count = max(0, boundary - template_row - 1 if boundary else 0)
@@ -341,7 +352,7 @@ class _Filler:
 
         if item_count == 0:
             for c, orig in col_cells.items():
-                ws.cell(template_row, c).value = self._replace_cell(orig, lambda t: '')
+                self._set_filled_cell(ws.cell(template_row, c), orig, lambda t: '')
             self._embed_order_images(ws)
             return
 
@@ -400,13 +411,9 @@ class _Filler:
                     _embed_placeholder_image(
                         ws, row_idx, c, kind, data, _fmt(data))
                 else:
-                    cell.value = self._replace_cell(
-                        orig, lambda t, item=item: self.item_value(t, item)
+                    self._set_filled_cell(
+                        cell, orig, lambda t, item=item: self.item_value(t, item)
                     )
-                    # Text supplied by a detail field stays literal. Keep formulas authored in the template.
-                    if (isinstance(orig, str) and not orig.startswith('=') and '{item.' in orig
-                            and isinstance(cell.value, str)):
-                        cell.data_type = 's'
                 source = ws.cell(template_row, c)
                 cell._style = copy(source._style)
 

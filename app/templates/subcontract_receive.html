@@ -271,17 +271,7 @@
 {% block extra_js %}
 <script src="{{ url_for('static', filename='js/subcontract-material-selection.js', v=STATIC_VERSION) }}"></script>
 <script>
-document.querySelectorAll('.sortable-header').forEach(function(th) {
-    th.addEventListener('click', function() {
-        var sortField = this.dataset.sortable;
-        var url = new URL(window.location.href);
-        var currentSort = url.searchParams.get('sort');
-        var currentOrder = url.searchParams.get('order') || 'desc';
-        url.searchParams.set('sort', sortField);
-        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
-        window.location.href = url.toString();
-    });
-});
+// 表头排序统一由 app.js 的 setupSortableHeaders() 绑定（PC-P2-07）
 
 // 物料缓存
 var materialsCache = [];

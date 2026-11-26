@@ -1234,7 +1234,152 @@ def test_pc_frontend_xss_csrf_and_script_static_contracts():
     in_tpl = (APP_DIR / "templates" / "in_order_print_template.html").read_text(encoding="utf-8")
     assert "INPUT" in in_tpl and "TEXTAREA" in in_tpl
 
-    # PC-P2-07: 委外明细加载含 .fail() 回调
+    # PC-P2-07: 委外明细加载含 .fail() 回调且无重复内联排序监听（含同类列表页 R6 收敛）
     for name in ("subcontract_issue.html", "subcontract_receive.html"):
         txt = (APP_DIR / "templates" / name).read_text(encoding="utf-8")
         assert ".fail(" in txt
+    for rel in (
+        "templates/subcontract.html",
+        "templates/subcontract_issue.html",
+        "templates/subcontract_receive.html",
+        "templates/adjustment.html",
+        "templates/check.html",
+        "templates/requisition.html",
+        "templates/transfer.html",
+        "static/js/pages/after-sale-out-list.js",
+    ):
+        txt = (APP_DIR / rel).read_text(encoding="utf-8")
+        assert "querySelectorAll('.sortable-header')" not in txt, f"{rel} still duplicates sortable-header click binding"
+    assert "function setupSortableHeaders()" in app_js
+
+
+def test_pc_audit_gap_closure_20261126_guard_sales_draft_and_excel_exports():
+    """BUG-2026-11-26-006: 补齐 PC-P1-05 期初删行并发守卫、PC-P1-06 默认排草稿、PC-P2-01 全路径 Excel 公式防护。"""
+    _reset()
+    admin = _seed_user("admin_gap", "admin")
+    wh = _seed_warehouse("WH1", "主仓", is_default=True)
+    unit = _seed_unit("个", "PCS")
+    mat = _seed_material("M-GAP-1", "=CMD|' /C calc'!A0", unit, warehouse=wh, stock=10, price=10)
+    sup = _seed_supplier("S-GAP", "+SUM(1,2)")
+    cust = _seed_customer("C-GAP", "=HYPERLINK(\"http://evil\")")
+    db.session.commit()
+
+    client = app_module.app.test_client()
+    _login_web(client, admin)
+
+    # 1) PC-P1-05: batch_delete_opening_stock_lines 加入 EDIT_ENDPOINTS，缺版本令牌返回 409，带签发令牌成功，过期令牌 409
+    from services.document_edit_guard import EDIT_ENDPOINTS
+    assert "batch_delete_opening_stock_lines" in EDIT_ENDPOINTS
+    r_save = client.post("/opening_stock/save", json={
+        "warehouse_id": wh.id,
+        "date": date.today().isoformat(),
+        "items": [{"material_id": mat.id, "warehouse_id": wh.id, "quantity": 5, "price": 10}],
+    })
+    assert r_save.status_code == 200, r_save.get_json()
+    doc_id = r_save.get_json()["doc_id"]
+    line_id = app_module.OpeningStock.query.filter_by(doc_id=doc_id).one().id
+
+    r_no_rev = client.post(f"/opening_stock/{doc_id}/lines/delete", json={"line_ids": [line_id]})
+    assert r_no_rev.status_code == 409
+    assert r_no_rev.get_json()["code"] == "DOCUMENT_REVISION_REQUIRED"
+    assert app_module.OpeningStock.query.filter_by(doc_id=doc_id).count() == 1
+
+    page_html = client.get(f"/opening_stock/{doc_id}").get_data(as_text=True)
+    m_rev = re.search(r'<meta name="document-revision" content="([^"]+)"', page_html)
+    assert m_rev and m_rev.group(1)
+    rev_token = m_rev.group(1)
+
+    r_ok = client.post(
+        f"/opening_stock/{doc_id}/lines/delete",
+        json={"line_ids": [line_id]},
+        headers={"X-WMS-Document-Revision": rev_token},
+    )
+    assert r_ok.status_code == 200 and r_ok.get_json()["status"] == "success"
+    assert app_module.OpeningStock.query.filter_by(doc_id=doc_id).count() == 0
+
+    r_stale = client.post(
+        f"/opening_stock/{doc_id}/lines/delete",
+        json={"line_ids": [line_id]},
+        headers={"X-WMS-Document-Revision": rev_token},
+    )
+    assert r_stale.status_code == 409 and r_stale.get_json()["code"] == "DOCUMENT_EDIT_CONFLICT"
+
+    # 2) PC-P1-06: 销售对账、对账导出与销售汇总默认排除 draft 草稿订单；销售汇总显式 status=draft 仍可查看
+    so_conf = app_module.SalesOrder(
+        order_no="SO-CONF-GAP", date=date.today(), customer_id=cust.id,
+        warehouse=wh.name, warehouse_id=wh.id, status="confirmed", shipment_status="pending",
+        total_amount=100, untaxed_amount=100, tax_amount=0, operator_id=admin.id,
+    )
+    so_draft = app_module.SalesOrder(
+        order_no="SO-DRAFT-GAP", date=date.today(), customer_id=cust.id,
+        warehouse=wh.name, warehouse_id=wh.id, status="draft", shipment_status="pending",
+        total_amount=200, untaxed_amount=200, tax_amount=0, operator_id=admin.id,
+    )
+    db.session.add_all([so_conf, so_draft])
+    db.session.flush()
+    db.session.add(app_module.SalesOrderItem(
+        sales_order_id=so_conf.id, material_id=mat.id, quantity=1, price=100, amount=100,
+        tax_included_amount=100, untaxed_amount=100, tax_amount=0, tax_rate=0,
+    ))
+    db.session.add(app_module.SalesOrderItem(
+        sales_order_id=so_draft.id, material_id=mat.id, quantity=2, price=100, amount=200,
+        tax_included_amount=200, untaxed_amount=200, tax_amount=0, tax_rate=0,
+    ))
+    db.session.commit()
+
+    from services.sales_report_print import sales_reconciliation_context, sales_summary_context
+    with app_module.app.test_request_context(f"/sales/reconciliation?warehouse_id={wh.id}"):
+        recon_nos = [row["order"].order_no for row in sales_reconciliation_context()["rows"]]
+        assert "SO-CONF-GAP" in recon_nos and "SO-DRAFT-GAP" not in recon_nos
+
+    r_recon_exp = client.get(f"/sales/reconciliation/export?warehouse_id={wh.id}")
+    assert r_recon_exp.status_code == 200
+    recon_wb = load_workbook(io.BytesIO(r_recon_exp.data))
+    recon_exp_nos = [recon_wb.active.cell(r, 1).value for r in range(2, recon_wb.active.max_row + 1)]
+    assert "SO-CONF-GAP" in recon_exp_nos and "SO-DRAFT-GAP" not in recon_exp_nos
+
+    with app_module.app.test_request_context(f"/sales/report?warehouse_id={wh.id}"):
+        sum_nos = [o.order_no for o in sales_summary_context()["orders"]]
+        assert "SO-CONF-GAP" in sum_nos and "SO-DRAFT-GAP" not in sum_nos
+    with app_module.app.test_request_context(f"/sales/report?warehouse_id={wh.id}&status=draft"):
+        draft_nos = [o.order_no for o in sales_summary_context()["orders"]]
+        assert "SO-DRAFT-GAP" in draft_nos and "SO-CONF-GAP" not in draft_nos
+
+    # 3) PC-P2-01: export_in_order 与 export_purchase_request 对公式前缀文本做安全中和/纯文本写入
+    in_ord = app_module.InOrder(
+        order_no="IN-GAP-1", date=date.today(), business_type="采购入库",
+        supplier_id=sup.id, warehouse=wh.name, status="pending",
+        remark="=1+1", operator_id=admin.id,
+    )
+    db.session.add(in_ord)
+    db.session.flush()
+    db.session.add(app_module.InOrderItem(
+        in_order_id=in_ord.id, material_id=mat.id, quantity=1, price=10, amount=10,
+    ))
+    pr = app_module.PurchaseRequest(
+        request_no="PR-GAP-1", date=date.today(), applicant="=evil_user",
+        department="+dept", urgency="普通", status="pending", operator_id=admin.id,
+    )
+    db.session.add(pr)
+    db.session.flush()
+    db.session.add(app_module.PurchaseRequestItem(
+        purchase_request_id=pr.id, material_id=mat.id, quantity=1,
+        estimated_price=10, estimated_amount=10, contract_no="=1+1", remark="=note",
+    ))
+    db.session.commit()
+
+    r_in_exp = client.get(f"/in_order/export?warehouse_id={wh.id}")
+    assert r_in_exp.status_code == 200
+    in_ws = load_workbook(io.BytesIO(r_in_exp.data)).active
+    assert all(cell.data_type != "f" for row in in_ws.iter_rows(min_row=2) for cell in row)
+    in_vals = [cell.value for cell in in_ws[2]]
+    assert any(isinstance(v, str) and v.startswith("'=CMD") for v in in_vals)
+
+    r_pr_exp = client.get("/purchase_request/export")
+    assert r_pr_exp.status_code == 200
+    pr_ws = load_workbook(io.BytesIO(r_pr_exp.data)).active
+    assert all(cell.data_type != "f" for row in pr_ws.iter_rows(min_row=2) for cell in row)
+    pr_headers = [c.value for c in pr_ws[1]]
+    assert str(pr_ws.cell(2, pr_headers.index("申请人") + 1).value).startswith("'=evil_user")
+    assert pr_ws.cell(2, pr_headers.index("合同编号") + 1).value == "=1+1"
+    assert pr_ws.cell(2, pr_headers.index("合同编号") + 1).data_type == "s"

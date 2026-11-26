@@ -158,7 +158,8 @@ def sales_reconciliation_context():
     if not selected_warehouse:
         orders = []
     else:
-        query = SalesOrder.query.filter(SalesOrder.status != 'cancelled')
+        # PC-P1-06：销售对账默认排除已取消与草稿订单，避免未确认草稿混入对账口径
+        query = SalesOrder.query.filter(SalesOrder.status.notin_(('cancelled', 'draft')))
         query = query.filter(_reconciliation_warehouse_filter(SalesOrder, selected_warehouse))
         orders = query.options(selectinload(SalesOrder.items), selectinload(SalesOrder.outbound_orders)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
     aliases = _reconciliation_warehouse_aliases(Warehouse.query.all()) if selected_warehouse else {}
@@ -243,6 +244,9 @@ def sales_summary_context():
             query = query.filter(SalesOrder.salesperson_id == salesperson_id)
         if status:
             query = query.filter(SalesOrder.status == status)
+        else:
+            # PC-P1-06：销售汇总默认排除草稿订单；显式选择 status=draft 时仍可按需筛查
+            query = query.filter(SalesOrder.status != 'draft')
         if shipment_status:
             query = query.filter(SalesOrder.shipment_status == shipment_status)
         if project_no:

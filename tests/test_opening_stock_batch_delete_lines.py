@@ -26,6 +26,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from tests.document_revision_client import document_post
 from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -119,7 +120,7 @@ class TestOpeningStockBatchDeleteLines:
         return db.session.get(Material, material.id).stock
 
     def _batch_delete(self, doc_id, payload):
-        resp = self.client.post(f"/opening_stock/{doc_id}/lines/delete", json=payload)
+        resp = document_post(self.client, f"/opening_stock/{doc_id}/lines/delete", json=payload)
         try:
             return resp.status_code, resp.get_json()
         except Exception:  # pragma: no cover - 兜底便于定位 500

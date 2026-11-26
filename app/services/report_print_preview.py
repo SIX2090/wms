@@ -181,7 +181,7 @@ def _fill_sheet(sheet, filler):
                 cell = sheet.cell(detail + offset, index)
                 cell._style = copy(style)
                 if not _has_item_placeholder(value):
-                    cell.value = filler._replace_cell(value, filler.order_value)
+                    filler._set_filled_cell(cell, value, filler.order_value)
         for left, top, right, bottom in new_merges:
             sheet.merge_cells(start_row=top, start_column=left, end_row=bottom, end_column=right)
         if original_areas:

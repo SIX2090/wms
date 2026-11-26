@@ -327,8 +327,11 @@ def _write_sheet_layout(ws, title, header, columns, totals):
 
     # 标题（合并居中，位于明细行上方，安全）
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
-    ws.cell(1, 1, title).font = _TITLE_FONT
-    ws.cell(1, 1).alignment = _CENTER
+    title_cell = ws.cell(1, 1, title)
+    if isinstance(title_cell.value, str):
+        title_cell.data_type = 's'
+    title_cell.font = _TITLE_FONT
+    title_cell.alignment = _CENTER
     ws.row_dimensions[1].height = 30
 
     # 表头字段区：每行 2 对（标签+占位符），不合并，稳妥
@@ -348,6 +351,8 @@ def _write_sheet_layout(ws, title, header, columns, totals):
     # 明细表头
     for c, (name, _, _) in enumerate(columns, start=1):
         cell = ws.cell(row, c, name)
+        if isinstance(cell.value, str):
+            cell.data_type = 's'
         cell.font = _HEADER_FONT
         cell.alignment = _CENTER
         cell.border = _BORDER
@@ -1047,10 +1052,14 @@ def render_report_excel_print(report_type, title, columns, rows,
     wb = load_workbook(path)
     if using_builtin and report_type in ('in_detail', 'out_detail') and title:
         wb.active['A1'] = title
+        if isinstance(wb.active['A1'].value, str):
+            wb.active['A1'].data_type = 's'
         wb.active.title = title[:31]
     if using_builtin and report_type in ('requisition', 'subcontract'):
         for cell, column in zip(wb.active[2], columns):
             cell.value = column['title']
+            if isinstance(cell.value, str):
+                cell.data_type = 's'
     total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail') else None
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),

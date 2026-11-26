@@ -5,6 +5,7 @@ import pytest
 
 import app as wms
 from routes.opening_stock import OPENING_STOCK_PURGE_PHRASE
+from tests.document_revision_client import document_post
 from tests.test_document_create_number_conflicts import case, rows
 from tests.test_web_stock_posting_audit import fail_audit, posting_actors
 
@@ -38,13 +39,13 @@ def test_opening_stock_delete_audit_rolls_back_deletion_and_stock(posting_actors
     payloads = {'document': {}, 'lines': {'line_ids': [line_id]},
                 'all': {'confirm': True, 'confirm_phrase': OPENING_STOCK_PURGE_PHRASE}}
     with fail_audit(operation) as attempted:
-        failed = poster.post(urls[scope], json=payloads[scope])
+        failed = document_post(poster, urls[scope], json=payloads[scope])
     assert failed.json['status'] == 'error', failed.json
     assert attempted == [None if scope == 'all' else doc_id]
     with wms.app.app_context():
         assert [rows(model) for model in models] == before
 
-    saved = poster.post(urls[scope], json=payloads[scope])
+    saved = document_post(poster, urls[scope], json=payloads[scope])
     assert saved.json['status'] == 'success', saved.json
     count = 2 if scope == 'all' else 1
     with wms.app.app_context():

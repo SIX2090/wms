@@ -147,6 +147,7 @@ def register_export_routes(app):
             resolve_request_warehouse,
         )
         from db import db
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单'
@@ -199,7 +200,7 @@ def register_export_routes(app):
                               InOrder.id, InOrderItem.id)
         for order, item in rows:
             material = item.material if item else None
-            ws.append([
+            ws.append([_sanitize_excel_cell(v) for v in [
                 order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '',
                 order.business_type or '采购入库', order.purpose or '',
                 order.supplier.name if order.supplier else '', order.customer.name if order.customer else '',
@@ -212,7 +213,7 @@ def register_export_routes(app):
                 (item.project_name if item else None) or order.project_name or '',
                 {'pending': '未审核/待完成', 'completed': '已完成'}.get(order.status, order.status or ''),
                 order.remark or ''
-            ])
+            ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -233,6 +234,7 @@ def register_export_routes(app):
             _get_order_list_filters,
             _status_label,
         )
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         ws.title = '采购申请单'
@@ -251,16 +253,17 @@ def register_export_routes(app):
         for req in requests_list:
             if req.items:
                 for item in req.items:
+                    # PC-P2-01：基础字段中和公式前缀，合同编号/工程名称/备注保留原文并强制 data_type='s'
                     ws.append([
-                        req.request_no,
+                        _sanitize_excel_cell(req.request_no),
                         req.date.strftime('%Y-%m-%d') if req.date else '',
-                        req.applicant or '',
-                        req.department or '',
-                        req.urgency or '',
-                        item.material.code if item.material else '',
-                        item.material.name if item.material else '',
-                        item.material.spec if item.material else '',
-                        item.material.unit.name if item.material and item.material.unit else '',
+                        _sanitize_excel_cell(req.applicant or ''),
+                        _sanitize_excel_cell(req.department or ''),
+                        _sanitize_excel_cell(req.urgency or ''),
+                        _sanitize_excel_cell(item.material.code if item.material else ''),
+                        _sanitize_excel_cell(item.material.name if item.material else ''),
+                        _sanitize_excel_cell(item.material.spec if item.material else ''),
+                        _sanitize_excel_cell(item.material.unit.name if item.material and item.material.unit else ''),
                         item.quantity or 0,
                         item.estimated_price or 0,
                         item.estimated_amount or 0,
@@ -269,18 +272,22 @@ def register_export_routes(app):
                         item.project_name or '',
                         item.remark or '',
                     ])
-                    for cell in list(ws[ws.max_row])[-3:]:
-                        cell.data_type = 's'
+                    for cell in ws[ws.max_row]:
+                        if isinstance(cell.value, str):
+                            cell.data_type = 's'
             else:
                 ws.append([
-                    req.request_no,
+                    _sanitize_excel_cell(req.request_no),
                     req.date.strftime('%Y-%m-%d') if req.date else '',
-                    req.applicant or '',
-                    req.department or '',
-                    req.urgency or '',
+                    _sanitize_excel_cell(req.applicant or ''),
+                    _sanitize_excel_cell(req.department or ''),
+                    _sanitize_excel_cell(req.urgency or ''),
                     '', '', '', '', 0, 0, 0,
                     _status_label(req.status), '', '', '',
                 ])
+                for cell in ws[ws.max_row]:
+                    if isinstance(cell.value, str):
+                        cell.data_type = 's'
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

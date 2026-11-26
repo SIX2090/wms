@@ -1,16 +1,5 @@
 // Page code for the migrated after_sale_out list.
-document.querySelectorAll('.sortable-header').forEach(function(th) {
-    th.addEventListener('click', function() {
-        const sortField = this.dataset.sortable;
-        const url = new URL(window.location.href);
-        const currentSort = url.searchParams.get('sort');
-        const currentOrder = url.searchParams.get('order') || 'desc';
-        url.searchParams.set('sort', sortField);
-        url.searchParams.set('order', currentSort === sortField && currentOrder === 'asc' ? 'desc' : 'asc');
-        url.searchParams.delete('page');
-        window.location.href = url.toString();
-    });
-});
+// 表头排序统一由 app.js 的 setupSortableHeaders() 绑定（PC-P2-07 / R6）
 
 function toggleAll() {
     const checkAll = document.getElementById('checkAll');
