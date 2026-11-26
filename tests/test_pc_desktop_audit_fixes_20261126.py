@@ -1260,8 +1260,9 @@ def test_pc_audit_gap_closure_20261126_guard_sales_draft_and_excel_exports():
     wh = _seed_warehouse("WH1", "主仓", is_default=True)
     unit = _seed_unit("个", "PCS")
     mat = _seed_material("M-GAP-1", "=CMD|' /C calc'!A0", unit, warehouse=wh, stock=10, price=10)
-    sup = _seed_supplier("S-GAP", "+SUM(1,2)")
-    cust = _seed_customer("C-GAP", "=HYPERLINK(\"http://evil\")")
+    sup = app_module.Supplier(code="S-GAP", name="+SUM(1,2)")
+    cust = app_module.Customer(code="C-GAP", name='=HYPERLINK("http://evil")')
+    db.session.add_all([sup, cust])
     db.session.commit()
 
     client = app_module.app.test_client()
