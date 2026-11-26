@@ -50,24 +50,9 @@ def case(monkeypatch):
                     location=wh.code if historical else wh.name,
                     reference_type='opening', reference_id=1))
         wms.set_system_setting('location_management_enabled', '0')
-        cust = wms.Customer(code='DC-CUST', name='隔离客户')
-        db.session.add(cust)
-        db.session.flush()
-        sale_order = wms.SalesOrder(
-            order_no='DC-SO-1', customer_id=cust.id,
-            warehouse=a.name, warehouse_id=a.id, status='confirmed', operator_id=u.id,
-        )
-        db.session.add(sale_order)
-        db.session.flush()
-        sale_items = [wms.SalesOrderItem(
-            sales_order_id=sale_order.id, material_id=mat.id,
-            quantity=50, shipped_quantity=0, price=2, amount=100,
-        ) for mat in mats]
-        db.session.add_all(sale_items)
         db.session.commit()
         ids = dict(user=u.id, a=a.id, b=b.id, dep=dep.id,
-                   mats=[m.id for m in mats], names=[a.name, b.name],
-                   sale_order=sale_order.id, sale_items=[si.id for si in sale_items])
+                   mats=[m.id for m in mats], names=[a.name, b.name])
     clients = [wms.app.test_client(), wms.app.test_client()]
     for client in clients:
         with client.session_transaction() as session:
@@ -76,6 +61,38 @@ def case(monkeypatch):
     yield clients, ids
     with wms.app.app_context():
         db.session.remove()
+
+
+def _ensure_sale_source(ids):
+    if 'sale_order' in ids and 'sale_items' in ids:
+        return
+    with wms.app.app_context():
+        sale_order = wms.SalesOrder.query.filter_by(order_no='DC-SO-1').first()
+        if sale_order is None:
+            wh = db.session.get(wms.Warehouse, ids['a'])
+            cust = wms.Customer.query.filter_by(code='DC-CUST').first()
+            if cust is None:
+                cust = wms.Customer(code='DC-CUST', name='隔离客户')
+                db.session.add(cust)
+                db.session.flush()
+            sale_order = wms.SalesOrder(
+                order_no='DC-SO-1', customer_id=cust.id,
+                warehouse=wh.name, warehouse_id=wh.id, status='confirmed', operator_id=ids['user'],
+            )
+            db.session.add(sale_order)
+            db.session.flush()
+            sale_items = [wms.SalesOrderItem(
+                sales_order_id=sale_order.id, material_id=mid,
+                quantity=50, shipped_quantity=0, price=2, amount=100,
+            ) for mid in ids['mats']]
+            db.session.add_all(sale_items)
+            db.session.commit()
+            ids['sale_order'] = sale_order.id
+            ids['sale_items'] = [si.id for si in sale_items]
+        else:
+            by_mat = {si.material_id: si.id for si in sale_order.items}
+            ids['sale_order'] = sale_order.id
+            ids['sale_items'] = [by_mat[mid] for mid in ids['mats']]
 
 
 def payload(kind, ids, number, second=False):
@@ -94,6 +111,7 @@ def payload(kind, ids, number, second=False):
         data['business_type'] = {'sale': '销售出库', 'other': '其他出库',
                                  'requisition': '领料单'}[kind]
     if kind == 'sale':
+        _ensure_sale_source(ids)
         data['source_sales_order_id'] = ids['sale_order']
         data['items'][0]['source_sales_order_item_id'] = ids['sale_items'][index]
     return data
