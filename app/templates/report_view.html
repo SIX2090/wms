@@ -272,6 +272,9 @@
 <div class="small mb-3">{% if reconciliation %}<strong>{{ reconciliation.title }}</strong>（{{ reconciliation.created_at.strftime('%Y-%m-%d %H:%M') }}） {{ reconciliation.content }}{% else %}全仓账簿核对尚无巡检记录。{% endif %}</div>
 {% endif %}
 {% endif %}
+{% if report_type in ('ledger', 'material_movement', 'warehouse_monthly') %}
+<div class="small text-muted mb-3" id="balanceRoundingFootnote">口径说明：期初+本期入库−本期出库 与期末可能存在 ≤0.01 的舍入尾差，属显示口径，非账务错误。</div>
+{% endif %}
 
 <section class="row g-3 mb-3" id="summaryCards">
     {% if report_type in ('material_movement', 'warehouse_monthly') %}

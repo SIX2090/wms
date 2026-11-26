@@ -31413,7 +31413,7 @@ def _collect_ledger_rows(filters):
             float(period_in.get(mid, 0)),
             float(period_out.get(mid, 0)),
             float(balances.get(mid, 0)),
-            '期初 + 本期入库 − 本期出库 = 期末结存',
+            '期初 + 本期入库 − 本期出库 = 期末结存（期初+本期入库−本期出库 与期末可能存在 ≤0.01 的舍入尾差，属显示口径，非账务错误）',
             datetime.combine(closing_date, time.max), -1))
     rows = opening_rows + rows + closing_rows
     for row in rows:
