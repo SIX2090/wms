@@ -159,10 +159,17 @@ def test_bug_2026_11_26_007_read_only_roles_include_viewer_and_user():
     for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
-                if isinstance(target, ast.Name) and target.id in ("READ_ONLY_ROLES", "WRITE_RESTRICTED_ROLES"):
+                if isinstance(target, ast.Name) and target.id in (
+                    "READ_ONLY_ROLES",
+                    "WRITE_RESTRICTED_ROLES",
+                    "WRITE_RESTRICTED_SELF_GATED_ENDPOINTS",
+                ):
                     constants[target.id] = ast.literal_eval(node.value.args[0])
     assert constants.get("READ_ONLY_ROLES") == {"finance"}
     assert {"viewer", "user"}.issubset(constants.get("WRITE_RESTRICTED_ROLES", set()))
+    assert {"ai.chat_clear", "ai.conversation_create"}.issubset(
+        constants.get("WRITE_RESTRICTED_SELF_GATED_ENDPOINTS", set())
+    )
     app_src = (APP_DIR / "app.py").read_text(encoding="utf-8-sig")
     app_tree = ast.parse(app_src)
     hook = next(

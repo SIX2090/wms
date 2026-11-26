@@ -757,6 +757,7 @@ READ_ONLY_ROLES = frozenset({'finance'})
 WRITE_RESTRICTED_ROLES = frozenset({'viewer', 'user'})
 
 WRITE_RESTRICTED_SELF_GATED_ENDPOINTS = frozenset({
+    'ai.chat_clear',
     'ai.conversation_create',
     'ai_document_job_retry',
     'mobile_recognize_material',
