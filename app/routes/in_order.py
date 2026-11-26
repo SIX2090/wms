@@ -3259,7 +3259,8 @@ def register_in_order_routes(app):
                          _acquire_order_write_lock, _check_in_order_anomalies,
                          _wechat_share_order, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date,
-                         location_management_enabled, sales_return_remaining_check,
+                         location_management_enabled, round_to_2_decimals,
+                         sales_return_remaining_check,
                          update_purchase_order_status,
                          validate_purchase_in_order_source,
                          validate_purchase_receive_quantity)

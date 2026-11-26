@@ -132,9 +132,9 @@
         var isFormData = data instanceof FormData;
         var headers = buildHeaders(options.headers, data != null && !isFormData);
         var body = buildBody(data);
+        var saveKeyUrl = url;
         var saveKeyInfo = documentRequestKey(method, url, data);
         var saveKey = saveKeyInfo ? saveKeyInfo.key : '';
-        var saveIntent = saveKeyInfo ? saveKeyInfo.intent : '';
         if (saveKey && !headers['X-Idempotency-Key']) headers['X-Idempotency-Key'] = saveKey;
 
         // 拼接 query string
@@ -191,7 +191,7 @@
         .then(function(res) {
             // BUG-2026-10-17-014-F06：raw 模式返回完整响应（含 status/page/total_pages），
             // 供需要分页元数据的调用方使用；默认模式仍自动解包 data。
-            if (res && res.status === 'success' && saveKey && saveIntent && pendingDocumentKeys[saveIntent] === saveKey) delete pendingDocumentKeys[saveIntent];
+            if (res && res.status === 'success' && saveKey && pendingDocumentKeys[saveKeyUrl] === saveKey) delete pendingDocumentKeys[saveKeyUrl];
             if (raw) return res;
             // 业务状态判断
             if (res && res.status === 'success') {

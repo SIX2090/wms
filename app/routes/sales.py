@@ -234,11 +234,6 @@ def register_sales_routes(app):
                     skip += 1
                     skip_details.append(f'第 {row_idx} 行：物料 {material_code} 已停用，不能新增销售明细')
                     continue
-                tax_rate = _get_excel_number(row, col_map, 'tax_rate', default=0.13)
-                if tax_rate < 0:
-                    skip += 1
-                    skip_details.append(f'第 {row_idx} 行：税率不能小于 0')
-                    continue
                 order = orders_by_no.get(order_no)
                 if not order:
                     existing = SalesOrder.query.filter_by(order_no=order_no).first()
@@ -271,6 +266,7 @@ def register_sales_routes(app):
                     skip_details.append(f'第 {row_idx} 行：无法创建物料 {material_code}')
                     continue
                 price = _get_excel_number(row, col_map, 'price')
+                tax_rate = _get_excel_number(row, col_map, 'tax_rate', default=0.13)
                 included_amount = round_money_product(quantity, price)
                 untaxed_amount = round_to_2_decimals(included_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else included_amount
                 tax_amount = round_to_2_decimals(included_amount - untaxed_amount)

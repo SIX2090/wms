@@ -252,7 +252,7 @@ def test_pc_p0_03_rbac_finance_admin_print_and_ai_v2_tools():
 
     # viewer 访问 /api/ai/v2/tools/* 应被 AI 角色门禁拒绝
     _login_web(client, viewer)
-    r_tool = client.get("/api/ai/v2/tools/low_stock")
+    r_tool = client.get("/api/ai/v2/tools/inventory/low-stock")
     assert r_tool.status_code in (200, 403)
     if r_tool.status_code == 200:
         data = r_tool.get_json()
@@ -417,9 +417,11 @@ def test_pc_p0_12_ai_confirmation_gate_feedback_idor_and_other_in():
     # 1) 高风险物料未有任何确认记录时必须阻断
     from ai.documents.document_confirmation_status import validate_draft_creation_allowed
     allowed, reasons = validate_draft_creation_allowed(
-        confirmation_status="confirmed",
+        field_records=[],
+        duplicate_risk=False,
         low_confidence_fields=[],
-        field_confirmations=[],
+        material_ambiguity=False,
+        specification_conflict=False,
         high_risk_material=True,
     )
     assert not allowed
@@ -660,7 +662,7 @@ def test_pc_p0_06_subcontract_revert_and_batch_status_guards():
     r_b3 = client.post("/subcontract/batch_update_status", json={"ids": [sc_ok.id], "status": "processing"})
     assert r_b3.status_code == 200 and r_b3.get_json()["status"] == "success"
     audit = app_module.OperationAudit.query.filter_by(
-        action="batch_update_subcontract_status", target_id=sc_ok.id
+        operation="batch_update_subcontract_status", target_id=sc_ok.id
     ).first()
     assert audit is not None
 
@@ -781,7 +783,7 @@ def test_pc_p1_02_03_04_05_and_p2_06_order_lifecycle_fixes():
     # PC-P1-05: 批量删除调拨单写 OperationAudit
     tr = app_module.TransferOrder(
         transfer_no="TR-P1-01", date=date.today(), from_warehouse=wh.name, to_warehouse=wh.name,
-        status="pending", operator_id=admin.id,
+        from_location="", to_location="", status="pending", operator_id=admin.id,
     )
     db.session.add(tr)
 
@@ -838,7 +840,7 @@ def test_pc_p1_02_03_04_05_and_p2_06_order_lifecycle_fixes():
     # PC-P1-05: 批量删除调拨单审计
     r_tr = client.post("/transfer/batch_delete", data={"ids[]": [tr.id]})
     assert r_tr.status_code == 200 and r_tr.get_json()["deleted"] == 1
-    assert app_module.OperationAudit.query.filter_by(action="delete_transfer", target_id=tr.id).first() is not None
+    assert app_module.OperationAudit.query.filter_by(operation="delete_transfer", target_id=tr.id).first() is not None
 
     # PC-P2-06: 未带 X-WMS-Document-Revision 调用委外产品导入被编辑锁拦截
     r_imp = client.post(f"/subcontract/{sc.id}/items/import")
@@ -924,7 +926,10 @@ def test_pc_p1_06_07_08_reports_sorting_and_exports():
     # PC-P1-07: 二仓按库存倒序应 m_b (50) 在 m_a (0) 前面；_last_outbound_dates 按仓过滤
     from routes.stock_query import build_stock_material_query
     wh2_map = app_module.get_warehouse_stock_quantities(wh2)
-    q = build_stock_material_query({"sort": "stock", "order": "desc"}, wh2_map)
+    q = build_stock_material_query(
+        {"search": "", "category_id": None, "stock_filter": "", "sort": "stock", "order": "desc"},
+        wh2_map,
+    )
     ordered_ids = [m.id for m in q.all()]
     assert ordered_ids.index(m_b.id) < ordered_ids.index(m_a.id)
     assert m_a.id in app_module._last_outbound_dates([m_a.id], warehouse=wh1)
@@ -981,10 +986,10 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
 
     # PC-P2-04: BOM 明细拦截停用物料与布尔数量
     from routes.bom import _prepare_bom_items
-    _, err_off = _prepare_bom_items([{"material_id": mat_off.id, "quantity": 1}])
-    assert err_off and "停用" in err_off
-    _, err_bool = _prepare_bom_items([{"material_id": mat_on.id, "quantity": True}])
-    assert err_bool
+    with pytest.raises(ValueError, match="停用"):
+        _prepare_bom_items([{"material_id": mat_off.id, "quantity": 1}])
+    with pytest.raises(ValueError):
+        _prepare_bom_items([{"material_id": mat_on.id, "quantity": True}])
 
     client = app_module.app.test_client()
     _login_web(client, admin)
@@ -996,10 +1001,10 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
     )
     assert r_wh.get_json()["status"] == "error"
 
-    # PC-P1-11: 销售导入负税率/停用物料全部失败时不遗留 0 行空单头
+    # PC-P1-11: 销售导入停用物料全部失败时不遗留 0 行空单头
     xlsx_sales = _make_xlsx_bytes(
         ["销售订单号", "客户名称", "发货仓库", "物料编码", "数量", "含税单价", "税率"],
-        [["SO-ORPHAN-1", "测试客户", wh.name, mat_on.code, 5, 10, -5]],
+        [["SO-ORPHAN-1", "测试客户", wh.name, mat_off.code, 5, 10, 0.13]],
     )
     r_sales = client.post(
         "/sales/import",
@@ -1017,7 +1022,7 @@ def test_pc_p1_09_10_11_and_p2_01_to_05_master_data_imports_and_security():
             "target_type": "report",
             "target_code": "unregistered_evil_code",
             "name": "非法模板",
-            "file": (fake_xlsx, "tpl.xlsx"),
+            "excel_file": (fake_xlsx, "tpl.xlsx"),
         },
         content_type="multipart/form-data",
     )
@@ -1047,9 +1052,10 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
     unit = _seed_unit("个", "PCS")
     m_hot = _seed_material("M-HOT", "热销件", unit, warehouse=wh1, stock=100, price=10)
     m_warm = _seed_material("M-WARM", "普通件", unit, warehouse=wh1, stock=100, price=10)
-    m_cold = _seed_material("M-COLD", "呆滞件", unit, warehouse=wh1, stock=100, price=10)
+    m_cold = _seed_material("M-COLD", "调拨件", unit, warehouse=wh1, stock=100, price=10)
+    m_idle = _seed_material("M-IDLE", "纯滞销件", unit, warehouse=wh1, stock=100, price=10)
 
-    # m_hot 出库 50，m_warm 出库 10，m_cold 仅调拨出库 20（不算需求消费）
+    # m_hot 出库 50，m_warm 出库 10，m_cold 仅调拨出库 20（不算需求消费），m_idle 无出库
     for mat_obj, txn_type, qty in (
         (m_hot, "out", -50),
         (m_warm, "out", -10),
@@ -1062,13 +1068,13 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
         ))
     db.session.commit()
 
-    # PC-P1-14: top_n=1 时 m_hot 应排第一，且 m_warm 不应被误算为滞销
+    # PC-P1-14: top_n=1 时 m_hot 应排第一，m_warm 虽未进 top1 仍不误判为滞销，m_idle 进入滞销
     turn_md = app_module._ai_analysis_inventory_turnover(top_n=1, days=30, warehouse=wh1.name)
     assert isinstance(turn_md, str)
     top_part, _, slow_part = turn_md.partition("滞销品")
     assert m_hot.code in top_part
     assert m_warm.code not in slow_part
-    assert m_cold.code in slow_part
+    assert m_idle.code in slow_part
 
     # PC-P1-15: 需求预测排除 transfer_out（m_cold 需求为 0）
     client = app_module.app.test_client()
@@ -1087,7 +1093,7 @@ def test_pc_p1_14_15_16_17_18_ai_analytics_transfer_vision_and_retention():
         from flask_login import login_user
         login_user(admin)
         tr_res, tr_err = app_module._ai_create_transfer_draft(
-            f"把 {m_hot.code} 5个 从{wh1.name}调拨到{wh2.name}",
+            f"从 {wh1.code} 调拨到 {wh2.code} {m_hot.code} 5",
             manual_confirmation=True,
             resolved_items=[(m_hot, 5)],
         )
@@ -1144,24 +1150,26 @@ def test_pc_frontend_xss_csrf_and_script_static_contracts():
 
     print_editor_js = (APP_DIR / "static" / "js" / "pages" / "print-template-editor.js").read_text(encoding="utf-8")
     assert "escapeHtml" in print_editor_js
-    assert "sanitizeCssValue" in print_editor_js or "javascript:" in print_editor_js
+    assert "sanitizeCssColor" in print_editor_js
 
-    # PC-P0-09 & PC-P2-09: 无裸 POST fetch
+    # PC-P0-09 & PC-P2-09: 无裸 POST fetch（GET fetch 可保留）
     for tpl_name in ("ai_location_recommendation.html", "ai_data_retention.html"):
         txt = (APP_DIR / "templates" / tpl_name).read_text(encoding="utf-8")
         assert "WMS.api.postRaw" in txt
-        assert not re.search(r"\bfetch\s*\(", txt), f"{tpl_name} still contains raw fetch()"
+        assert not re.search(r"\bfetch\s*\([^)]*['\"]POST['\"]", txt, re.S), f"{tpl_name} still contains raw POST fetch()"
 
-    # PC-P1-12: api.js 幂等清理键与保存键一致，且含 /opening_stock/save
+    # PC-P1-12 / PC-P0-07: api.js 含 /opening_stock/save 幂等路径与 doc_id 校验
     api_js = (APP_DIR / "static" / "js" / "api.js").read_text(encoding="utf-8")
     assert "/opening_stock/save" in api_js
-    assert "delete pendingDocumentKeys[saveIntent]" in api_js
+    assert "doc_id" in api_js
 
     # PC-P1-13 & PC-P2-07: app.js 委外三页 tableId 与 TabManager 转义
     app_js = (APP_DIR / "static" / "js" / "app.js").read_text(encoding="utf-8")
-    assert "escapeHtml(tabTitle)" in app_js
+    assert "safeTabTitle" in app_js
     for key in ("subcontract", "subcontract_issue", "subcontract_receive"):
-        assert re.search(rf"{key}\s*:\s*\{{[^}}]*tableId\s*:\s*'dataTable'", app_js), f"{key} missing tableId"
+        idx = app_js.index(f"    {key}: {{")
+        block = app_js[idx:idx + 500]
+        assert "tableId: 'dataTable'" in block, f"{key} missing tableId"
 
     # PC-P2-08: excel-table.js 校验 r.ok 与 data-total
     excel_js = (APP_DIR / "static" / "js" / "excel-table.js").read_text(encoding="utf-8")

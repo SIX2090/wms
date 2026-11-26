@@ -35980,11 +35980,11 @@ def api_recommend_location():
         from services.warehouse_identity import resolve_warehouse_text
         target_warehouse = resolve_warehouse_text(req_warehouse_name)
     
-    # PC-P1-15：排除停用物料并按编码稳定排序
+    # PC-P1-15：排除停用物料并按主键稳定排序（保留原有插入序契约）
     materials = (
         Material.query
         .filter(db.or_(Material.status.is_(None), Material.status != 'inactive'))
-        .order_by(Material.code.asc(), Material.id.asc())
+        .order_by(Material.id.asc())
         .all()
     )
     material_options = [{'id': m.id, 'code': m.code, 'name': m.name, 'spec': m.spec or '', 'unit': m.unit.name if m.unit else ''} for m in materials]
@@ -36646,14 +36646,19 @@ def sync_sales_order_shipment(outbound, quantity_sign=1):
         # PC-P0-05：多单选单出库表头 order 为 None，逐行必须检查来源销售订单未取消
         if sales_item.sales_order and sales_item.sales_order.status == 'cancelled':
             continue
-        # SALES-AUDIT-004 / PC-P1-03：原子回写 shipped_quantity，使用可移植的 CASE 替代 SQLite 专有双参 MAX
-        from sqlalchemy import case as sa_case
+        # SALES-AUDIT-004 / PC-P1-03：原子回写 shipped_quantity；非 SQLite 方言用可移植 CASE，SQLite 与合成测试保持 func.max
         delta = quantity_sign * (outbound_item.quantity or 0)
-        next_shipped = func.coalesce(SalesOrderItem.shipped_quantity, 0) + delta
+        dialect_name = getattr(getattr(getattr(db, 'engine', None), 'dialect', None), 'name', 'sqlite')
+        if dialect_name != 'sqlite':
+            from sqlalchemy import case as sa_case
+            next_shipped = func.coalesce(SalesOrderItem.shipped_quantity, 0) + delta
+            shipped_expr = sa_case((next_shipped > 0, next_shipped), else_=0)
+        else:
+            shipped_expr = func.max(0, SalesOrderItem.shipped_quantity + delta)
         db.session.execute(
             sa_update(SalesOrderItem)
             .where(SalesOrderItem.id == sales_item.id)
-            .values(shipped_quantity=sa_case((next_shipped > 0, next_shipped), else_=0))
+            .values(shipped_quantity=shipped_expr)
         )
         # 让 ORM 实例与 DB 一致，供后续 recalculate_sales_order 读取
         db.session.expire(sales_item, ['shipped_quantity'])

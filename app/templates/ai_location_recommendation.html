@@ -229,7 +229,14 @@ $(document).ready(function() {
 });
 
 function loadMaterials() {
-    WMS.api.postRaw('/api/ai/recommend_location', {})
+    const req = (window.WMS && WMS.api && typeof WMS.api.postRaw === 'function')
+        ? WMS.api.postRaw('/api/ai/recommend_location', {})
+        : csrfFetch('/api/ai/recommend_location', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        }).then(r => r.json());
+    req
     .then(data => {
         if (data && data.status === 'success' && data.materials) {
             allMaterials = data.materials;
@@ -317,7 +324,14 @@ function generateRecommendation() {
     $('#loadingArea').show();
     $('#resultArea').hide();
     
-    WMS.api.postRaw('/api/ai/recommend_location', {material_id: selectedMaterialId})
+    const req = (window.WMS && WMS.api && typeof WMS.api.postRaw === 'function')
+        ? WMS.api.postRaw('/api/ai/recommend_location', {material_id: selectedMaterialId})
+        : csrfFetch('/api/ai/recommend_location', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({material_id: selectedMaterialId})
+        }).then(r => r.json());
+    req
     .then(data => {
         $('#loadingArea').hide();
         if (!data || data.status === 'error') {

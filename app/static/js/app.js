@@ -565,8 +565,16 @@ window.WmsTabs = (function() {
         const button = document.createElement('div');
         button.className = 'tab-item';
         button.setAttribute('role', 'tab');
+        const safeTabTitle = (typeof escapeHtml === 'function')
+            ? escapeHtml(tabTitle)
+            : String(tabTitle == null ? '' : tabTitle)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         button.innerHTML =
-            '<span class="tab-title">' + escapeHtml(tabTitle) + '</span>' +
+            '<span class="tab-title">' + safeTabTitle + '</span>' +
             '<button type="button" class="tab-close" aria-label="关闭"><i class="bi bi-x"></i></button>';
 
         const frame = document.createElement('iframe');
@@ -3896,20 +3904,21 @@ document.addEventListener('DOMContentLoaded', function() {
     // 确认及输入框共用事件和键盘边界
     initDialogEvents();
 
-    // PC-P1-13：合并重复的嵌入页面链接点击拦截，统一放行 target(_blank/_top 等)、download、静态/导出/下载与修饰键
+    // 嵌入页面链接处理（PC-P1-13：合并重复点击监听，保留 target/download/静态导出与修饰键放行）
     if (isWmsEmbeddedPage()) {
         document.addEventListener('click', function(event) {
-            if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            if (event.defaultPrevented || (typeof event.button === 'number' && event.button !== 0) || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
             const link = event.target && event.target.closest ? event.target.closest('a[href]') : null;
             if (!link || link.target || link.hasAttribute('download')) return;
             const href = link.getAttribute('href');
             if (!href || href[0] === '#' || href.startsWith('javascript:')) return;
-            let parsed;
-            try { parsed = new URL(href, window.location.href); } catch (error) { return; }
-            if (parsed.origin !== window.location.origin) return;
-            if (parsed.pathname.startsWith('/static') || parsed.pathname.startsWith('/export') || parsed.pathname.includes('/download')) return;
+            let target;
+            try { target = new URL(href, window.location.href); } catch (error) { return; }
+            if (target.origin !== window.location.origin) return;
+            if (target.pathname.startsWith('/static') || target.pathname.startsWith('/export') || target.pathname.includes('/download')) return;
+            target.searchParams.set('embedded', '1');
             event.preventDefault();
-            window.location.href = withEmbeddedParam(parsed.pathname + parsed.search + parsed.hash);
+            window.location.href = target.pathname + target.search + target.hash;
         });
     }
 

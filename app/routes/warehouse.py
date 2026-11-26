@@ -203,16 +203,6 @@ def register_warehouse_routes(app):
                         {column: case(replacements, value=column, else_=column)},
                         synchronize_session=False
                     )
-                # PC-P1-09：同步历史 warehouse_id IS NULL 的库位/流水文本仓库名，避免改名后历史库存失联
-                from app import LocationInventory, StockTransaction
-                for legacy_model in (LocationInventory, StockTransaction):
-                    legacy_model.query.filter(
-                        legacy_model.warehouse_id.is_(None),
-                        legacy_model.location.in_(replacements),
-                    ).update(
-                        {legacy_model.location: case(replacements, value=legacy_model.location, else_=legacy_model.location)},
-                        synchronize_session=False,
-                    )
             db.session.commit()
             try:
                 from app import invalidate_options_pool

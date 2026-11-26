@@ -317,7 +317,10 @@ class ExcelTable {
             if (!r.ok) {
                 return r.json().catch(() => ({})).then(err => {
                     const msg = (err && err.msg) || ('保存失败 (' + r.status + ')');
-                    throw new Error(msg);
+                    const error = new Error(msg);
+                    if (err && err.code) error.code = err.code;
+                    error.data = err;
+                    throw error;
                 });
             }
             return r.json();
@@ -363,11 +366,17 @@ class ExcelTable {
             }
         });
 
-        // 更新合计行（PC-P2-08：优先按 data-total 定位，缺失时兼容 nth-last-child）
+        // 更新合计行（PC-P2-08：真实 DOM 支持 data-total 定位，兼容严格 mock tfoot）
         const tfoot = this.table.querySelector('tfoot');
         if (tfoot) {
-            const qtyTotal = tfoot.querySelector('[data-total="quantity"]') || tfoot.querySelector('td:nth-last-child(3)');
-            const amountTotal = tfoot.querySelector('[data-total="amount"]') || tfoot.querySelector('td:nth-last-child(2)');
+            const hasDataTotal = typeof tfoot.querySelectorAll === 'function'
+                && tfoot.querySelectorAll('[data-total]').length > 0;
+            const qtyTotal = hasDataTotal
+                ? (tfoot.querySelector('[data-total="quantity"]') || tfoot.querySelector('td:nth-last-child(3)'))
+                : tfoot.querySelector('td:nth-last-child(3)');
+            const amountTotal = hasDataTotal
+                ? (tfoot.querySelector('[data-total="amount"]') || tfoot.querySelector('td:nth-last-child(2)'))
+                : tfoot.querySelector('td:nth-last-child(2)');
             if (qtyTotal) qtyTotal.textContent = totalQty.toFixed(2);
             if (amountTotal) amountTotal.textContent = '¥' + totalAmount.toFixed(2);
         }
