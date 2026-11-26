@@ -14,6 +14,7 @@ import re
 import stat
 import subprocess
 import sys
+import time
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -303,6 +304,25 @@ def seal_release(plan, package, archive):
     return proof
 
 
+def _wait_published_release(repository, tag, *, delays=(1, 2, 3, 5, 5), sleeper=None):
+    """Wait briefly for GitHub's by-tag release/ref APIs to reflect --draft=false."""
+    wait = time.sleep if sleeper is None else sleeper
+    last_published = None
+    last_tag_sha = None
+    for attempt in range(len(delays) + 1):
+        published = _json_api(f'repos/{repository}/releases/tags/{tag}', missing=True)
+        published_tag_sha = tag_commit(repository, tag) if published is not None else None
+        if published is not None and published.get('draft') is False and published_tag_sha is not None:
+            return published, published_tag_sha
+        last_published = published
+        last_tag_sha = published_tag_sha
+        if attempt < len(delays):
+            wait(delays[attempt])
+    if last_published is None:
+        raise ValueError('Published release could not be read back by tag.')
+    return last_published, last_tag_sha
+
+
 def publish_release(plan, notes, event_name='workflow_dispatch'):
     if plan['state'] != 'build':
         raise ValueError('Only newly built candidates may publish.')
@@ -333,8 +353,8 @@ def publish_release(plan, notes, event_name='workflow_dispatch'):
         eligibility['unpublished_draft'] = names['tag']
         return eligibility
     _gh('release','edit',names['tag'],'--repo',repository,'--draft=false')
-    published=_json_api(f'repos/{repository}/releases/tags/{names["tag"]}')
-    verify_downloads(published,work,plan,tag_commit(repository,names['tag']))
+    published, published_tag_sha = _wait_published_release(repository, names['tag'])
+    verify_downloads(published,work,plan,published_tag_sha)
     return dict(state='built_verified',source_sha=plan['source_sha'],tag=names['tag'],url=published['html_url'])
 
 

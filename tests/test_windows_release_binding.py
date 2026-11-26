@@ -1,5 +1,5 @@
 """Synthetic committed inputs, ZIPs and fake GitHub responses; no release/network/app."""
-import copy,importlib.util,json,subprocess,sys,zipfile
+import copy,importlib.util,json,subprocess,sys,time,zipfile
 from pathlib import Path
 import pytest
 ROOT=Path(__file__).resolve().parents[1]
@@ -111,6 +111,37 @@ def test_publish_release(candidate,monkeypatch):
  monkeypatch.setattr(m,'_json_api',api);monkeypatch.setattr(m,'_gh',gh);monkeypatch.setattr(m,'tag_commit',lambda *a:A if state['published'] else None);monkeypatch.setattr(m,'build_inputs',lambda *a:F)
  assert m.publish_release(plan,work/'notes.txt')['state']=='built_verified'
  assert '--draft' in calls[0] and calls[1][:2]==('release','edit')
+
+def test_publish_release_retries_transient_post_publish_lag(candidate,monkeypatch):
+ m,plan,release,proof,package,work,assets=candidate();state={'published':False,'reads':0};slept=[]
+ def api(endpoint,**kw):
+  if endpoint.endswith('/heads/main'):return {'object':{'sha':A}}
+  if '/releases?' in endpoint:
+   r=copy.deepcopy(release);r['draft']=True;return [r]
+  state['reads']+=1
+  if state['reads']==1:
+   if not kw.get('missing'):raise ValueError('GitHub operation failed; no release may be claimed as verified.')
+   return None
+  r=copy.deepcopy(release);r['draft']=(state['reads']==2);return r
+ def tag(repo,name):
+  if not state['published']:return None
+  return None if state['reads']<4 else A
+ def gh(*args,**kw):
+  if args[:2]==('release','edit'):state['published']=True
+ monkeypatch.setattr(m,'_json_api',api);monkeypatch.setattr(m,'_gh',gh);monkeypatch.setattr(m,'tag_commit',tag);monkeypatch.setattr(m,'build_inputs',lambda *a:F);monkeypatch.setattr(time,'sleep',slept.append)
+ assert m.publish_release(plan,work/'notes.txt')['state']=='built_verified'
+ assert state['reads']==4 and slept==[1,2,3]
+
+def test_publish_release_fails_closed_when_post_publish_stays_missing(candidate,monkeypatch):
+ m,plan,release,proof,package,work,assets=candidate();slept=[]
+ def api(endpoint,**kw):
+  if endpoint.endswith('/heads/main'):return {'object':{'sha':A}}
+  if '/releases?' in endpoint:
+   r=copy.deepcopy(release);r['draft']=True;return [r]
+  return None
+ monkeypatch.setattr(m,'_json_api',api);monkeypatch.setattr(m,'_gh',lambda *a,**kw:None);monkeypatch.setattr(m,'tag_commit',lambda *a:None);monkeypatch.setattr(m,'build_inputs',lambda *a:F);monkeypatch.setattr(time,'sleep',slept.append)
+ with pytest.raises(ValueError,match='read back'):m.publish_release(plan,work/'notes.txt')
+ assert len(slept)==5
 @pytest.mark.parametrize('case',['main_changed','broken_asset','changed_during_upload','tag_race'])
 def test_publish_release_never_publishes_unverified(candidate,monkeypatch,case):
  m,plan,release,proof,package,work,assets=candidate();calls=[];reads=[0]

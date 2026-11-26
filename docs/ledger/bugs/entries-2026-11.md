@@ -3595,3 +3595,11 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：排查全部 PC 端 AI 分析/流式/确认/留存/视觉调用点、委外页面与公共 JS 表格工具；裸 POST `fetch` 基线从 58 降至 55。
 - 回归：新增 `tests/test_pc_desktop_audit_fixes_20261126.py` 覆盖 AI 数据分析、确认草稿、视觉模型顺序、留存删除外键及前端脚本静态/行为断言，随官方 Linux CI 完整验收。
 - 生效确认：待确认（涉及多处模板与静态脚本改动，生产需重启 WMS 服务生效，待部署与人工核验）。
+
+### BUG-2026-11-26-005: Windows Portable Release 正式发布后立即按 tag 回读无重试致瞬态 404 误报失败
+
+- 根因：`tools/windows_release.py` 的 `publish_release` 在 `gh release edit --draft=false` 正式发布后，零等待零重试立即调用 `GET /releases/tags/<tag>` 与 `tag_commit`，遭遇 GitHub 发布后短暂最终一致性延迟（实证：`Windows Portable Release #411` 于 `07:43:17Z` 已完整发布 `windows-v2026.11.195` 及 4 个校验通过资产，但 `07:43:18Z` 立即回读失败退出）。
+- 修复：在 `tools/windows_release.py` 增加有界短退避 `_wait_published_release`（总计最多 5 次短重试），仅在按 tag 回读 404、`draft` 尚未切换或 tag ref 尚未可见时等待重试，继续执行完整的 `verify_downloads` 资产/摘要/运行时回执校验；耗尽重试仍严格 fail-closed 报错。
+- 同类点已排查：核对 `tools/windows_release.py` 全部 `plan`/`seal`/`publish` 读回路径及 `tests/test_windows_release_binding.py`、`tests/test_windows_release_stale_20261113.py`。
+- 回归：在 `tests/test_windows_release_binding.py` 新增 `test_publish_release_retries_transient_post_publish_lag` 与 `test_publish_release_fails_closed_when_post_publish_stays_missing`，经 R8 文件备份回退验证新用例在旧版必败，并随 `v2026.11.196` 完整 CI 与 `Windows Portable Release` 实跑验收。
+- 生效确认：待确认（CI 发行工具脚本修复，待目标 SHA 的 `WMS CI` / `WMS AI Verification` / `Windows Portable Release` 全绿确认）。
