@@ -1096,18 +1096,19 @@ document.addEventListener('DOMContentLoaded', function() {
         .catch(function(err){ showToast('修复失败: ' + err.message, 'danger'); });
     };
 
+    // 删除全部物料入口已禁用，后端也会拒绝请求。
+    window.deleteAllMaterials = function() {
+        showToast('线上系统已禁用删除全部物料，请走停机维护流程', 'warning');
+    };
+
+    // 批量修改物料 - 表单回车提交
     var batchEditForm = document.getElementById('batchEditForm');
-    if (batchEditForm) {
+    if (batchEditForm && typeof batchEditForm.addEventListener === 'function') {
         batchEditForm.addEventListener('submit', function(e) {
             e.preventDefault();
             submitBatchEdit();
         });
     }
-
-    // 删除全部物料入口已禁用，后端也会拒绝请求。
-    window.deleteAllMaterials = function() {
-        showToast('线上系统已禁用删除全部物料，请走停机维护流程', 'warning');
-    };
 
     // 编辑物料 - 提交表单
     var editForm = document.getElementById('editForm');
