@@ -173,6 +173,7 @@ function setInputValueIfExists(id, value) {
 }
 
 var materialDeleteBusy = false;
+var materialBatchEditBusy = false;
 
 function getSelectedMaterialIds() {
     return Array.from(document.querySelectorAll('#materialTable .check-item:checked'), function(cb) {
@@ -190,6 +191,8 @@ function updateToolbarButtons() {
     var hasSelection = count > 0;
     var isSingleSelection = count === 1;
     document.getElementById('toolbarEditBtn').disabled = !isSingleSelection;
+    var batchEditBtn = document.getElementById('toolbarBatchEditBtn');
+    if (batchEditBtn) batchEditBtn.disabled = !hasSelection || materialBatchEditBusy;
     document.getElementById('toolbarCopyBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarPrintBtn').disabled = !hasSelection;
     const remotePrintButton = document.getElementById('toolbarRemotePrintBtn');
@@ -381,6 +384,150 @@ function toolbarMerge() {
     if (selected.length < 1 || selected.length > 2) return;
     WMS.MaterialMerge.open(selected[0], selected[1] || null);
 }
+
+// ==================== 批量修改物料 ====================
+var batchEditSelectedIds = [];
+var BATCH_EDIT_FIELDS = [
+    {key: 'brand', checkboxId: 'batchEditEnableBrand', inputId: 'batchEditBrand', kind: 'text', label: '品牌'},
+    {key: 'category_id', checkboxId: 'batchEditEnableCategory', inputId: 'batchEditCategory', kind: 'fk', label: '分类'},
+    {key: 'unit_id', checkboxId: 'batchEditEnableUnit', inputId: 'batchEditUnit', kind: 'fk', label: '单位'},
+    {key: 'storage_location', checkboxId: 'batchEditEnableStorageLocation', inputId: 'batchEditStorageLocation', kind: 'text', label: '库位'},
+    {key: 'min_stock', checkboxId: 'batchEditEnableMinStock', inputId: 'batchEditMinStock', kind: 'number', label: '最低库存'}
+];
+
+function resetBatchEditForm() {
+    BATCH_EDIT_FIELDS.forEach(function(field) {
+        var cb = document.getElementById(field.checkboxId);
+        var input = document.getElementById(field.inputId);
+        if (cb) cb.checked = false;
+        if (input) {
+            input.value = '';
+            input.disabled = true;
+        }
+    });
+    var submitBtn = document.getElementById('batchEditSubmitBtn');
+    if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = '确认批量修改';
+    }
+}
+
+function toggleBatchEditField(checkbox) {
+    if (!checkbox) return;
+    var targetId = checkbox.dataset && checkbox.dataset.targetId;
+    var input = targetId ? document.getElementById(targetId) : null;
+    if (!input) return;
+    input.disabled = !checkbox.checked;
+    if (checkbox.checked && typeof input.focus === 'function') {
+        input.focus();
+    }
+}
+
+function toolbarBatchEdit() {
+    if (materialBatchEditBusy) return;
+    var ids = getSelectedMaterialIds();
+    if (!ids.length) {
+        showToast('请先勾选要批量修改的物料', 'warning');
+        return;
+    }
+    if (ids.length > 200) {
+        showToast('每次最多批量修改 200 条物料，请缩小勾选范围', 'warning');
+        return;
+    }
+    batchEditSelectedIds = ids.slice();
+    var countEl = document.getElementById('batchEditCount');
+    if (countEl) countEl.textContent = String(ids.length);
+    resetBatchEditForm();
+    var modalEl = document.getElementById('batchEditModal');
+    if (modalEl) {
+        bootstrap.Modal.getOrCreateInstance(modalEl).show();
+    }
+}
+
+function buildBatchEditPayload() {
+    var updates = {};
+    var checkedCount = 0;
+    for (var i = 0; i < BATCH_EDIT_FIELDS.length; i++) {
+        var field = BATCH_EDIT_FIELDS[i];
+        var cb = document.getElementById(field.checkboxId);
+        var input = document.getElementById(field.inputId);
+        if (!cb || !cb.checked || !input) continue;
+        checkedCount++;
+        var raw = String(input.value == null ? '' : input.value).trim();
+        if (field.kind === 'text') {
+            if (raw.length > 100) {
+                showToast(field.label + '不能超过 100 个字符', 'warning');
+                if (typeof input.focus === 'function') input.focus();
+                return null;
+            }
+            updates[field.key] = raw;
+        } else if (field.kind === 'fk') {
+            updates[field.key] = raw ? Number(raw) : null;
+        } else if (field.kind === 'number') {
+            if (!raw) {
+                showToast('请输入有效的' + field.label + '（大于等于 0 的数字）', 'warning');
+                if (typeof input.focus === 'function') input.focus();
+                return null;
+            }
+            var num = Number(raw);
+            if (!Number.isFinite(num) || num < 0) {
+                showToast(field.label + '必须是大于等于 0 的数字', 'warning');
+                if (typeof input.focus === 'function') input.focus();
+                return null;
+            }
+            updates[field.key] = num;
+        }
+    }
+    if (!checkedCount) {
+        showToast('请至少勾选一个要批量修改的字段', 'warning');
+        return null;
+    }
+    return {ids: batchEditSelectedIds.slice(), updates: updates};
+}
+
+function submitBatchEdit() {
+    if (materialBatchEditBusy) return;
+    if (!batchEditSelectedIds.length) {
+        showToast('请先勾选要批量修改的物料', 'warning');
+        return;
+    }
+    var payload = buildBatchEditPayload();
+    if (!payload) return;
+    var submitBtn = document.getElementById('batchEditSubmitBtn');
+    materialBatchEditBusy = true;
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '保存中...';
+    }
+    updateToolbarButtons();
+    return WMS.api.post(materialPageData.urls.batchEdit, payload)
+        .then(function(res) {
+            var modalEl = document.getElementById('batchEditModal');
+            var modalInst = modalEl ? bootstrap.Modal.getInstance(modalEl) : null;
+            if (modalInst) modalInst.hide();
+            try {
+                if (typeof BroadcastChannel !== 'undefined') {
+                    var bc = new BroadcastChannel('wms_material_update');
+                    bc.postMessage({type: 'material_updated', timestamp: Date.now()});
+                    bc.close();
+                }
+            } catch(e) {}
+            showToast((res && res.msg) || '批量修改成功', 'success', 2200);
+            setTimeout(function() { location.reload(); }, 500);
+        })
+        .catch(function(err) {
+            showToast((err && err.message) || '批量修改失败，请稍后重试', 'danger', 4000);
+        })
+        .finally(function() {
+            materialBatchEditBusy = false;
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = '确认批量修改';
+            }
+            updateToolbarButtons();
+        });
+}
+// ==================== 批量修改物料结束 ====================
 
 // ==================== 列设置（显示/隐藏字段） ====================
 var MATERIAL_COL_STORAGE_KEY = 'material_col_visibility_v1';
@@ -948,6 +1095,14 @@ document.addEventListener('DOMContentLoaded', function() {
         })
         .catch(function(err){ showToast('修复失败: ' + err.message, 'danger'); });
     };
+
+    var batchEditForm = document.getElementById('batchEditForm');
+    if (batchEditForm) {
+        batchEditForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            submitBatchEdit();
+        });
+    }
 
     // 删除全部物料入口已禁用，后端也会拒绝请求。
     window.deleteAllMaterials = function() {
@@ -2716,12 +2871,15 @@ const materialPageActions = {
     setDefaultTemplate: function(node) { setDefaultTemplate(); },
     setTextAlign: function(node) { setTextAlign(node.dataset.materialValue); },
     setVerticalAlign: function(node) { setVerticalAlign(node.dataset.materialValue); },
+    submitBatchEdit: function(node) { submitBatchEdit(); },
     submitFilterForm: function(node) { node.form.submit(); },
     switchTemplate: function(node) { switchTemplate(); },
+    toggleBatchEditField: function(node) { toggleBatchEditField(node); },
     toggleDesignerFullscreen: function(node) { toggleDesignerFullscreen(); },
     toggleMaterialColumnSettings: function(node) { toggleMaterialColumnSettings(); },
     toggleMaterialStatus: function(node) { toggleMaterialStatus(Number(node.dataset.materialId), node.dataset.materialValue); },
     togglePreviewSample: function(node) { togglePreviewSample(node.checked); },
+    toolbarBatchEdit: function(node) { toolbarBatchEdit(); },
     toolbarCopy: function(node) { toolbarCopy(); },
     toolbarDelete: function(node) { toolbarDelete(); },
     toolbarEdit: function(node) { toolbarEdit(); },

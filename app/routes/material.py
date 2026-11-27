@@ -889,6 +889,246 @@ def register_material_routes(app):
             msg += f'，已同步更新：{"、".join(cascade_info)}'
         return jsonify({'status': 'success', 'msg': msg})
 
+    @app.route('/material/batch_edit', methods=['POST'])
+    @require_role('warehouse')
+    @login_required
+    def batch_edit_material():
+        """批量修改选中物料的品牌、分类、单位、库位或最低库存（仅主数据，不动库存三账）。"""
+        import math
+        from typing import Annotated, Any
+        from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+        from sqlalchemy.exc import IntegrityError
+        from app import (
+            MAX_REASONABLE_STOCK,
+            Material,
+            MaterialCategory,
+            Unit,
+            _material_dedupe_expr,
+            _material_dedupe_key,
+            api_error,
+            log_audit,
+            log_operation,
+            round_to_2_decimals,
+            sanitize_text_input,
+        )
+
+        class BatchEditMaterialUpdates(BaseModel):
+            model_config = ConfigDict(extra='forbid')
+
+            brand: str | None = None
+            category_id: Any = None
+            unit_id: Any = None
+            storage_location: str | None = None
+            min_stock: Any = None
+
+            @field_validator('brand', 'storage_location', mode='before')
+            @classmethod
+            def ensure_str_or_none(cls, value):
+                if value is not None and not isinstance(value, str):
+                    raise ValueError('文本字段格式无效')
+                return value
+
+        class BatchEditMaterialRequest(BaseModel):
+            model_config = ConfigDict(extra='forbid')
+
+            ids: list[Annotated[int, Field(strict=True, gt=0)]] = Field(min_length=1, max_length=200)
+            updates: BatchEditMaterialUpdates
+
+            @field_validator('ids', mode='before')
+            @classmethod
+            def parse_material_ids(cls, value):
+                if not isinstance(value, list):
+                    return value
+                parsed = []
+                for item in value:
+                    if isinstance(item, bool):
+                        raise ValueError('物料ID格式无效')
+                    if isinstance(item, str) and item.isascii() and item.isdecimal():
+                        parsed.append(int(item))
+                    else:
+                        parsed.append(item)
+                return parsed
+
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return api_error('请提交有效的 JSON 参数')
+        try:
+            req = BatchEditMaterialRequest.model_validate(payload)
+        except ValidationError:
+            return api_error('参数校验失败：请选择 1 至 200 条物料，并仅提交允许修改的字段')
+
+        fields = set(req.updates.model_fields_set)
+        if not fields:
+            return api_error('请至少勾选一个要批量修改的字段')
+
+        unique_ids = list(dict.fromkeys(req.ids))
+        resolved = {}
+        field_label_map = {
+            'brand': '品牌',
+            'category_id': '分类',
+            'unit_id': '单位',
+            'storage_location': '库位',
+            'min_stock': '最低库存',
+        }
+
+        if 'brand' in fields:
+            raw_brand = req.updates.brand or ''
+            if len(raw_brand.strip()) > 100:
+                return api_error('品牌不能超过 100 个字符')
+            resolved['brand'] = sanitize_text_input(raw_brand, max_len=100) or None
+
+        if 'storage_location' in fields:
+            raw_loc = req.updates.storage_location or ''
+            if len(raw_loc.strip()) > 100:
+                return api_error('库位不能超过 100 个字符')
+            resolved['storage_location'] = sanitize_text_input(raw_loc, max_len=100) or None
+
+        for fk_field, model_cls, label in (
+            ('category_id', MaterialCategory, '物料分类'),
+            ('unit_id', Unit, '计量单位'),
+        ):
+            if fk_field not in fields:
+                continue
+            raw_fk = getattr(req.updates, fk_field)
+            if isinstance(raw_fk, bool):
+                return api_error(f'{label}参数格式无效')
+            if raw_fk is None or (isinstance(raw_fk, str) and not raw_fk.strip()):
+                resolved[fk_field] = None
+            elif isinstance(raw_fk, int):
+                if raw_fk < 1 or raw_fk >= 2**63:
+                    return api_error(f'{label}参数格式无效')
+                if db.session.get(model_cls, raw_fk) is None:
+                    return api_error(f'所选{label}不存在，请刷新页面后重试')
+                resolved[fk_field] = raw_fk
+            elif isinstance(raw_fk, str):
+                fk_id, fk_err = _parse_optional_fk(raw_fk, label)
+                if fk_err:
+                    return api_error(fk_err)
+                if fk_id is not None and db.session.get(model_cls, fk_id) is None:
+                    return api_error(f'所选{label}不存在，请刷新页面后重试')
+                resolved[fk_field] = fk_id
+            else:
+                return api_error(f'{label}参数格式无效')
+
+        if 'min_stock' in fields:
+            raw_min = req.updates.min_stock
+            if isinstance(raw_min, bool) or raw_min is None or (isinstance(raw_min, str) and not raw_min.strip()):
+                return api_error('请输入有效的最低库存（大于等于 0 的数字）')
+            try:
+                parsed_min = float(raw_min)
+            except (TypeError, ValueError):
+                return api_error('请输入有效的最低库存（大于等于 0 的数字）')
+            if not math.isfinite(parsed_min) or parsed_min < 0 or parsed_min > MAX_REASONABLE_STOCK:
+                return api_error(f'最低库存必须是 0 至 {MAX_REASONABLE_STOCK:,.2f} 的有限数字')
+            resolved['min_stock'] = round_to_2_decimals(parsed_min)
+
+        materials = (
+            Material.query.filter(Material.id.in_(unique_ids))
+            .order_by(Material.code.asc(), Material.id.asc())
+            .all()
+        )
+        found_ids = {m.id for m in materials}
+        missing_ids = [mid for mid in unique_ids if mid not in found_ids]
+        if missing_ids:
+            return api_error(f'部分选中的物料不存在或已被删除（共 {len(missing_ids)} 条），请刷新列表后重试', 404)
+
+        if 'brand' in fields:
+            new_brand = resolved['brand']
+            batch_id_set = {m.id for m in materials}
+            seen_keys = {}
+            for m in materials:
+                key = (
+                    _material_dedupe_key(m.name),
+                    _material_dedupe_key(m.spec),
+                    _material_dedupe_key(new_brand),
+                )
+                if key in seen_keys:
+                    prev = seen_keys[key]
+                    return api_error(
+                        f'批量修改品牌冲突：物料 {prev.code} 与 {m.code} 名称、规格相同，'
+                        f'修改为同一品牌“{new_brand or "无品牌"}”会导致重复物料，本次未修改任何物料'
+                    )
+                seen_keys[key] = m
+                dup = Material.query.filter(
+                    _material_dedupe_expr(Material.name) == key[0],
+                    _material_dedupe_expr(Material.spec) == key[1],
+                    _material_dedupe_expr(Material.brand) == key[2],
+                    ~Material.id.in_(batch_id_set),
+                ).order_by(Material.id.asc()).first()
+                if dup is not None:
+                    return api_error(
+                        f'批量修改品牌冲突：物料 {m.code} 修改品牌后将与已有物料 {dup.code}（{dup.name}）'
+                        f'的名称、规格、品牌完全重复，本次未修改任何物料'
+                    )
+
+        old_snapshots = []
+        new_snapshots = []
+        for m in materials:
+            old_item = {'id': m.id, 'code': m.code}
+            new_item = {'id': m.id, 'code': m.code}
+            if 'brand' in fields:
+                old_item['brand'] = m.brand or ''
+                m.brand = resolved['brand']
+                new_item['brand'] = m.brand or ''
+            if 'category_id' in fields:
+                old_item['category_id'] = m.category_id
+                m.category_id = resolved['category_id']
+                new_item['category_id'] = m.category_id
+            if 'unit_id' in fields:
+                old_item['unit_id'] = m.unit_id
+                m.unit_id = resolved['unit_id']
+                new_item['unit_id'] = m.unit_id
+            if 'storage_location' in fields:
+                old_item['storage_location'] = m.storage_location or ''
+                m.storage_location = resolved['storage_location']
+                new_item['storage_location'] = m.storage_location or ''
+            if 'min_stock' in fields:
+                old_item['min_stock'] = m.min_stock or 0
+                old_item['reorder_point'] = m.reorder_point or 0
+                m.min_stock = resolved['min_stock']
+                if (m.reorder_point or 0) < resolved['min_stock']:
+                    m.reorder_point = resolved['min_stock']
+                new_item['min_stock'] = m.min_stock
+                new_item['reorder_point'] = m.reorder_point
+            old_snapshots.append(old_item)
+            new_snapshots.append(new_item)
+
+        try:
+            db.session.commit()
+        except IntegrityError:
+            db.session.rollback()
+            return api_error('批量修改失败：存在名称、规格、品牌重复的物料，本次未修改任何物料')
+        except Exception as e:  # noqa: BLE001
+            db.session.rollback()
+            current_app.logger.error(f'批量修改物料失败: {e}')
+            return jsonify({'status': 'error', 'msg': '批量修改物料失败，请稍后重试'}), 500
+
+        ordered_fields = [f for f in ('brand', 'category_id', 'unit_id', 'storage_location', 'min_stock') if f in fields]
+        field_labels = '、'.join(field_label_map[f] for f in ordered_fields)
+        log_audit(
+            'batch_edit_material',
+            'material',
+            materials[0].id,
+            target_name=f'批量修改物料 {len(materials)} 条（{field_labels}）',
+            old_data=old_snapshots,
+            new_data={'fields': ordered_fields, 'updates': resolved, 'items': new_snapshots},
+        )
+        log_operation(
+            '批量修改物料',
+            f'批量修改 {len(materials)} 条物料（{field_labels}）',
+            'material',
+        )
+        from routes.options_api import invalidate_options_pool
+        invalidate_options_pool('material')
+
+        return jsonify({
+            'status': 'success',
+            'msg': f'已批量修改 {len(materials)} 条物料（{field_labels}）',
+            'updated_count': len(materials),
+            'updated_fields': ordered_fields,
+            'codes': [m.code for m in materials[:20]],
+        })
+
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/material/delete_all', methods=['POST'])
     @require_role('warehouse')

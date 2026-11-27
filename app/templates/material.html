@@ -13,6 +13,9 @@
             <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" data-material-action="toolbarEdit" disabled title="编辑选中物料">
                 <i class="bi bi-pencil"></i> 编辑
             </button>
+            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarBatchEditBtn" data-material-action="toolbarBatchEdit" disabled title="批量修改选中物料的品牌、分类、单位、库位或最低库存">
+                <i class="bi bi-pencil-square"></i> 批量修改
+            </button>
             <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" data-material-action="toolbarCopy" disabled title="复制为新物料草稿">
                 <i class="bi bi-files"></i> 复制
             </button>
@@ -308,6 +311,101 @@
         <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
             <button type="button" class="btn btn-primary" data-material-action="fixEmptyFields">确认填入</button></div>
     </div></div>
+</div>
+
+<div class="modal fade" id="batchEditModal" tabindex="-1" aria-labelledby="batchEditModalTitle" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="batchEditModalTitle"><i class="bi bi-pencil-square"></i> 批量修改物料</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <form id="batchEditForm">
+                <div class="modal-body">
+                    <div class="alert alert-info py-2 mb-3">
+                        已勾选 <strong id="batchEditCount">0</strong> 条物料。仅会修改下方<strong>已勾选启用</strong>的字段，未勾选字段保持各物料原值不变；不改动任何库存数量与流水。
+                    </div>
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchEditEnableBrand" data-material-change="toggleBatchEditField" data-target-id="batchEditBrand">
+                                <label class="form-check-label fw-semibold" for="batchEditEnableBrand">修改品牌</label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <label class="visually-hidden" for="batchEditBrand">批量修改品牌</label>
+                            <input type="text" class="form-control form-control-sm" id="batchEditBrand" name="brand" maxlength="100" placeholder="输入新品牌（如 ABB、施耐德；留空表示清空品牌）" disabled>
+                        </div>
+                    </div>
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchEditEnableCategory" data-material-change="toggleBatchEditField" data-target-id="batchEditCategory">
+                                <label class="form-check-label fw-semibold" for="batchEditEnableCategory">修改分类</label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <label class="visually-hidden" for="batchEditCategory">批量修改分类</label>
+                            <select class="form-select form-select-sm" id="batchEditCategory" name="category_id" disabled>
+                                <option value="">（清空分类）</option>
+                                {% for cat in categories %}
+                                <option value="{{ cat.id }}">{{ cat.code }} {{ cat.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchEditEnableUnit" data-material-change="toggleBatchEditField" data-target-id="batchEditUnit">
+                                <label class="form-check-label fw-semibold" for="batchEditEnableUnit">修改单位</label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <label class="visually-hidden" for="batchEditUnit">批量修改单位</label>
+                            <select class="form-select form-select-sm" id="batchEditUnit" name="unit_id" disabled>
+                                <option value="">（清空单位）</option>
+                                {% for unit in units %}
+                                <option value="{{ unit.id }}">{{ unit.code }} {{ unit.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="row g-2 align-items-center mb-3">
+                        <div class="col-md-3">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchEditEnableStorageLocation" data-material-change="toggleBatchEditField" data-target-id="batchEditStorageLocation">
+                                <label class="form-check-label fw-semibold" for="batchEditEnableStorageLocation">修改库位</label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <label class="visually-hidden" for="batchEditStorageLocation">批量修改库位</label>
+                            <input type="text" class="form-control form-control-sm" id="batchEditStorageLocation" name="storage_location" maxlength="100" placeholder="如 A-01-02（留空表示清空库位）" disabled>
+                        </div>
+                    </div>
+                    <div class="row g-2 align-items-start">
+                        <div class="col-md-3 pt-1">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="batchEditEnableMinStock" data-material-change="toggleBatchEditField" data-target-id="batchEditMinStock">
+                                <label class="form-check-label fw-semibold" for="batchEditEnableMinStock">修改最低库存</label>
+                            </div>
+                        </div>
+                        <div class="col-md-9">
+                            <label class="visually-hidden" for="batchEditMinStock">批量修改最低库存</label>
+                            <input type="number" class="form-control form-control-sm" id="batchEditMinStock" name="min_stock" min="0" step="0.01" placeholder="请输入大于等于 0 的数值（如 10）" disabled>
+                            <div class="form-text">
+                                若物料当前安全库存低于新的最低库存，系统会自动将安全库存同步提升至不低于最低库存。{% if not inventory_alert_enabled %}（注：库存预警开关当前未开启，修改后的最低库存仍会保存至物料档案。）{% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="batchEditSubmitBtn" data-material-action="submitBatchEdit">确认批量修改</button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="materialDeletePasswordModal" tabindex="-1" aria-labelledby="materialDeletePasswordTitle" aria-hidden="true">
@@ -1333,7 +1431,7 @@
         {"id": {{ sup.id|tojson }}, "name": {{ sup.name|tojson }}, "code": {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ]
-}, "canDelete": {{ (current_user.username == 'admin' and current_user.role == 'admin')|tojson }}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
+}, "canDelete": {{ (current_user.username == 'admin' and current_user.role == 'admin')|tojson }}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "batchEdit": {{ url_for("batch_edit_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
 </script>
 <script src="{{ url_for('static', filename='js/pages/material-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}
