@@ -277,6 +277,8 @@
                                     <span class="cell-value">{{ material.code }}</span>
                                     {% elif cell_data.field == 'name' %}
                                     <span class="cell-value">{{ material.name }}</span>
+                                    {% elif cell_data.field == 'brand' %}
+                                    <span class="cell-value">{{ material.brand or '' }}</span>
                                     {% elif cell_data.field == 'spec' %}
                                     <span class="cell-value">{{ material.spec or '' }}</span>
                                     {% elif cell_data.field == 'storage_location' %}

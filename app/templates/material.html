@@ -23,7 +23,7 @@
                         </a>
                     </li>
                     <li>
-                        <a class="dropdown-item" href="{{ url_for('export_material', search=request.args.get('search', ''), stock_filter=stock_filter, category_id=category_id or None, status=status_filter, sort=sort_by, order=sort_order) }}">
+                        <a class="dropdown-item" href="{{ url_for('export_material', search=request.args.get('search', ''), stock_filter=stock_filter, category_id=category_id or None, status=status_filter, sort=sort_by, order=sort_order, per_page=per_page) }}">
                             <i class="bi bi-download me-2"></i>导出当前筛选
                         </a>
                     </li>
@@ -112,7 +112,7 @@
                 <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
                 <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
             </select>
-            <input type="text" name="search" class="form-control flex-grow-1 material-search-input" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="{{ 'material_all' if status_filter != 'active' else 'material' }}" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
+            <input type="text" name="search" class="form-control flex-grow-1 material-search-input" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-include-inactive="{{ '1' if status_filter != 'active' else '0' }}" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
             <button type="submit" class="btn btn-primary flex-shrink-0"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id or status_filter != 'active' %}
             <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary flex-shrink-0">清除</a>

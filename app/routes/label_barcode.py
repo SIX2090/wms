@@ -234,7 +234,7 @@ def register_label_barcode_routes(app):
         if selected_material is not None:
             m = selected_material
             preview_data = [{
-                'code': m.code, 'name': m.name, 'spec': m.spec or '',
+                'code': m.code, 'name': m.name, 'brand': m.brand or '', 'spec': m.spec or '',
                 'unit': m.unit.name if m.unit else '',
                 'category': m.category.name if m.category else '',
                 'supplier': m.supplier.name if m.supplier else '',
@@ -242,9 +242,9 @@ def register_label_barcode_routes(app):
             }]
         else:
             preview_data = [
-                dict(code='TEST001', name='示例物料', spec='规格示例', unit='个', stock=100,
+                dict(code='TEST001', name='示例物料', brand='示例品牌', spec='规格示例', unit='个', stock=100,
                      category='测试分类', supplier='测试供应商', price=0),
-                dict(code='TEST002', name='另一个物料', spec='另一规格', unit='箱', stock=50,
+                dict(code='TEST002', name='另一个物料', brand='另一品牌', spec='另一规格', unit='箱', stock=50,
                      category='其他分类', supplier='其他供应商', price=0),
             ]
         for data in preview_data:

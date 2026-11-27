@@ -156,8 +156,10 @@ def test_p1_7_p1_9_p1_11_p2_1_templates_and_options_contracts():
     assert 'name="sort" value="{{ sort_by }}"' in mat_html
     assert 'name="order" value="{{ sort_order }}"' in mat_html
     assert "status_filter != 'active'" in mat_html
-    assert "material_all" in mat_html
+    assert 'data-ks="material" data-ks-include-inactive=' in mat_html
     assert "per_page=per_page, sort=sort_by, order=sort_order" in mat_html
+    assert "data-ks-include-inactive" in QUICK_SELECT_JS.read_text(encoding="utf-8")
+    assert "cell_data.field == 'brand'" in (ROOT / "app/templates/print_label.html").read_text(encoding="utf-8")
     assert 'data-field="brand" data-label="品牌"' in mat_html
     assert '<option value="brand">品牌</option>' in mat_html
     assert "{% if not material_code_editable %}readonly{% endif %}" in mat_html

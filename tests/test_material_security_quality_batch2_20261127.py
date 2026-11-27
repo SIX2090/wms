@@ -673,10 +673,12 @@ def test_import_material_rejects_xls_bad_thresholds_overlong_masters_and_writes_
     assert "单位名称不能超过20个字符" in body.get("warnings", "")
 
     with wms.app.app_context():
-        assert wms.Material.query.filter_by(code="IMP-OK").first() is not None
+        mat_ok = wms.Material.query.filter_by(code="IMP-OK").first()
+        assert mat_ok is not None
         assert wms.MaterialCategory.query.filter_by(name="不该落库类").first() is None
-        u = wms.Unit.query.filter_by(name="套").first()
-        assert u is not None and "<" not in u.name
+        assert mat_ok.unit is not None and "<" not in mat_ok.unit.name and ">" not in mat_ok.unit.name and "套" in mat_ok.unit.name
+        assert mat_ok.category is not None and "<" not in mat_ok.category.name and ">" not in mat_ok.category.name
+        assert mat_ok.supplier is not None and "<" not in mat_ok.supplier.name and ">" not in mat_ok.supplier.name
         audit = wms.OperationAudit.query.filter_by(operation="import_material").first()
         assert audit is not None
 

@@ -410,7 +410,9 @@
         input.setAttribute('autocomplete', 'off');
         input.classList.add('ks-input');
 
-        var entity = input.getAttribute('data-ks');
+        var rawEntity = input.getAttribute('data-ks');
+        var entity = (rawEntity === 'material' && input.getAttribute('data-ks-include-inactive') === '1')
+            ? 'material_all' : rawEntity;
         var composing = false;   // 中文输入法组合态：期间不触发搜索、不劫持按键
 
         var doSearch = function (showAll) {
