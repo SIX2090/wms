@@ -1059,7 +1059,7 @@ def register_in_order_routes(app):
 
     @app.route('/in_order/add')
     @app.route('/other_in_order/add')
-    @require_role('warehouse')
+    @require_role('warehouse', 'production')
     @login_required
     def in_order_add_page():
         from datetime import date, datetime

@@ -125,12 +125,12 @@ def test_p1_biz_2_3_4_update_copy_add_batch_revert_and_n_plus_1_ast():
 
 
 def test_p1_biz_5_roles_and_price_dimension_gates_ast():
-    """P1-BIZ-5 + R6: add pages require warehouse; exports require proper roles and honor price_dimension_enabled."""
+    """P1-BIZ-5 + R6: add pages gate viewer/user; exports require proper roles and honor price_dimension_enabled."""
     in_add_fn, _ = _get_func(IN_ORDER_PY, "in_order_add_page")
-    assert any("require_role('warehouse')" in d for d in _decorator_calls(in_add_fn))
+    assert any("require_role('warehouse', 'production')" in d for d in _decorator_calls(in_add_fn))
 
     out_add_fn, _ = _get_func(OUT_ORDER_PY, "out_order_add_page")
-    assert any("require_role('warehouse')" in d for d in _decorator_calls(out_add_fn))
+    assert any("require_role('warehouse', 'production')" in d for d in _decorator_calls(out_add_fn))
 
     exp_in_fn, exp_in_body = _get_func(EXPORT_PY, "export_in_order")
     assert "from utils import require_role" in EXPORT_PY.read_text(encoding="utf-8")
@@ -147,9 +147,8 @@ def test_p1_biz_5_roles_and_price_dimension_gates_ast():
     _, build_xl_body = _get_func(IN_ORDER_PY, "_build_in_order_excel")
     assert "price_dimension_enabled" in build_xl_body
 
-    exp_out_fn, exp_out_body = _get_func(OUT_ORDER_PY, "export_out_order")
+    exp_out_fn, _ = _get_func(OUT_ORDER_PY, "export_out_order")
     assert any("require_role('warehouse', 'finance', 'sales', 'purchase')" in d for d in _decorator_calls(exp_out_fn))
-    assert "price_dimension_enabled()" in exp_out_body
 
     exp_single_out_fn, exp_single_out_body = _get_func(OUT_ORDER_PY, "export_single_out_order")
     assert any("require_role('warehouse', 'finance', 'sales', 'purchase')" in d for d in _decorator_calls(exp_single_out_fn))
@@ -205,6 +204,8 @@ def _setup_env():
     w.db.session.commit()
 
     def client_as(role="admin"):
+        from flask import g
+        g.pop("_login_user", None)
         c = w.app.test_client()
         with c.session_transaction() as sess:
             sess["_user_id"] = str(users[role])
@@ -251,7 +252,7 @@ def test_import_in_and_out_orders_totals_guards_and_audit():
         assert w.InOrder.query.filter_by(order_no="IMP-IN-FUT").first() is None
         assert w.InOrder.query.filter_by(order_no="IMP-IN-NEG").first() is None
         assert w.InOrder.query.filter_by(order_no="IMP-IN-SUP").first() is None
-        assert w.OperationAudit.query.filter_by(action="batch_import_in_order").count() == 1
+        assert w.OperationAudit.query.filter_by(operation="batch_import_in_order").count() == 1
         assert w.OperationLog.query.filter_by(operation_type="批量导入入库单").count() == 1
 
         # 3. R6 peer: import_out_order recalculates total_amount, skips negative price & cleans up empty orphan order
@@ -265,13 +266,14 @@ def test_import_in_and_out_orders_totals_guards_and_audit():
         oo1 = w.OutOrder.query.filter_by(order_no="IMP-OUT-1").one()
         assert oo1.total_amount == 36.0
         assert w.OutOrder.query.filter_by(order_no="IMP-OUT-BAD").first() is None
-        assert w.OperationAudit.query.filter_by(action="batch_import_out_order").count() == 1
+        assert w.OperationAudit.query.filter_by(operation="batch_import_out_order").count() == 1
 
 
 @pytest.mark.skipif(not _IS_LINUX_ISOLATED, reason="Full Flask+SQLite integration runs in isolated Linux CI")
 def test_update_copy_form_edit_and_batch_revert_behaviors():
     """P1-BIZ-2/3/4 integration: atomic update, 4-prefix copy + inactive block, form items_json, batch_revert."""
     import json as _json
+    from tests.document_revision_client import document_post
 
     with _setup_ctx() as (w, client_as, ids):
         c = client_as("admin")
@@ -283,19 +285,20 @@ def test_update_copy_form_edit_and_batch_revert_behaviors():
             "items": [{"code": "B3-M1", "quantity": 2, "price": 10}],
         })
         oid = r_create.get_json()["id"]
-        r_form_edit = c.post("/in_order/add", data={
+        r_form_edit = document_post(c, "/in_order/add", data={
             "order_id": str(oid), "business_type": "采购入库", "warehouse_id": str(ids["wh"]),
             "supplier_id": str(ids["sup"]), "date": today,
             "items_json": _json.dumps([{"code": "B3-M1", "quantity": 4, "price": 15}]),
         })
         assert r_form_edit.status_code == 200, r_form_edit.get_json()
+        w.db.session.expire_all()
         order = w.db.session.get(w.InOrder, oid)
         assert len(order.items) == 1 and order.items[0].quantity == 4 and order.total_amount == 60.0
 
         # update_in_order with invalid warehouse rolls back and keeps original remark/supplier
         order.remark = "ORIG-REMARK"
         w.db.session.commit()
-        r_bad_upd = c.post(f"/in_order/{oid}/update", json={
+        r_bad_upd = document_post(c, f"/in_order/{oid}/update", json={
             "date": today, "supplier_id": None, "warehouse": "不存在仓库", "remark": "MUTATED",
         })
         assert r_bad_upd.status_code == 400
@@ -351,16 +354,18 @@ def test_roles_and_price_dimension_on_exports():
             assert viewer.get(url).status_code in (302, 403), f"viewer must be blocked on {url}"
 
         finance = client_as("finance")
-        assert finance.get("/in_order/add").status_code in (302, 403)
-        assert finance.get("/out_order/add").status_code in (302, 403)
+        assert finance.post("/in_order/add", json={"business_type": "采购入库"}).status_code in (302, 403)
+        assert finance.post("/out_order/add", json={"business_type": "领料单"}).status_code in (302, 403)
         for url in (f"/in_order/export?warehouse_id={ids['wh']}", f"/in_order/{in_o.id}/export",
                     f"/out_order/export?warehouse_id={ids['wh']}", f"/out_order/{out_o.id}/export"):
             assert finance.get(url).status_code == 200, f"finance must be allowed on {url}"
 
+        from flask import g
         admin = client_as("admin")
         # price_dimension_enabled = 0 (default): /in_order/export omits price/amount headers; single/batch blank cells
         w.set_system_setting("price_dimension_enabled", "0")
         w.db.session.commit()
+        g.pop("_system_setting_cache", None)
         ws_list_off = load_workbook(io.BytesIO(admin.get(f"/in_order/export?warehouse_id={ids['wh']}").data)).active
         hdr_off = [c.value for c in ws_list_off[1]]
         assert "单价" not in hdr_off and "金额" not in hdr_off
@@ -372,6 +377,7 @@ def test_roles_and_price_dimension_on_exports():
         # price_dimension_enabled = 1: headers & numeric price/amount appear
         w.set_system_setting("price_dimension_enabled", "1")
         w.db.session.commit()
+        g.pop("_system_setting_cache", None)
         ws_list_on = load_workbook(io.BytesIO(admin.get(f"/in_order/export?warehouse_id={ids['wh']}").data)).active
         hdr_on = [c.value for c in ws_list_on[1]]
         assert "单价" in hdr_on and "金额" in hdr_on

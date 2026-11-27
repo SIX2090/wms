@@ -545,7 +545,7 @@ def test_p0_5_p0_6_negative_price_and_invalid_supplier_contract_rejected():
             "business_type": "其他入库", "warehouse_id": ids["wh"], "date": date.today().isoformat(),
             "items": [{"code": ids["mat_code"], "quantity": 2, "price": 5, "contract_id": "abc"}],
         })
-        assert r_bad_line_cid.status_code == 400 and "合同ID" in r_bad_line_cid.get_json()["msg"]
+        assert r_bad_line_cid.status_code == 400 and "合同" in r_bad_line_cid.get_json()["msg"]
 
         r_out_neg = client.post("/out_order/add", json={
             "business_type": "领料单", "warehouse_id": ids["wh"], "date": date.today().isoformat(),

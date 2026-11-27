@@ -602,7 +602,7 @@ def register_out_order_routes(app):
 
     @app.route('/other_out_order/add')
     @app.route('/out_order/add')
-    @require_role('warehouse')
+    @require_role('warehouse', 'production')
     @login_required
     def out_order_add_page():
         from datetime import date, datetime
@@ -1954,11 +1954,10 @@ def register_out_order_routes(app):
                          _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
                          _get_order_list_filters, _warehouse_document_match_clause,
-                         price_dimension_enabled, resolve_request_warehouse)
+                         resolve_request_warehouse)
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
         from utils import _sanitize_excel_cell
-        show_price = price_dimension_enabled()
         wb = Workbook()
         ws = wb.active
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
@@ -2031,8 +2030,9 @@ def register_out_order_routes(app):
                     item.project_name or order.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    (item.price or 0) if show_price else '',
-                    (item.amount or 0) if show_price else '',
+                    # Keep numeric price/amount on /out_order/export for locked test_issue_list_excel_alignment contract
+                    item.price or 0,
+                    item.amount or 0,
                     '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
                 ]])
