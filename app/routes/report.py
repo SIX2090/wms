@@ -163,6 +163,7 @@ def register_report_routes(app):
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/report/dashboard/ai_insights', methods=['POST'])
     @login_required
+    @require_role('admin', 'warehouse', 'purchase', 'sales', 'production')
     def report_dashboard_ai_insights():
         from app import (ReportFilterError, _ai_call_llm_chat, _ai_llm_configured, api_error,
                          build_report_dashboard_context, resolve_request_warehouse)

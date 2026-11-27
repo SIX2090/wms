@@ -10,7 +10,7 @@ from utils import require_role
 def register_approval_routes(app):
     @app.route('/approval')
     @login_required
-    @require_role('admin', 'manager', 'purchase')
+    @require_role('admin', 'purchase')
     def approval_list():
         from app import (
             PurchaseRequest,

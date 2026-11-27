@@ -158,7 +158,7 @@
         <form id="editForm"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="user_id" id="editUserId">
             <div class="modal-body">
                 <div class="mb-3"><label class="form-label">用户名</label><input class="form-control" name="username" id="editUsername" maxlength="80" required></div>
-                <div class="mb-3"><label class="form-label">角色</label><select class="form-select" name="role" id="editRole"><option value="user">普通用户</option><option value="warehouse">仓管员</option><option value="purchase">采购</option><option value="sales">销售</option><option value="production">生产</option><option value="finance">财务（只读）</option><option value="admin">管理员</option></select></div>
+                <div class="mb-3"><label class="form-label">角色</label><select class="form-select" name="role" id="editRole"><option value="warehouse">仓管员</option><option value="purchase">采购</option><option value="sales">销售</option><option value="production">生产</option><option value="finance">财务（只读）</option><option value="admin">管理员</option></select></div>
                 <div class="mb-3"><label class="form-label">状态</label><select class="form-select" name="status" id="editStatus"><option value="normal">正常/启用</option><option value="disabled">禁用</option><option value="inactive">停用</option></select></div>
                 <div class="form-text">此页面不提供密码修改或重置功能；角色和状态变更将写入操作日志。</div>
             </div>
@@ -189,7 +189,6 @@
                     <div class="mb-3">
                         <label class="form-label">角色</label>
                         <select class="form-select" name="role">
-                            <option value="user">普通用户</option>
                             <option value="warehouse">仓管员</option>
                             <option value="purchase">采购</option>
                             <option value="sales">销售</option>
@@ -298,7 +297,18 @@ document.addEventListener('DOMContentLoaded', function() {
     window.editUser = function(userId, username, role, status) {
         document.getElementById('editUserId').value = userId;
         document.getElementById('editUsername').value = username;
-        document.getElementById('editRole').value = role;
+        var roleSelect = document.getElementById('editRole');
+        Array.from(roleSelect.querySelectorAll('option[data-legacy-role="1"]')).forEach(function(opt) {
+            opt.remove();
+        });
+        if (role && !Array.from(roleSelect.options).some(function(opt) { return opt.value === role; })) {
+            var legacyOpt = document.createElement('option');
+            legacyOpt.value = role;
+            legacyOpt.setAttribute('data-legacy-role', '1');
+            legacyOpt.textContent = (role === 'viewer' ? '访客' : '普通用户') + '（历史角色，建议改配岗位）';
+            roleSelect.appendChild(legacyOpt);
+        }
+        roleSelect.value = role;
         document.getElementById('editStatus').value = status;
         new bootstrap.Modal(document.getElementById('editModal')).show();
     };

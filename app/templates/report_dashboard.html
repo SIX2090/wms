@@ -22,7 +22,8 @@
         <div class="d-flex gap-2">
             {# BUG-2026-09-15-001：AI解读依赖 {% if stats %} 内的 requestAiInsights() 函数与结果卡片，
                按钮必须与函数同条件渲染，否则无仓库/stats=None 时是死按钮（ReferenceError）。 #}
-            {% if stats %}
+            {% set can_use_ai_insights = (current_user is defined and current_user.role in ('admin', 'warehouse', 'purchase', 'sales', 'production')) %}
+            {% if stats and can_use_ai_insights %}
             <button class="btn btn-primary" onclick="requestAiInsights()" id="aiInsightsBtn">
                 <i class="bi bi-stars"></i> AI解读
             </button>
@@ -337,6 +338,7 @@ new Chart(document.getElementById('amountChart'), {
     },
 });
 
+{% if current_user is defined and current_user.role in ('admin', 'warehouse', 'purchase', 'sales', 'production') %}
 function requestAiInsights() {
     var card = document.getElementById('aiInsightsCard');
     var content = document.getElementById('aiInsightsContent');
@@ -374,6 +376,7 @@ function requestAiInsights() {
         content.innerHTML = '<div class="alert alert-danger mb-0">请求失败：' + escapeHtml(err.message || '未知错误') + '</div>';
     });
 }
+{% endif %}
 </script>
 {% endif %}
 
