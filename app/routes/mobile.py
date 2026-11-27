@@ -1110,12 +1110,19 @@ def register_mobile_routes(app):
         from pydantic import BaseModel, Field
         from sqlalchemy.orm import selectinload
         from flask import current_app
-        from app import (InOrder, InOrderItem, OutOrder, OutOrderItem, StockTransaction,
+        from app import (InOrder, InOrderItem, OutOrder, OutOrderItem, PurchaseOrderItem, StockTransaction,
                          assert_warehouse_active, current_user, db, get_bearer_user, get_default_warehouse,
-                         jsonify, normalize_stock_quantity,
-                         request, validate_sales_outbound_warehouse,
+                         is_future_date, jsonify, location_management_enabled, log_operation,
+                         normalize_stock_quantity, request, round_to_2_decimals,
+                         validate_purchase_in_order_source, validate_sales_outbound_warehouse,
                          _acquire_order_write_lock)
         from services.document_stock_audit import stage_stock_document_snapshot
+        from services.in_order_completion import (
+            check_purchase_over_receive_for_order,
+            check_supplied_receipt_order,
+            execute_auto_push_requisition,
+            sync_in_order_purchase_order_statuses,
+        )
         from services.warehouse_stock_service import apply_stock_delta
 
         class ConfirmRequest(BaseModel):
@@ -1129,11 +1136,13 @@ def register_mobile_routes(app):
 
         from routes.print_queue import enqueue_auto_print_job
         actor = current_user if current_user.is_authenticated else get_bearer_user()
+        auto_requisition = None
 
         try:
             if c_req.order_type == 'in':
                 locked, ok = _acquire_order_write_lock(InOrder, order_id, 'pending', [
                     selectinload(InOrder.items).selectinload(InOrderItem.material),
+                    selectinload(InOrder.items).selectinload(InOrderItem.source_purchase_order_item).selectinload(PurchaseOrderItem.purchase_order),
                 ])
                 if not ok:
                     return jsonify({'status': 'error', 'success': False, 'msg': '该入库草稿已提交或不存在'}), 400
@@ -1157,10 +1166,29 @@ def register_mobile_routes(app):
             if not active:
                 db.session.rollback()
                 return jsonify({'status': 'error', 'success': False, 'msg': error}), 400
+            if location_management_enabled() and not (order.location or '').strip():
+                db.session.rollback()
+                return jsonify({'status': 'error', 'success': False, 'msg': '库位管理已启用，请选择库位'}), 400
 
             if c_req.order_type == 'in':
+                if is_future_date(order.date):
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': '入库日期不能晚于今天，请先修改单据日期'}), 400
                 if not order.items:
+                    db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': '入库草稿没有明细，无法确认'}), 400
+                ownership_error = check_supplied_receipt_order(order)
+                if ownership_error:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': ownership_error}), 400
+                valid_source, source_msg = validate_purchase_in_order_source(order)
+                if not valid_source:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': source_msg}), 400
+                over_ok, over_msg = check_purchase_over_receive_for_order(order)
+                if not over_ok:
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': over_msg}), 400
                 # This endpoint accepts existing PC drafts as well as scan drafts.
                 if order.business_type == '销售退货入库':
                     from app import sales_return_remaining_check
@@ -1187,10 +1215,23 @@ def register_mobile_routes(app):
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存增加失败'}), 500
                 order.status = 'completed'
+                order.total_amount = round_to_2_decimals(sum((item.amount or 0) for item in order.items))
+                sync_in_order_purchase_order_statuses(order)
+                if order.auto_push_requisition:
+                    auto_requisition, req_err = execute_auto_push_requisition(
+                        order, actor=actor, reason='手机确认入库自动完成领料',
+                    )
+                    if req_err:
+                        db.session.rollback()
+                        return jsonify({'status': 'error', 'success': False, 'msg': req_err}), 400
                 enqueue_auto_print_job('in_order', order.id, order.warehouse, created_by=actor.id, source_event='scan_draft_confirm_in')
                 order_no = order.order_no
             else:
+                if is_future_date(order.date):
+                    db.session.rollback()
+                    return jsonify({'status': 'error', 'success': False, 'msg': '出库日期不能晚于今天，请先修改单据日期'}), 400
                 if not order.items:
+                    db.session.rollback()
                     return jsonify({'status': 'error', 'success': False, 'msg': '出库草稿没有明细，无法确认'}), 400
                 if order.business_type == '销售出库':
                     from app import sales_outbound_remaining_check
@@ -1221,6 +1262,7 @@ def register_mobile_routes(app):
                             db.session.rollback()
                             return jsonify({'status': 'error', 'success': False, 'msg': err or '库存扣减失败'}), 400
                 order.status = 'completed'
+                order.total_amount = round_to_2_decimals(sum((item.amount or 0) for item in order.items))
                 if order.business_type == '销售出库':
                     from app import sync_sales_order_shipment
                     sync_sales_order_shipment(order, quantity_sign=1)
@@ -1230,9 +1272,19 @@ def register_mobile_routes(app):
                 order, deleting=False, actor=actor, operation='h5_confirm_' + order.__tablename__,
                 previous_status='pending', after_movement_id=last_movement_id,
             )
-            response = {'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': {'order_no': order_no}}
+            resp_data = {'order_no': order_no}
+            if auto_requisition is not None:
+                resp_data['auto_requisition_id'] = auto_requisition.id
+                resp_data['auto_requisition_no'] = auto_requisition.order_no
+            response = {'status': 'success', 'success': True, 'msg': f'确认成功：{order_no}', 'data': resp_data}
             stage_document_response(response)
             db.session.commit()
+            if c_req.order_type == 'in':
+                log_operation('入库', f'手机确认入库单：{order_no}', 'in_order', order.id)
+                if auto_requisition is not None:
+                    log_operation('自动完成领料单', f'采购入库单：{order_no} 自动下推领料单：{auto_requisition.order_no}', 'out_order', auto_requisition.id)
+            else:
+                log_operation('出库', f'手机确认出库单：{order_no}', 'out_order', order.id)
             return jsonify(response)
         except Exception:
             db.session.rollback()

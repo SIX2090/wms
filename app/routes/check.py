@@ -1630,6 +1630,7 @@ def register_check_routes(app):
         import io
         from openpyxl import Workbook
         from app import InventoryCheck
+        from utils import _sanitize_excel_cell
         check = InventoryCheck.query.get_or_404(id)
         wb = Workbook()
         ws = wb.active
@@ -1641,7 +1642,7 @@ def register_check_routes(app):
         values = stocktake_display_values(check.items)
         if check.items:
             for item in check.items:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     check.check_no,
                     check.date.strftime('%Y-%m-%d') if check.date else '',
                     item.material.code if item.material else '',
@@ -1656,7 +1657,7 @@ def register_check_routes(app):
                     item.counted_at.strftime('%Y-%m-%d %H:%M') if getattr(item, 'counted_at', None) else '',
                     check.warehouse or '',
                     item.area or '', values[item.id]['count_total'],
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

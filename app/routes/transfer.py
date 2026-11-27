@@ -1152,6 +1152,7 @@ def register_transfer_routes(app):
         from app import (TransferOrder)
         from flask import send_file
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         order = TransferOrder.query.get_or_404(id)
         wb = Workbook()
         ws = wb.active
@@ -1159,7 +1160,7 @@ def register_transfer_routes(app):
         ws.append(['单据编号', '日期', '调出仓库', '调入仓库', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '调出库位', '调入库位'])
         if order.items:
             for item in order.items:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.transfer_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.from_warehouse or '',
@@ -1170,7 +1171,7 @@ def register_transfer_routes(app):
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
                     order.remark or '', order.from_location or '', order.to_location or ''
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

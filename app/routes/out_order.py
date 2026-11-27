@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 
 from collections import Counter
 from flask import abort, jsonify, redirect, render_template, request, send_file, url_for
@@ -145,6 +146,7 @@ def _build_out_order_excel(order, box_numbers=None):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, Side
     from openpyxl.utils import get_column_letter
+    from utils import _sanitize_excel_cell
 
     wb = Workbook()
     ws = wb.active
@@ -185,9 +187,9 @@ def _build_out_order_excel(order, box_numbers=None):
     ws.merge_cells('A2:E2')
     party_label = _out_order_party_label(business_type)
     party = (getattr(order, 'customer', None) or '') if business_type in ('销售出库', '采购退货出库', '其他出库') else department
-    ws['A2'] = f'{party_label}：{party}'
+    ws['A2'] = _sanitize_excel_cell(f'{party_label}：{party}')
     ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=last_column)
-    ws['F2'] = f'日期：{date_str}'
+    ws['F2'] = _sanitize_excel_cell(f'日期：{date_str}')
     ws['A2'].font = body_font
     ws['A2'].alignment = left_align
     ws['F2'].font = body_font
@@ -213,15 +215,17 @@ def _build_out_order_excel(order, box_numbers=None):
         if material is not None and getattr(material, 'unit', None):
             unit = material.unit.name or ''
         if box_numbers:
-            cell = ws.cell(row=row, column=1, value=box_numbers.get(item.id, '') or '-')
+            raw_box = box_numbers.get(item.id, '')
+            box_val = _sanitize_excel_cell(raw_box) if raw_box else '-'
+            cell = ws.cell(row=row, column=1, value=box_val)
             cell.data_type = 's'
         for col, value in enumerate(vals, start=1 + offset):
-            ws.cell(row=row, column=col, value=value)
-        ws.cell(row=row, column=5 + offset, value=unit)
+            ws.cell(row=row, column=col, value=_sanitize_excel_cell(value))
+        ws.cell(row=row, column=5 + offset, value=_sanitize_excel_cell(unit))
         ws.cell(row=row, column=6 + offset, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
         ws.cell(row=row, column=7 + offset, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
         ws.cell(row=row, column=8 + offset, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=9 + offset, value=(getattr(item, 'contract_no', None) or contract_no or ''))
+        ws.cell(row=row, column=9 + offset, value=_sanitize_excel_cell(getattr(item, 'contract_no', None) or contract_no or ''))
         for col in range(1, last_column + 1):
             c = ws.cell(row=row, column=col)
             c.font = body_font
@@ -946,7 +950,19 @@ def register_out_order_routes(app):
                     db.session.rollback()
                     return api_error(f'物料 {material_code} 的数量必须大于0')
 
-                price = round_to_2_decimals(parse_float_value(submitted_item.get('price'), material.price or 0))
+                raw_price = submitted_item.get('price')
+                if raw_price in (None, ''):
+                    price = round_to_2_decimals(max(0.0, float(material.price or 0)))
+                else:
+                    try:
+                        parsed_price = float(raw_price)
+                    except (TypeError, ValueError):
+                        db.session.rollback()
+                        return api_error(f'物料 {material_code} 的单价格式不正确')
+                    if not math.isfinite(parsed_price) or parsed_price < 0:
+                        db.session.rollback()
+                        return api_error(f'物料 {material_code} 的单价不能小于0')
+                    price = round_to_2_decimals(parsed_price)
                 # SALES-AUDIT-005：优先用前端回传的来源，其次按 material_id 恢复
                 candidates = source_item_by_material.get(material.id, set())
                 preserved_source_id = submitted_item.get('source_sales_order_item_id')
@@ -998,6 +1014,15 @@ def register_out_order_routes(app):
                         return api_error(ret_msg)
                     source_in_order_item_id = source_ii.id
                     source_in_order_ids.add(source_ii.in_order_id)
+                raw_line_cid = submitted_item.get('contract_id')
+                if raw_line_cid not in (None, '', 'None', 'null'):
+                    try:
+                        line_cid = int(raw_line_cid)
+                    except (TypeError, ValueError):
+                        db.session.rollback()
+                        return api_error('合同ID格式不正确')
+                else:
+                    line_cid = None
                 db.session.add(OutOrderItem(
                     out_order_id=order.id,
                     material_id=material.id,
@@ -1005,7 +1030,7 @@ def register_out_order_routes(app):
                     price=price,
                     amount=round_money_product(quantity, price),
                     remark=(submitted_item.get('remark') or '').strip() or None,
-                    contract_id=int(submitted_item.get('contract_id')) if submitted_item.get('contract_id') else None,
+                    contract_id=line_cid,
                     contract_no=(submitted_item.get('contract_no') or '').strip() or None,
                     project_name=(submitted_item.get('project_name') or '').strip() or None,
                     source_sales_order_item_id=preserved_source_id,
@@ -1104,7 +1129,17 @@ def register_out_order_routes(app):
         if quantity <= 0:
             return api_error('数量必须大于0')
 
-        price = round_to_2_decimals(parse_float_value(request.form.get('price'), material.price or 0))
+        raw_price = request.form.get('price')
+        if raw_price in (None, ''):
+            price = round_to_2_decimals(max(0.0, float(material.price or 0)))
+        else:
+            try:
+                parsed_price = float(raw_price)
+            except (TypeError, ValueError):
+                return api_error('单价必须是数字')
+            if not math.isfinite(parsed_price) or parsed_price < 0:
+                return api_error('单价不能小于0')
+            price = round_to_2_decimals(parsed_price)
 
         # BUG-2026-09-18-013：出库明细也带合同归属。领料单没有「来源销售行」这一层，
         # 因此按「用户本行输入 > 表头」解析；出库侧本就不合并同物料，本次只补字段。
@@ -1197,7 +1232,17 @@ def register_out_order_routes(app):
         if quantity <= 0:
             return api_error('数量必须大于0')
 
-        price = round_to_2_decimals(parse_float_value(request.form.get('price'), item.price))
+        raw_price = request.form.get('price')
+        if raw_price in (None, ''):
+            price = round_to_2_decimals(max(0.0, float(item.price or 0)))
+        else:
+            try:
+                parsed_price = float(raw_price)
+            except (TypeError, ValueError):
+                return api_error('单价必须是数字')
+            if not math.isfinite(parsed_price) or parsed_price < 0:
+                return api_error('单价不能小于0')
+            price = round_to_2_decimals(parsed_price)
 
         # BUG-2026-09-22-007：采购退货出库单有来源的明细改数量必须复校可退量。
         # 本接口是明细表内联改量（ExcelTable autoSave / 行内编辑），此前只校验
@@ -1910,6 +1955,7 @@ def register_out_order_routes(app):
                          resolve_request_warehouse)
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
@@ -1968,7 +2014,7 @@ def register_out_order_routes(app):
         rows = query.all()
         for order, item in rows:
             if item is not None:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or (order.department.name if order.department else '') or '',
@@ -1986,10 +2032,10 @@ def register_out_order_routes(app):
                     item.amount or 0,
                     '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
-                ])
+                ]])
             else:
                 # 待完成但尚无明细的单据也导出（outerjoin 保留），数量/金额留空
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or (order.department.name if order.department else '') or '',
@@ -1999,7 +2045,7 @@ def register_out_order_routes(app):
                     '', '', '', order.contract_no or '', order.project_name or '', '', None, None, None,
                     '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -2010,6 +2056,7 @@ def register_out_order_routes(app):
     def export_single_out_order(id):
         from app import OutOrder
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         order = OutOrder.query.get_or_404(id)
         wb = Workbook()
         ws = wb.active
@@ -2017,7 +2064,7 @@ def register_out_order_routes(app):
         ws.append(['单据编号', '日期', _out_order_party_label(order.business_type), '领料人', '用途', '仓库', '物料编码', '物料名称', '规格', '合同单号', '工程名称', '单位', '数量', '单价', '金额', '备注'])
         if order.items:
             for item in order.items:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.customer or (order.department.name if order.department else '') or '',
@@ -2034,7 +2081,7 @@ def register_out_order_routes(app):
                     item.price or 0,
                     item.amount or 0,
                     order.remark or ''
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

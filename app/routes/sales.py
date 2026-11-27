@@ -1250,6 +1250,7 @@ def register_sales_routes(app):
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload, selectinload
         from app import Material, OutOrder, OutOrderItem, _require_report_warehouse
+        from utils import _sanitize_excel_cell
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
@@ -1275,7 +1276,7 @@ def register_sales_routes(app):
         for order in orders:
             if order.items:
                 for item in order.items:
-                    ws.append([
+                    ws.append([_sanitize_excel_cell(v) for v in [
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order.customer or '',
@@ -1291,9 +1292,9 @@ def register_sales_routes(app):
                         item.price or 0,
                         item.amount or 0,
                         '已完成' if order.status == 'completed' else '草稿'
-                    ])
+                    ]])
             else:
-                ws.append([order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.customer or '', (order.source_sales_order.contract_no or '') if order.source_sales_order else '', (order.source_sales_order.project_name or '') if order.source_sales_order else '', order.warehouse or '', order.source_sales_order.order_no if order.source_sales_order else '', '', '', '', '', '', '', '', '已完成' if order.status == 'completed' else '草稿'])
+                ws.append([_sanitize_excel_cell(v) for v in [order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '', order.customer or '', (order.source_sales_order.contract_no or '') if order.source_sales_order else '', (order.source_sales_order.project_name or '') if order.source_sales_order else '', order.warehouse or '', order.source_sales_order.order_no if order.source_sales_order else '', '', '', '', '', '', '', '', '已完成' if order.status == 'completed' else '草稿']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -1657,13 +1658,14 @@ def register_sales_routes(app):
                 pass
         orders = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单'
         # SALES-AUDIT-009：补齐合同单号与工程名称（与 PUR-AUDIT-004 对齐）
         sheet.append(['订单号', '订单日期', '客户', '合同单号', '工程名称', '业务员', '项目号', '仓库', '交货日期', '未税金额', '税额', '含税金额', '已发货金额', '待发货金额', '订单状态', '发货状态', '币别', '结算方式', '备注'])
         for order in orders:
-            sheet.append([
+            sheet.append([_sanitize_excel_cell(v) for v in [
                 order.order_no,
                 order.date.isoformat() if order.date else '',
                 order.customer.name if order.customer else '',
@@ -1683,7 +1685,7 @@ def register_sales_routes(app):
                 order.currency or 'CNY',
                 order.settlement_method or '',
                 order.remark or '',
-            ])
+            ]])
         from flask import Response
         import io
         output = io.BytesIO()
@@ -1758,6 +1760,7 @@ def register_sales_routes(app):
         orders = sales_summary_context()['orders']
         material_code = (request.args.get('material_code') or '').strip()
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单执行'
@@ -1768,7 +1771,7 @@ def register_sales_routes(app):
                 if material_code and (not item.material or item.material.code != material_code):
                     continue
                 shipped = item.shipped_quantity or 0
-                sheet.append([
+                sheet.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.isoformat() if order.date else '',
                     order.customer.name if order.customer else '',
@@ -1787,7 +1790,7 @@ def register_sales_routes(app):
                     item.price or 0,
                     item.amount or 0,
                     item.remark or order.remark or '',
-                ])
+                ]])
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -1813,6 +1816,7 @@ def register_sales_routes(app):
             _reconciliation_quantities, _reconciliation_warehouse_filter, _reconciliation_warehouse_aliases,
             _reconciliation_warehouse_issue, _RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE)
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
@@ -1835,7 +1839,7 @@ def register_sales_routes(app):
             status = '待人工核对' if amount_diff is None or quantity_diff is None else '通过' if ok else '不一致'
             if warehouse_reason:
                 status += '：' + warehouse_reason
-            sheet.append([order.order_no, order.warehouse or '', shipped_qty, completed_qty, _reconciliation_excel_amount(order.shipped_amount), status])
+            sheet.append([_sanitize_excel_cell(v) for v in [order.order_no, order.warehouse or '', shipped_qty, completed_qty, _reconciliation_excel_amount(order.shipped_amount), status]])
         output = io.BytesIO(); workbook.save(output); output.seek(0)
         return send_file(output, download_name='sales_reconciliation.xlsx', as_attachment=True)
 
@@ -1867,6 +1871,7 @@ def register_sales_routes(app):
         import re
         from openpyxl import Workbook
         from app import (OutOrder, SalesOrder, _require_report_warehouse, round_to_2_decimals)
+        from utils import _sanitize_excel_cell
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
@@ -1911,7 +1916,7 @@ def register_sales_routes(app):
                 tax_rate = sales_item.tax_rate if sales_item is not None and sales_item.tax_rate is not None else 0.13
                 untaxed_amount = round_to_2_decimals(line_amount / (1 + tax_rate)) if (1 + tax_rate) > 0 else line_amount
                 tax_amount = round_to_2_decimals(line_amount - untaxed_amount)
-                sheet.append([
+                sheet.append([_sanitize_excel_cell(v) for v in [
                     oo.date.isoformat() if oo.date else '',
                     oo.order_no,
                     oo.customer or '',
@@ -1931,7 +1936,7 @@ def register_sales_routes(app):
                     '已完成' if oo.status == 'completed' else '待完成',
                     oo.purpose or '',
                     item.remark or oo.remark or '',
-                ])
+                ]])
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -1954,6 +1959,7 @@ def register_sales_routes(app):
         import io
         from openpyxl import Workbook
         from app import (SalesOrder, _require_report_warehouse, round_to_2_decimals)
+        from utils import _sanitize_excel_cell
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:
@@ -1991,7 +1997,7 @@ def register_sales_routes(app):
             growth = ''
             if prev_amount and prev_amount > 0:
                 growth = round_to_2_decimals((row['amount'] - prev_amount) / prev_amount * 100)
-            sheet.append([m, row['orders'], len(row['customers']), round_to_2_decimals(row['quantity']), round_to_2_decimals(row['untaxed_amount']), round_to_2_decimals(row['tax_amount']), round_to_2_decimals(row['amount']), round_to_2_decimals(row['shipped_amount']), growth])
+            sheet.append([_sanitize_excel_cell(v) for v in [m, row['orders'], len(row['customers']), round_to_2_decimals(row['quantity']), round_to_2_decimals(row['untaxed_amount']), round_to_2_decimals(row['tax_amount']), round_to_2_decimals(row['amount']), round_to_2_decimals(row['shipped_amount']), growth]])
             prev_amount = row['amount']
         output = io.BytesIO()
         workbook.save(output)
@@ -2014,6 +2020,7 @@ def register_sales_routes(app):
         import io
         from openpyxl import Workbook
         from app import _sales_report_orders, round_to_2_decimals
+        from utils import _sanitize_excel_cell
         rows = []
         for order in _sales_report_orders():
             total_qty = sum((item.quantity or 0) for item in order.items)
@@ -2037,7 +2044,7 @@ def register_sales_routes(app):
         sheet.title = '销售订单执行'
         sheet.append(['销售订单号', '订单日期', '客户', '合同单号', '工程名称', '状态', '订单数量', '已发货数量', '待发货数量', '订单金额', '已发货金额', '待发货金额', '金额执行率%'])
         for row in rows:
-            sheet.append(row)
+            sheet.append([_sanitize_excel_cell(v) for v in row])
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)
@@ -2059,6 +2066,7 @@ def register_sales_routes(app):
         import io
         from openpyxl import Workbook
         from app import _sales_report_orders, price_dimension_enabled, round_to_2_decimals
+        from utils import _sanitize_excel_cell
         if not price_dimension_enabled():
             flash('价格维度未启用，销售价格分析导出已下线。', 'warning')
             return redirect(url_for('sales_report'))
@@ -2080,7 +2088,7 @@ def register_sales_routes(app):
         sheet.append(['物料编码', '物料名称', '规格', '销售数量', '平均成交价', '最低成交价', '最高成交价', '含税金额'])
         for row in sorted(grouped.values(), key=lambda value: value['amount'], reverse=True):
             prices = row['prices']
-            sheet.append([row['code'], row['name'], row['spec'], round_to_2_decimals(row['quantity']), round_to_2_decimals(sum(prices) / len(prices)), round_to_2_decimals(min(prices)), round_to_2_decimals(max(prices)), round_to_2_decimals(row['amount'])])
+            sheet.append([_sanitize_excel_cell(v) for v in [row['code'], row['name'], row['spec'], round_to_2_decimals(row['quantity']), round_to_2_decimals(sum(prices) / len(prices)), round_to_2_decimals(min(prices)), round_to_2_decimals(max(prices)), round_to_2_decimals(row['amount'])]])
         output = io.BytesIO()
         workbook.save(output)
         output.seek(0)

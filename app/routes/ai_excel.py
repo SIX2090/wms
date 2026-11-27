@@ -190,18 +190,19 @@ def api_document_ocr_excel():
             ])
 
         from openpyxl import Workbook
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         ws.title = '单据明细'
-        ws.append(['单据类型', doc_type_label])
-        ws.append(['供应商/客户', str(extracted.get('supplier') or '').strip()])
-        ws.append(['单据编号', str(extracted.get('order_no') or '').strip()])
-        ws.append(['日期', str(extracted.get('date') or '').strip()])
-        ws.append(['备注', str(extracted.get('remarks') or '').strip()])
+        ws.append(['单据类型', _sanitize_excel_cell(doc_type_label)])
+        ws.append(['供应商/客户', _sanitize_excel_cell(str(extracted.get('supplier') or '').strip())])
+        ws.append(['单据编号', _sanitize_excel_cell(str(extracted.get('order_no') or '').strip())])
+        ws.append(['日期', _sanitize_excel_cell(str(extracted.get('date') or '').strip())])
+        ws.append(['备注', _sanitize_excel_cell(str(extracted.get('remarks') or '').strip())])
         ws.append([])
         ws.append(['物料编码', '物料名称', '规格型号', '数量', '单价', '金额', '单位'])
         for row in rows:
-            ws.append(row)
+            ws.append([_sanitize_excel_cell(v) for v in row])
         if not rows:
             ws.append(['（未识别到明细行）', '', '', None, None, None, ''])
         for col, width in zip('ABCDEFG', (16, 28, 18, 10, 10, 12, 8)):

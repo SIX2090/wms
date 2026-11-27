@@ -621,6 +621,7 @@ def register_bom_routes(app):
         import io
         from openpyxl import Workbook
         from app import _bom_query_from_args
+        from utils import _sanitize_excel_cell
         wb = Workbook()
         ws = wb.active
         ws.title = 'BOM'
@@ -628,7 +629,7 @@ def register_bom_routes(app):
         query, _, _, _ = _bom_query_from_args()
         for bom in query.all():
             status_label = '激活' if bom.status == 'active' else ('停用' if bom.status == 'inactive' else (bom.status or ''))
-            ws.append([
+            ws.append([_sanitize_excel_cell(v) for v in [
                 bom.bom_no,
                 bom.product_code,
                 bom.product_name,
@@ -639,7 +640,7 @@ def register_bom_routes(app):
                 bom.total_cost or 0,
                 bom.created_at.strftime('%Y-%m-%d %H:%M') if bom.created_at else '',
                 bom.remark or '',
-            ])
+            ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

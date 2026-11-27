@@ -33,6 +33,7 @@ from utils import round_money_product
 from services.web_document_idempotency import begin_native_document_write, stage_document_response
 import base64
 import json
+import math
 import re
 from ai.safe_http import post as safe_ai_post
 
@@ -1127,7 +1128,19 @@ def register_native_api_routes(app):
             db.session.flush()
             total_amount = 0
             for material, quantity, line in parsed:
-                price = parse_float_value(line.get('price'), material.price or 0)
+                raw_price = line.get('price')
+                if raw_price in (None, ''):
+                    price = round_to_2_decimals(max(0.0, float(material.price or 0)))
+                else:
+                    try:
+                        parsed_price = float(raw_price)
+                    except (TypeError, ValueError):
+                        db.session.rollback()
+                        return api_json_error('单价必须是大于等于0的有效数字', 400)
+                    if not math.isfinite(parsed_price) or parsed_price < 0:
+                        db.session.rollback()
+                        return api_json_error('单价不能小于0', 400)
+                    price = round_to_2_decimals(parsed_price)
                 amount = round_money_product(quantity, price)
                 total_amount += amount
                 # BUG-2026-09-18-013：Android 扫码无逐行合同输入，明细继承单据表头合同号，
@@ -1312,7 +1325,19 @@ def register_native_api_routes(app):
             db.session.flush()
             total_amount = 0
             for material, quantity, line in parsed:
-                price = parse_float_value(line.get('price'), material.price or 0)
+                raw_price = line.get('price')
+                if raw_price in (None, ''):
+                    price = round_to_2_decimals(max(0.0, float(material.price or 0)))
+                else:
+                    try:
+                        parsed_price = float(raw_price)
+                    except (TypeError, ValueError):
+                        db.session.rollback()
+                        return api_json_error('单价必须是大于等于0的有效数字', 400)
+                    if not math.isfinite(parsed_price) or parsed_price < 0:
+                        db.session.rollback()
+                        return api_json_error('单价不能小于0', 400)
+                    price = round_to_2_decimals(parsed_price)
                 amount = round_money_product(quantity, price)
                 total_amount += amount
                 db.session.add(OutOrderItem(

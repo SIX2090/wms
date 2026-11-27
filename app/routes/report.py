@@ -439,6 +439,7 @@ def register_report_routes(app):
     def report_inout_print():
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
+        from utils import _sanitize_excel_cell
         from app import (InOrder, OutOrder, InOrderItem, OutOrderItem, api_error, db,
                          resolve_request_warehouse, parse_date_value,
                          _warehouse_document_match_clause, _apply_status_date_filters,
@@ -538,7 +539,7 @@ def register_report_routes(app):
                     partner = order.supplier.name if order.supplier else ''
                 else:
                     partner = order.department.name if order.department else (order.customer or '')
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     partner,
@@ -549,7 +550,7 @@ def register_report_routes(app):
                     (item.quantity or 0) if item else 0,
                     (item.amount or 0) if item else 0,
                     {'pending': '待完成', 'completed': '已完成'}.get(order.status, order.status or ''),
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -567,6 +568,7 @@ def register_report_routes(app):
     def report_stock_print():
         from openpyxl import Workbook
         from app import api_error, inventory_alert_enabled, price_dimension_enabled
+        from utils import _sanitize_excel_cell
         from services.stock_print_preview import (collect_stock_print_data,
             resolve_stock_print_template, stock_print_rows, build_stock_excel_print)
         # BUG-2026-08-12-005：库存导出必须输出仓库级库存，不得输出 Material.stock 跨仓总数；
@@ -643,7 +645,7 @@ def register_report_routes(app):
                 else:
                     alert_status = 'normal'
                 row.extend([min_stock, safety_stock, status_map.get(alert_status, '正常')])
-            ws.append(row)
+            ws.append([_sanitize_excel_cell(v) for v in row])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

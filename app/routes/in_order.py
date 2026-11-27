@@ -262,6 +262,7 @@ def _build_in_order_excel(order):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, Side
     from openpyxl.utils import get_column_letter
+    from utils import _sanitize_excel_cell
 
     wb = Workbook()
     ws = wb.active
@@ -296,12 +297,14 @@ def _build_in_order_excel(order):
     contract_no = getattr(order, 'contract_no', None) or ''
 
     ws.merge_cells('A2:C2')
-    ws['A2'] = (f'退货客户：{order.customer.name if order.customer else ""}'
-                if getattr(order, 'business_type', None) == '销售退货入库' else f'供应商：{supplier or ""}')
+    ws['A2'] = _sanitize_excel_cell(
+        f'退货客户：{order.customer.name if order.customer else ""}'
+        if getattr(order, 'business_type', None) == '销售退货入库' else f'供应商：{supplier or ""}'
+    )
     ws.merge_cells('D2:F2')
-    ws['D2'] = f'{_in_order_print_title(order)}号：{order_no}'
+    ws['D2'] = _sanitize_excel_cell(f'{_in_order_print_title(order)}号：{order_no}')
     ws.merge_cells('G2:I2')
-    ws['G2'] = f'日期：{date_str}'
+    ws['G2'] = _sanitize_excel_cell(f'日期：{date_str}')
     for cell in ('A2', 'D2', 'G2'):
         ws[cell].font = body_font
         ws[cell].alignment = left_align
@@ -326,12 +329,12 @@ def _build_in_order_excel(order):
         if material is not None and getattr(material, 'unit', None):
             unit = material.unit.name or ''
         for col, value in enumerate(vals, start=1):
-            ws.cell(row=row, column=col, value=value)
-        ws.cell(row=row, column=5, value=unit)
+            ws.cell(row=row, column=col, value=_sanitize_excel_cell(value))
+        ws.cell(row=row, column=5, value=_sanitize_excel_cell(unit))
         ws.cell(row=row, column=6, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
         ws.cell(row=row, column=7, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
         ws.cell(row=row, column=8, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=9, value=(getattr(item, 'contract_no', None) or contract_no or ''))
+        ws.cell(row=row, column=9, value=_sanitize_excel_cell(getattr(item, 'contract_no', None) or contract_no or ''))
         for col in range(1, 10):
             c = ws.cell(row=row, column=col)
             c.font = body_font
@@ -357,8 +360,8 @@ def _build_in_order_excel(order):
 
     if getattr(order, 'business_type', None) == '销售退货入库':
         ws.merge_cells(start_row=row + 1, start_column=1, end_row=row + 1, end_column=9)
-        ws.cell(row=row + 1, column=1, value='原销售订单：' + '、'.join(
-            source['order_no'] for source in _in_order_sales_sources(order))).font = body_font
+        ws.cell(row=row + 1, column=1, value=_sanitize_excel_cell('原销售订单：' + '、'.join(
+            source['order_no'] for source in _in_order_sales_sources(order)))).font = body_font
 
     output = _io.BytesIO()
     from services.excel_print_layout import fit_print_rows
@@ -1352,10 +1355,14 @@ def register_in_order_routes(app):
                     db.session.flush()
 
             if supplier_id:
+                from app import Supplier
                 try:
-                    order.supplier_id = int(supplier_id)
+                    supplier = db.session.get(Supplier, int(supplier_id))
                 except (TypeError, ValueError):
+                    supplier = None
+                if not supplier:
                     return fail('请选择有效的供应商')
+                order.supplier_id = supplier.id
             else:
                 order.supplier_id = None
             if customer_id:
@@ -1386,7 +1393,13 @@ def register_in_order_routes(app):
             order.warehouse = warehouse
             order.location = location
             order.remark = remark
-            order.contract_id = int(contract_id) if contract_id else None
+            if contract_id not in (None, '', 'None', 'null'):
+                try:
+                    order.contract_id = int(contract_id)
+                except (TypeError, ValueError):
+                    return fail('合同ID格式不正确', 400)
+            else:
+                order.contract_id = None
             order.contract_no = contract_no or None
             order.project_name = project_name or None
             # BUG-2026-08-02-001 修复：仓库必填且必须有效（与库位管理是否启用无关）
@@ -1449,10 +1462,17 @@ def register_in_order_routes(app):
                         return fail(f'物料 {material_code} 的数量格式不正确', 400)
                     if quantity <= 0:
                         return fail(f'物料 {material_code} 的数量必须大于0', 400)
-                    try:
-                        price = round_to_2_decimals(item_data.get('price', 0))
-                    except (TypeError, ValueError):
-                        price = 0
+                    raw_price = item_data.get('price', 0)
+                    if raw_price in (None, ''):
+                        parsed_price = 0.0
+                    else:
+                        try:
+                            parsed_price = float(raw_price)
+                        except (TypeError, ValueError):
+                            return fail(f'物料 {material_code} 的单价格式不正确', 400)
+                    if not math.isfinite(parsed_price) or parsed_price < 0:
+                        return fail(f'物料 {material_code} 的单价不能小于0', 400)
+                    price = round_to_2_decimals(parsed_price)
                     amount = round_money_product(quantity, price)
                     is_customer_supplied = item_data.get('is_customer_supplied') in (True, 1, '1', 'true', 'True', 'yes', 'on')
                     if is_customer_supplied and business_type != '其他入库':
@@ -1531,7 +1551,15 @@ def register_in_order_routes(app):
                         except ValueError as exc:
                             return fail(f'第 {index} 行：{exc}')
                     else:
-                        line_contract = (int(item_data['contract_id']) if item_data.get('contract_id') else None,
+                        raw_line_cid = item_data.get('contract_id')
+                        if raw_line_cid not in (None, '', 'None', 'null'):
+                            try:
+                                line_cid = int(raw_line_cid)
+                            except (TypeError, ValueError):
+                                return fail(f'第 {index} 行合同ID格式不正确', 400)
+                        else:
+                            line_cid = None
+                        line_contract = (line_cid,
                                          (item_data.get('contract_no') or '').strip() or None,
                                          (item_data.get('project_name') or '').strip() or None)
                     item = InOrderItem(
@@ -1630,10 +1658,17 @@ def register_in_order_routes(app):
         if quantity <= 0:
             return api_error('数量必须大于0')
 
-        try:
-            price = round_to_2_decimals(request.form.get('price', 0))
-        except (TypeError, ValueError):
-            return api_error('单价必须是数字')
+        raw_price = request.form.get('price', 0)
+        if raw_price in (None, ''):
+            parsed_price = 0.0
+        else:
+            try:
+                parsed_price = float(raw_price)
+            except (TypeError, ValueError):
+                return api_error('单价必须是数字')
+        if not math.isfinite(parsed_price) or parsed_price < 0:
+            return api_error('单价不能小于0')
+        price = round_to_2_decimals(parsed_price)
         amount = round_money_product(quantity, price)
         source_purchase_order_item_id = None
         source_item = None
@@ -1778,8 +1813,20 @@ def register_in_order_routes(app):
                     errors.append(f'第 {line_no} 行物料 {material_code} 已停用')
                     continue
 
-                default_price = material.price or 0
-                price = round_to_2_decimals(parse_float_value(parts[2] if len(parts) > 2 else None, default_price))
+                default_price = max(0.0, float(material.price or 0))
+                raw_price_cell = parts[2] if len(parts) > 2 else None
+                if raw_price_cell in (None, ''):
+                    price = round_to_2_decimals(default_price)
+                else:
+                    try:
+                        parsed_price = float(raw_price_cell)
+                    except (TypeError, ValueError):
+                        errors.append(f'第 {line_no} 行单价格式不正确')
+                        continue
+                    if not math.isfinite(parsed_price) or parsed_price < 0:
+                        errors.append(f'第 {line_no} 行单价不能小于0')
+                        continue
+                    price = round_to_2_decimals(parsed_price)
                 # BUG-2026-09-18-013：此入口无来源采购行，合同号用单据表头兜底。
                 # 走统一收口函数而非直接读 order.contract_*，避免日后收口规则变化
                 # （如新增"按物料族映射合同"）时此处被漏改。
@@ -1907,6 +1954,8 @@ def register_in_order_routes(app):
             requested_price = float(request.form.get('price', old_price))
             if not math.isfinite(requested_quantity) or not math.isfinite(requested_price):
                 return api_error('数量和单价必须是有限数字')
+            if requested_price < 0:
+                return api_error('单价不能小于 0')
             quantity_changed = not _recorded_quantity_matches(requested_quantity, old_quantity)
             new_quantity = round_to_2_decimals(requested_quantity) if quantity_changed else old_quantity
             quantity_changed = not _recorded_quantity_matches(new_quantity, old_quantity)
@@ -2290,69 +2339,18 @@ def register_in_order_routes(app):
                         affected_purchase_order_ids.add(item.source_purchase_order_item.purchase_order.id)
 
             order.status = 'completed'
-            order.total_amount = sum((item.amount or 0) for item in order.items)
-            for purchase_order in PurchaseOrder.query.filter(PurchaseOrder.id.in_(affected_purchase_order_ids)).all():
-                update_purchase_order_status(purchase_order)
-            auto_requisition = None
-            if order.auto_push_requisition:
-                if order.business_type != '采购入库':
-                    db.session.rollback()
-                    return api_error('仅采购入库单可以自动下推领料单')
-                # Released history is retained after downstream deletion. It is not
-                # an active allocation, even when SQLite reuses the source/item IDs.
-                # The order write lock and pending-state check prevent double posting.
-                request_id = f'auto-requisition-{order.id}-{uuid4().hex}'
-                if _source_has_active_push(order.id):
-                    db.session.rollback()
-                    return api_error('自动下推领料单已处理，不能重复操作')
-                auto_requisition = OutOrder(
-                    order_no=generate_order_no('OUT'), date=order.date,
-                    business_type='领料单', warehouse=order.warehouse,
-                    location=order.location, purpose='自动下推领料单', status='completed',
-                    operator_id=current_user.id,
-                    remark=f'由采购入库单 {order.order_no} 自动下推并完成领料',
-                )
-                db.session.add(auto_requisition)
-                db.session.flush()
-                requisition_checkpoint = stock_document_audit_checkpoint(auto_requisition, created=True)
-                # P2-3 收敛：use_location 判定下沉到 apply_stock_delta 内部。
-                for source_item in order.items:
-                    price = round_to_2_decimals(source_item.material.price or 0) if source_item.material else 0
-                    target_item = OutOrderItem(
-                        out_order_id=auto_requisition.id, material_id=source_item.material_id,
-                        quantity=source_item.quantity, price=price,
-                        amount=round_money_product(source_item.quantity or 0, price),
-                        contract_id=source_item.contract_id, contract_no=source_item.contract_no,
-                        project_name=source_item.project_name, remark=source_item.remark,
-                    )
-                    db.session.add(target_item)
-                    db.session.flush()
-                    # P2-3 收敛：自动下推领料单扣减同样经单点入口（delta 取负）。
-                    # 原直接调 deduct_location_inventory_atomic 与入口内部的
-                    # update_location_inventory 同参同仓（仓库 id 由入口统一解析）。
-                    stock_ok, stock_error = apply_stock_delta(
-                        source_item.material, -(source_item.quantity or 0),
-                        transaction_type='out', reference_type='out_order',
-                        reference_id=auto_requisition.id,
-                        warehouse=order.warehouse,
-                        location=order.location,
-                    )
-                    if not stock_ok:
-                        db.session.rollback()
-                        return api_error(stock_error or '自动下推领料单扣减库存失败')
-                    db.session.add(DocumentPushLine(
-                        source_document_type='purchase_in_order', source_document_id=order.id,
-                        source_document_no=order.order_no, source_item_id=source_item.id,
-                        target_document_type='requisition', target_document_id=auto_requisition.id,
-                        target_document_no=auto_requisition.order_no, target_item_id=target_item.id,
-                        pushed_quantity=source_item.quantity or 0, status='active',
-                        request_id=request_id, created_by=current_user.id,
-                    ))
-                recalculate_order_total(auto_requisition)
-                stage_stock_document_snapshot(
-                    auto_requisition, deleting=False, operation='complete_out_order',
-                    checkpoint=requisition_checkpoint, reason='采购入库自动完成领料',
-                )
+            order.total_amount = round_to_2_decimals(sum((item.amount or 0) for item in order.items))
+            from services.in_order_completion import (
+                execute_auto_push_requisition,
+                sync_in_order_purchase_order_statuses,
+            )
+            sync_in_order_purchase_order_statuses(order)
+            auto_requisition, req_err = execute_auto_push_requisition(
+                order, actor=current_user, reason='采购入库自动完成领料',
+            )
+            if req_err:
+                db.session.rollback()
+                return api_error(req_err)
             try:
                 stage_stock_document_snapshot(
                     order, deleting=False, operation='complete_in_order',
@@ -2398,6 +2396,7 @@ def register_in_order_routes(app):
         from app import (DocumentPushLine, InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
                          STOCK_COMPARE_EPSILON, Warehouse, _acquire_order_write_lock,
                          _active_in_order_push_lines, _material_stock_unattributed,
+                         _purchase_returned_quantity_by_source_item,
                          allow_negative_stock, api_error,
                          get_default_warehouse, get_warehouse_stock_quantities,
                          is_stock_sufficient,
@@ -2488,6 +2487,7 @@ def register_in_order_routes(app):
             # 在删行触发ORM autoflush前解析真实主键，数字/字符串别名也不能
             # 把同一行同时放进删除和修改；不据客户端原始ID猜行归属。
             active_pushes = _active_in_order_push_lines(order.id)
+            returned_by_item = _purchase_returned_quantity_by_source_item([row.id for row in order.items])
             if deleted_items and active_pushes.filter(
                     DocumentPushLine.source_item_id.in_(deleted_items)).first():
                 return fail('该明细已关联出库，请先处理关联出库单后再删除入库行', 409)
@@ -2506,6 +2506,8 @@ def register_in_order_routes(app):
                         return fail('同一明细不能同时删除和修改，请刷新后重试')
                     if item.id in deleted_item_ids:
                         continue
+                    if returned_by_item.get(item.id, 0) > STOCK_COMPARE_EPSILON:
+                        return fail('该入库明细存在已完成采购退货，请先反提交对应退货单，再删除原入库明细', 409)
                     deleted_item_ids.add(item.id)
                     saved_quantity = float(item.quantity or 0)
                     if not _recorded_quantity_matches(saved_quantity, normalize_stock_quantity(saved_quantity)):
@@ -2577,7 +2579,16 @@ def register_in_order_routes(app):
                     quantity = normalize_stock_quantity(quantity)
                     if quantity <= 0:
                         return fail(f'物料 {material_code} 的数量按两位小数计算后必须大于0')
-                    price = float(item_data.get('price', 0))
+                    raw_new_price = item_data.get('price', 0)
+                    if raw_new_price in (None, ''):
+                        price = 0.0
+                    else:
+                        try:
+                            price = float(raw_new_price)
+                        except (TypeError, ValueError):
+                            return fail(f'物料 {material_code} 的单价格式不正确')
+                    if not math.isfinite(price) or price < 0:
+                        return fail(f'物料 {material_code} 的单价不能小于0')
                     amount = round_money_product(quantity, price)
                     source_purchase_order_item_id = None
                     source_item_id = item_data.get('source_purchase_order_item_id')
@@ -2589,6 +2600,8 @@ def register_in_order_routes(app):
                         source_item = db.session.get(PurchaseOrderItem, source_item_id)
                         if not source_item or source_item.material_id != material.id:
                             return fail('来源采购单明细与物料不匹配')
+                        if source_item.purchase_order and source_item.purchase_order.status in ('closed', 'cancelled'):
+                            return fail('来源采购单已关闭或取消，不能新增入库明细')
                         reserved = float(source_item.received_quantity or 0)
                         if not _recorded_quantity_matches(reserved, normalize_stock_quantity(reserved)):
                             return fail('历史采购预留数量超过两位精度，无法证明本次新增数量，请先核对原始单据')
@@ -2667,10 +2680,22 @@ def register_in_order_routes(app):
                             # a tiny delta to zero inside the inventory write service.
                             new_qty = old_qty
                         old_price = float(item.price or 0)
-                        new_price = float(item_data.get('price', old_price))
+                        raw_edit_price = item_data.get('price', old_price)
+                        if raw_edit_price in (None, ''):
+                            new_price = 0.0
+                        else:
+                            try:
+                                new_price = float(raw_edit_price)
+                            except (TypeError, ValueError):
+                                return fail('单价格式不正确')
+                        if not math.isfinite(new_price) or new_price < 0:
+                            return fail('单价不能小于0')
 
                         qty_diff = new_qty - old_qty
                         if qty_diff < 0:
+                            returned_qty = returned_by_item.get(item.id, 0)
+                            if returned_qty > STOCK_COMPARE_EPSILON and returned_qty - new_qty > STOCK_COMPARE_EPSILON:
+                                return fail(f'修改后的入库数量 {new_qty:.2f} 小于已完成采购退货数量 {returned_qty:.2f}，请先反提交对应退货单', 409)
                             deduct_qty = abs(qty_diff)
                             if not allow_negative_stock():
                                 # F2.12 BUG-B（审计 §1.4）：改量减库存分支补齐与「删除
@@ -3265,11 +3290,12 @@ def register_in_order_routes(app):
     @login_required
     def batch_complete_in_order():
         from sqlalchemy.orm import joinedload, selectinload
+        from flask_login import current_user
         from app import (InOrder, InOrderItem, PurchaseOrder, WechatShareConfig,
                          _acquire_order_write_lock, _check_in_order_anomalies,
                          _wechat_share_order, api_error, assert_warehouse_active,
                          get_default_warehouse, is_future_date,
-                         location_management_enabled, round_to_2_decimals,
+                         location_management_enabled, log_operation, round_to_2_decimals,
                          sales_return_remaining_check,
                          update_purchase_order_status,
                          validate_purchase_in_order_source,
@@ -3365,43 +3391,15 @@ def register_in_order_routes(app):
                 skipped.append(f'{order.order_no}(未填写库位)')
                 db.session.rollback()
                 continue
-            # ③ 超收复核：按来源采购行聚合本单数量，扣除本单自身在草稿创建时已预留的
-            # received_quantity，避免把同一单据重复计算一次（PC-P0-04）；同时仍拦截
-            # 真实超收（本单 + 其他已关联入库行 > 采购量，或采购行累计已超采购量）。
-            from sqlalchemy import func as sa_func
-            from app import STOCK_COMPARE_EPSILON, should_block_purchase_over_receive
-            over_qty = False
-            if should_block_purchase_over_receive():
-                qty_by_source = {}
-                source_by_id = {}
-                code_by_source = {}
-                for item in order.items:
-                    if not item.source_purchase_order_item_id or not item.source_purchase_order_item:
-                        continue
-                    sid = item.source_purchase_order_item_id
-                    qty_by_source[sid] = round_to_2_decimals(qty_by_source.get(sid, 0) + (item.quantity or 0))
-                    source_by_id[sid] = item.source_purchase_order_item
-                    code_by_source[sid] = item.material.code if item.material else str(item.material_id)
-                for sid, this_order_qty in qty_by_source.items():
-                    source_item = source_by_id[sid]
-                    other_linked_qty = float(
-                        db.session.query(sa_func.coalesce(sa_func.sum(InOrderItem.quantity), 0))
-                        .filter(
-                            InOrderItem.source_purchase_order_item_id == sid,
-                            InOrderItem.in_order_id != order.id,
-                        ).scalar() or 0
-                    )
-                    other_reserved = max(
-                        other_linked_qty,
-                        max(0.0, float(source_item.received_quantity or 0) - this_order_qty),
-                    )
-                    effective_remain = round_to_2_decimals((source_item.quantity or 0) - other_reserved)
-                    if (this_order_qty - effective_remain > STOCK_COMPARE_EPSILON
-                            or float(source_item.received_quantity or 0) - float(source_item.quantity or 0) > STOCK_COMPARE_EPSILON):
-                        skipped.append(f'{order.order_no}(物料 {code_by_source[sid]} 入库数量不能大于采购单未入库数量)')
-                        over_qty = True
-                        break
-            if over_qty:
+            # ③ 超收复核：复用共享校验函数（扣除本单草稿预留，同时拦截真实超收）。
+            from services.in_order_completion import (
+                check_purchase_over_receive_for_order,
+                execute_auto_push_requisition,
+                sync_in_order_purchase_order_statuses,
+            )
+            over_ok, over_msg = check_purchase_over_receive_for_order(order)
+            if not over_ok:
+                skipped.append(f'{order.order_no}({over_msg})')
                 db.session.rollback()
                 continue
             # ③-b 销售退货入库防超退真闸（BUG-2026-09-22-006）：单据版
@@ -3438,17 +3436,15 @@ def register_in_order_routes(app):
                         if not ok:
                             raise ValueError(err or '库存增加失败')
                 order.status = 'completed'
-                order.total_amount = sum((item.amount or 0) for item in order.items)
+                order.total_amount = round_to_2_decimals(sum((item.amount or 0) for item in order.items))
                 # BUG-2026-10-17-012-F01：批量完成必须与单张一致地回写来源采购订单状态，
                 # 否则采购执行报表/待办长期停留在旧状态（审计 §5.1）。
-                affected_pos = {
-                    item.source_purchase_order_item.purchase_order
-                    for item in order.items
-                    if item.source_purchase_order_item
-                    and item.source_purchase_order_item.purchase_order
-                }
-                for po in affected_pos:
-                    update_purchase_order_status(po)
+                sync_in_order_purchase_order_statuses(order)
+                auto_requisition, req_err = execute_auto_push_requisition(
+                    order, actor=current_user, reason='批量采购入库自动完成领料',
+                )
+                if req_err:
+                    raise ValueError(req_err)
                 # 每张单据独立 commit，保证单点失败仅回滚自身，不影响后续单据
                 stage_stock_document_snapshot(
                     order, deleting=False, operation='complete_in_order',
@@ -3456,6 +3452,9 @@ def register_in_order_routes(app):
                 )
                 db.session.commit()
                 completed += 1
+                log_operation('入库', f'批量完成入库单：{order.order_no}', 'in_order', order.id)
+                if auto_requisition is not None:
+                    log_operation('自动完成领料单', f'采购入库单：{order.order_no} 自动下推领料单：{auto_requisition.order_no}', 'out_order', auto_requisition.id)
                 share_now_config = WechatShareConfig.query.filter_by(enabled=True, immediate_on_complete=True, share_in_order=True).first()
                 if share_now_config:
                     # 异步执行微信分享，不阻塞批量完成响应
@@ -3465,6 +3464,9 @@ def register_in_order_routes(app):
                         current_app._get_current_object(),
                         share_now_config.id, order.id, order.order_no,
                     )
+            except ValueError as e:
+                db.session.rollback()
+                skipped.append(f'{order.order_no}({e})')
             except Exception as e:
                 db.session.rollback()
                 skipped.append(f'{order.order_no}(错误)')
@@ -3725,9 +3727,13 @@ def register_in_order_routes(app):
             return api_error('请选择要导出的入库单')
         if len(ids) > 1000:
             return api_error('单次批量导出不能超过 1000 条')
-        from sqlalchemy.orm import joinedload
-        from app import InOrder
-        orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
+        from sqlalchemy.orm import joinedload, selectinload
+        from app import InOrder, InOrderItem, Material
+        from utils import _sanitize_excel_cell
+        orders = InOrder.query.options(
+            joinedload(InOrder.supplier),
+            selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+        ).filter(InOrder.id.in_(ids)).all()
         if not orders:
             return api_error('未找到符合条件的入库单')
         wb = Workbook()
@@ -3737,7 +3743,7 @@ def register_in_order_routes(app):
         for order in orders:
             if order.items:
                 for item in order.items:
-                    ws.append([
+                    ws.append([_sanitize_excel_cell(v) for v in [
                         order.order_no,
                         order.date.strftime('%Y-%m-%d') if order.date else '',
                         order.business_type or '采购入库',
@@ -3754,18 +3760,18 @@ def register_in_order_routes(app):
                         float(item.amount or 0),
                         '已完成' if order.status == 'completed' else '待完成',
                         order.remark or ''
-                    ])
+                    ]])
             else:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.business_type or '采购入库',
                     order.supplier.name if order.supplier else '',
                     order.warehouse or '',
-                    '', '', '', '', '', 0, 0, 0,
+                    '', '', '', '', '', '', 0, 0, 0,
                     '已完成' if order.status == 'completed' else '待完成',
                     order.remark or ''
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -3996,8 +4002,14 @@ def register_in_order_routes(app):
     def export_single_in_order(id):
         import io
         from openpyxl import Workbook
-        from app import InOrder
-        order = InOrder.query.get_or_404(id)
+        from sqlalchemy.orm import joinedload, selectinload
+        from app import InOrder, InOrderItem, Material
+        from utils import _sanitize_excel_cell
+        order = InOrder.query.options(
+            joinedload(InOrder.supplier),
+            joinedload(InOrder.customer),
+            selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+        ).get_or_404(id)
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单'
@@ -4007,7 +4019,7 @@ def register_in_order_routes(app):
             ws.cell(1, 17, '箱体编号')
         if order.items:
             for item in order.items:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.purpose or '',
@@ -4023,10 +4035,10 @@ def register_in_order_routes(app):
                     item.price or 0,
                     item.amount or 0,
                     order.remark or ''
-                ])
+                ]])
                 if order.business_type == '产品入库':
-                    ws.cell(ws.max_row, 16, order.customer.name if order.customer else '')
-                    ws.cell(ws.max_row, 17, item.box_no or '')
+                    ws.cell(ws.max_row, 16, _sanitize_excel_cell(order.customer.name if order.customer else ''))
+                    ws.cell(ws.max_row, 17, _sanitize_excel_cell(item.box_no or ''))
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

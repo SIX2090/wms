@@ -1090,6 +1090,7 @@ def register_requisition_routes(app):
         from openpyxl import Workbook
         import io
         from app import ProductionRequisition
+        from utils import _sanitize_excel_cell
         order = ProductionRequisition.query.get_or_404(id)
         wb = Workbook()
         ws = wb.active
@@ -1097,7 +1098,7 @@ def register_requisition_routes(app):
         ws.append(['单据编号', '日期', '仓库', '工单', '用途', '物料编码', '物料名称', '规格', '单位', '数量', '备注', '领料人', '库位'])
         if order.items:
             for item in order.items:
-                ws.append([
+                ws.append([_sanitize_excel_cell(v) for v in [
                     order.req_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',
                     order.warehouse or '',
@@ -1111,7 +1112,7 @@ def register_requisition_routes(app):
                     item.remark or '',
                     order.picker or '',
                     order.location or '',
-                ])
+                ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
