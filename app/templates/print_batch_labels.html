@@ -175,6 +175,13 @@
             </div>
         </details>
         {% if default_material_qr %}
+        {% set _qr_base_lower = (qr_public_base | default('') | lower) %}
+        {% set _qr_is_loopback = ('://127.0.0.1' in _qr_base_lower) or ('://localhost' in _qr_base_lower) or ('://[::1]' in _qr_base_lower) %}
+        {% if _qr_is_loopback %}
+        <div class="alert alert-warning w-100 py-2 px-3 mb-2" id="qrLoopbackWarning" role="alert" style="font-size:13px;">
+            <strong>注意：当前二维码网址指向本机（{{ qr_public_base }}），手机扫码将无法打开！</strong>请先在下方填写公网域名或手机可访问的局域网地址并点击“更新二维码”（或在启动配置中设置 <code>WMS_PUBLIC_URL</code>）后再打印。
+        </div>
+        {% endif %}
         <form method="get" action="{{ url_for('print_batch_labels') }}" class="d-flex gap-2 align-items-center flex-wrap w-100">
             <input type="hidden" name="ids" value="{{ materials_data | map(attribute='id') | join(',') }}">
             <input id="selectedLabelTemplate" type="hidden" name="label_template" value="{{ request.args.get('label_template', '') }}">

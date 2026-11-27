@@ -82,6 +82,7 @@
                     <div class="mb-3">
                         <label class="form-label" for="material-add-stock-7">初始库存</label>
                         <input type="number" class="form-control" name="stock" value="0" min="0" step="0.01" id="material-add-stock-7">
+                        <div class="form-text" id="initialStockOpeningHint">建议留 0，保存后统一通过【期初库存】建账，便于与期初单据及报表对账。</div>
                     </div>
                 </div>
                 {% if inventory_alert_enabled %}
