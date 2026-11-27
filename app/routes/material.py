@@ -402,8 +402,10 @@ def register_material_routes(app):
             if not rel_path:
                 return
             try:
-                root = (Path(current_app.static_folder) / 'uploads/material_images').resolve()
-                target = (Path(current_app.static_folder) / rel_path).resolve()
+                upload_root = current_app.config.get('UPLOAD_FOLDER') or str(Path(current_app.static_folder) / 'uploads')
+                root = (Path(upload_root) / 'material_images').resolve()
+                filename = Path(rel_path).name
+                target = (root / filename).resolve()
                 if target.parent == root:
                     target.unlink(missing_ok=True)
             except OSError:
@@ -900,8 +902,9 @@ def register_material_routes(app):
             db.session.rollback()
             if new_image_path:
                 try:
-                    root = (Path(current_app.static_folder) / 'uploads/material_images').resolve()
-                    target = (Path(current_app.static_folder) / new_image_path).resolve()
+                    upload_root = current_app.config.get('UPLOAD_FOLDER') or str(Path(current_app.static_folder) / 'uploads')
+                    root = (Path(upload_root) / 'material_images').resolve()
+                    target = (root / Path(new_image_path).name).resolve()
                     if target.parent == root:
                         target.unlink(missing_ok=True)
                 except OSError:

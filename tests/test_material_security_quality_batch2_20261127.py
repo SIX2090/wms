@@ -413,6 +413,7 @@ def isolated_admin_client(monkeypatch, tmp_path):
     monkeypatch.setitem(wms.app.config, "TESTING", True)
     monkeypatch.setitem(wms.app.config, "WTF_CSRF_ENABLED", False)
     monkeypatch.setattr(wms.app, "static_folder", str(tmp_path / "static"))
+    monkeypatch.setitem(wms.app.config, "UPLOAD_FOLDER", str(tmp_path / "static" / "uploads"))
     with wms.app.app_context():
         assert str(wms.db.engine.url) == "sqlite:///:memory:"
         wms.db.session.remove()
@@ -513,13 +514,13 @@ def test_add_material_sanitizes_purpose_remark_rejects_raw_overlong_and_cleans_o
         resp = client.post("/material/add", data=payload, headers=headers)
         assert resp.status_code == 400, (field, resp.get_json())
 
-    # Invalid FK with an uploaded image must NOT leave an orphan file on disk
+    # Invalid FK format with an uploaded image must NOT leave an orphan file on disk
     bad_fk = client.post(
         "/material/add",
         data={
             "code": "ORPHAN-1",
             "name": "孤儿图测试",
-            "category_id": "999999",
+            "category_id": "not-a-valid-id",
             "image": (io.BytesIO(_make_png_bytes()), "test.png"),
         },
         content_type="multipart/form-data",
@@ -553,6 +554,7 @@ def test_edit_material_sanitizes_enforces_image_cap_and_rolls_back_cleanly(isola
     headers = {"X-Requested-With": "XMLHttpRequest"}
     with wms.app.app_context():
         wms.set_system_setting("inventory_alert_enabled", "1")
+        wms.db.session.commit()
         mat = wms.Material(code="ED-1", name="原物料", spec="S1", brand="B1", stock=0, price=10)
         wms.db.session.add(mat)
         wms.db.session.commit()
@@ -644,6 +646,7 @@ def test_import_material_rejects_xls_bad_thresholds_overlong_masters_and_writes_
 
     with wms.app.app_context():
         wms.set_system_setting("inventory_alert_enabled", "1")
+        wms.db.session.commit()
 
     wb = Workbook()
     ws = wb.active
@@ -674,7 +677,7 @@ def test_import_material_rejects_xls_bad_thresholds_overlong_masters_and_writes_
         assert wms.MaterialCategory.query.filter_by(name="不该落库类").first() is None
         u = wms.Unit.query.filter_by(name="套").first()
         assert u is not None and "<" not in u.name
-        audit = wms.OperationAudit.query.filter_by(action="import_material").first()
+        audit = wms.OperationAudit.query.filter_by(operation="import_material").first()
         assert audit is not None
 
 
@@ -691,7 +694,7 @@ def test_fix_empty_fields_writes_audit_on_success(isolated_admin_client):
     r = client.post("/material/fix_empty_fields", json={})
     assert r.status_code == 200 and "已修复 1 条" in r.get_json()["msg"]
     with wms.app.app_context():
-        assert wms.OperationAudit.query.filter_by(action="fix_empty_fields").count() == 1
+        assert wms.OperationAudit.query.filter_by(operation="fix_empty_fields").count() == 1
 
 
 def test_merge_material_syncs_primary_image_bom_and_pr_redundant_fields(isolated_admin_client):

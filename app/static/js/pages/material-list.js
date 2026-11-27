@@ -1230,7 +1230,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 showToast('图片正在上传，请稍候再保存', 'warning', 2400);
                 return;
             }
-            if (!commitQuickSelects(formEl)) return;
+            if (!commitQuickSelects(this)) return;
             var formData = new FormData(formEl);
             // #edit_image_upload 已通过 uploadEditMaterialImage 即时上传，提交表单时不再重复附带 image 文件
             if (typeof formData.delete === 'function') {
