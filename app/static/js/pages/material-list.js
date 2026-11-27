@@ -200,6 +200,10 @@ function updateToolbarButtons() {
     document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarDeleteBtn').disabled = !materialPageData.canDelete || !hasSelection || materialDeleteBusy;
     document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
+    var selectionBar = document.getElementById('materialSelectionBar');
+    if (selectionBar) selectionBar.hidden = !hasSelection;
+    var selectionCount = document.getElementById('materialSelectionCount');
+    if (selectionCount) selectionCount.textContent = String(count);
 }
 
 function initToolbarActions() {
@@ -531,23 +535,46 @@ function submitBatchEdit() {
 
 // ==================== 列设置（显示/隐藏字段） ====================
 var MATERIAL_COL_STORAGE_KEY = 'material_col_visibility_v1';
+var MATERIAL_COL_ORDER_KEY = 'material_col_order_v1';
+var MATERIAL_COL_WIDTHS_KEY = 'material_col_widths_v1';
+var MATERIAL_LEGACY_FIELD_SETTINGS_KEY = 'wms:field-settings:v3:/material:materialTable';
+var MATERIAL_LOCKED_COLUMNS = ['select', 'actions'];
 var MATERIAL_COL_DEFAULTS = [
-    {key: 'code',     label: '物料编码'},
-    {key: 'name',     label: '物料名称'},
-    {key: 'brand',    label: '品牌'},
-    {key: 'spec',     label: '规格'},
+    {key: 'code',             label: '物料编码'},
+    {key: 'name',             label: '物料名称'},
+    {key: 'brand',            label: '品牌'},
+    {key: 'spec',             label: '规格'},
     {key: 'storage_location', label: '库位'},
-    {key: 'unit',     label: '单位'},
-    {key: 'category', label: '分类'},
-    {key: 'supplier', label: '供应商'},
-    {key: 'purpose',  label: '用途'},
-    {key: 'stock',    label: '库存'},
-    {key: 'min_stock',label: '最低库存'},
-    {key: 'price',    label: '单价'},
-    {key: 'remark',   label: '备注'},
-    {key: 'status',   label: '状态'},
-    {key: 'image',    label: '图片'}
+    {key: 'stock',            label: '库存'},
+    {key: 'unit',             label: '单位'},
+    {key: 'price',            label: '单价'},
+    {key: 'status',           label: '状态'},
+    {key: 'category',         label: '分类'},
+    {key: 'supplier',         label: '供应商'},
+    {key: 'purpose',          label: '用途'},
+    {key: 'min_stock',        label: '最低库存'},
+    {key: 'remark',           label: '备注'},
+    {key: 'image',            label: '图片'}
 ];
+
+function getMaterialColDefaults() {
+    var alertEnabled = materialPageData.inventoryAlertEnabled !== false;
+    return MATERIAL_COL_DEFAULTS.filter(function(col) {
+        return alertEnabled || col.key !== 'min_stock';
+    });
+}
+
+function clearMaterialSelection() {
+    var checkAll = document.getElementById('checkAll');
+    if (checkAll) {
+        checkAll.checked = false;
+        checkAll.indeterminate = false;
+    }
+    document.querySelectorAll('#materialTable .check-item:checked').forEach(function(cb) {
+        cb.checked = false;
+    });
+    updateToolbarButtons();
+}
 
 function loadMaterialColVisibility() {
     try {
@@ -566,7 +593,7 @@ function buildMaterialColOptions() {
     if (!container) return;
     var hidden = loadMaterialColVisibility() || new Set();
     var html = '';
-    MATERIAL_COL_DEFAULTS.forEach(function(col) {
+    getMaterialColDefaults().forEach(function(col) {
         var checked = !hidden.has(col.key) ? ' checked' : '';
         html += '<div class="form-check material-col-option">' +
             '<input class="form-check-input" type="checkbox" id="matCol_' + col.key + '"' + checked + ' data-col-key="' + col.key + '">' +
@@ -594,17 +621,21 @@ function applyMaterialColVisibility(hiddenSet) {
     var table = document.getElementById('materialTable');
     if (!table) return;
     hiddenSet = hiddenSet || loadMaterialColVisibility() || new Set();
+    // 清理可能残留的旧全局字段设置隐藏类，避免双系统并存导致列被错误隐藏
+    table.querySelectorAll('.wms-field-column-hidden').forEach(function(cell) {
+        cell.classList.remove('wms-field-column-hidden');
+    });
     // 表头
     table.querySelectorAll('thead th[data-column-key]').forEach(function(th) {
         var key = th.dataset.columnKey;
-        if (key === 'select') return;
+        if (MATERIAL_LOCKED_COLUMNS.indexOf(key) !== -1) return;
         th.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
     });
     // 表体
     table.querySelectorAll('tbody tr').forEach(function(tr) {
         tr.querySelectorAll('td[data-column-key]').forEach(function(td) {
             var key = td.dataset.columnKey;
-            if (key === 'select') return;
+            if (MATERIAL_LOCKED_COLUMNS.indexOf(key) !== -1) return;
             td.classList.toggle('cb-detail-hidden', hiddenSet.has(key));
         });
     });
@@ -622,9 +653,15 @@ function toggleMaterialColumnSettings() {
 
 function resetMaterialColumns() {
     localStorage.removeItem(MATERIAL_COL_STORAGE_KEY);
+    localStorage.removeItem(MATERIAL_COL_ORDER_KEY);
+    localStorage.removeItem(MATERIAL_COL_WIDTHS_KEY);
+    localStorage.removeItem(MATERIAL_LEGACY_FIELD_SETTINGS_KEY);
+    if (window.materialColumnController && typeof window.materialColumnController.reset === 'function') {
+        window.materialColumnController.reset();
+    }
     buildMaterialColOptions();
     applyMaterialColVisibility(new Set());
-    showToast('列设置已重置', 'success', 1500);
+    showToast('列设置（显示、顺序与列宽）已重置', 'success', 1500);
 }
 
 // 点击面板外部关闭
@@ -643,26 +680,50 @@ document.addEventListener('DOMContentLoaded', function() {
     if (typeof setupDynamicDetailColumnControls === 'function') {
         window.materialColumnController = setupDynamicDetailColumnControls({
             tableSelector: '#materialTable',
-            orderKey: 'material_col_order_v1',
-            widthKey: 'material_col_widths_v1',
-            lockedColumns: ['select'],
+            orderKey: MATERIAL_COL_ORDER_KEY,
+            widthKey: MATERIAL_COL_WIDTHS_KEY,
+            lockedColumns: MATERIAL_LOCKED_COLUMNS,
             minWidths: {
-                select: 50,
-                code: 120,
-                name: 140,
-                spec: 100,
-                storage_location: 90,
-                unit: 70,
-                category: 90,
+                select: 44,
+                code: 110,
+                name: 150,
+                brand: 88,
+                spec: 110,
+                storage_location: 88,
+                stock: 76,
+                unit: 64,
+                price: 80,
+                status: 72,
+                actions: 118,
+                category: 96,
                 supplier: 110,
                 purpose: 110,
-                stock: 80,
-                min_stock: 90,
-                price: 80,
-                remark: 160,
-                image: 70
+                min_stock: 86,
+                remark: 150,
+                image: 68
             }
         });
+    }
+    var materialTable = document.getElementById('materialTable');
+    if (materialTable) {
+        // 双击物料数据行快捷打开编辑弹窗（避开复选框、按钮、链接、图片与下拉菜单）
+        materialTable.addEventListener('dblclick', function(e) {
+            if (e.target.closest('input, button, a, img, select, textarea, label, .dropdown, .dropdown-menu')) return;
+            var row = e.target.closest('tbody tr[data-material-id]');
+            if (!row) return;
+            var id = Number(row.dataset.materialId);
+            if (id && typeof window.editMaterial === 'function') {
+                window.editMaterial(id);
+            }
+        });
+        // 行内「更多」下拉改用 fixed 定位，防止被表格横向滚动容器裁剪
+        if (window.bootstrap && typeof bootstrap.Dropdown === 'function') {
+            materialTable.querySelectorAll('.material-row-more-btn').forEach(function(btn) {
+                bootstrap.Dropdown.getOrCreateInstance(btn, {
+                    popperConfig: { strategy: 'fixed' }
+                });
+            });
+        }
     }
     initQuickSelects();
     try {
@@ -2845,14 +2906,17 @@ const materialPageActions = {
     applyCustomSize: function(node) { applyCustomSize(); },
     applyRowHeight: function(node) { applyRowHeight(); },
     changeLabelSize: function(node) { changeLabelSize(); },
+    clearMaterialSelection: function(node) { clearMaterialSelection(); },
     clearSelectedCells: function(node) { clearSelectedCells(); },
     clearTemplate: function(node) { clearTemplate(); },
+    copyMaterialRow: function(node) { copyMaterial(Number(node.dataset.materialId)); },
     deleteCol: function(node) { deleteCol(); },
     deleteEditMaterialImage: function(node) { deleteEditMaterialImage(Number(node.dataset.materialId)); },
     deleteRow: function(node) { deleteRow(); },
     deleteSelectedRow: function(node) { deleteSelectedRow(); },
     deleteTemplate: function(node) { deleteTemplate(); },
     doPrint: function(node) { doPrint(); },
+    editMaterialRow: function(node) { editMaterial(Number(node.dataset.materialId)); },
     findMaterialImage: function(node) { findMaterialImage(Number(node.dataset.materialId)); },
     fitCanvasZoom: function(node) { fitCanvasZoom(); },
     fixEmptyFields: function(node) { fixEmptyFields(); },

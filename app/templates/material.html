@@ -1,40 +1,64 @@
 {% extends "base.html" %}
 {% block title %}物料档案{% endblock %}
+{# 本页自带完整收敛工具栏（新增/导入导出/标签/预警/列设置/维护 + 勾选上下文批量栏），
+   opt-out 全局工具栏注入，消除双工具栏并保证直达与内嵌入口一致。见 app.js insertGlobalActionBar。 #}
+{% block body_class %}wms-no-global-actionbar{% endblock %}
 
 {% block content %}
 <div class="page-header">
     <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
         <h2 class="mb-0"><i class="bi bi-box"></i> 物料档案管理</h2>
-        <div class="d-flex gap-2 flex-wrap align-items-center">
-            <a href="/batch_import?type=material" class="btn btn-outline-info btn-sm">
-                <i class="bi bi-cloud-upload"></i> 批量导入
+        <div class="d-flex gap-2 flex-wrap align-items-center material-header-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="toolbarAddBtn" data-bs-toggle="modal" data-bs-target="#addModal" title="新增一条物料档案">
+                <i class="bi bi-plus-lg"></i> 新增物料
+            </button>
+            <div class="dropdown">
+                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" id="toolbarImportExportBtn" data-bs-toggle="dropdown" aria-expanded="false" title="批量导入、导出当前筛选结果或下载导入模板">
+                    <i class="bi bi-cloud-upload"></i> 导入/导出 <span class="material-dropdown-caret" aria-hidden="true">▾</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="toolbarImportExportBtn">
+                    <li>
+                        <a class="dropdown-item" href="/batch_import?type=material">
+                            <i class="bi bi-cloud-upload me-2"></i>批量导入物料
+                        </a>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('export_material', search=request.args.get('search', ''), stock_filter=stock_filter, category_id=category_id or None, status=status_filter, sort=sort_by, order=sort_order) }}">
+                            <i class="bi bi-download me-2"></i>导出当前筛选
+                        </a>
+                    </li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('download_material_template') }}">
+                            <i class="bi bi-file-earmark-spreadsheet me-2"></i>下载导入模板
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            <div class="dropdown">
+                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" id="toolbarLabelMenuBtn" data-bs-toggle="dropdown" aria-expanded="false" title="设计标签模板或打开批量标签打印页">
+                    <i class="bi bi-grid-3x3"></i> 标签 <span class="material-dropdown-caret" aria-hidden="true">▾</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="toolbarLabelMenuBtn">
+                    <li>
+                        <button type="button" class="dropdown-item" data-material-action="openLabelTemplate">
+                            <i class="bi bi-grid-3x3 me-2"></i>标签模板设计器
+                        </button>
+                    </li>
+                    <li>
+                        <a class="dropdown-item" href="{{ url_for('print_batch_labels') }}" target="_blank" rel="noopener">
+                            <i class="bi bi-printer me-2"></i>批量打印标签页
+                        </a>
+                    </li>
+                </ul>
+            </div>
+            {# AI-CI-GREEN-005-F03：物料档案是设置最低库存/安全库存的地方，
+                设完直接跳预警页看结果是最自然的一条路径。 #}
+            {% if inventory_alert_enabled %}
+            <a href="/alert" class="btn btn-outline-danger btn-sm" title="查看低于最低库存与低于安全库存的物料">
+                <i class="bi bi-exclamation-triangle"></i> 库存预警
             </a>
-            <div class="vr"></div>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" data-material-action="toolbarEdit" disabled title="编辑选中物料">
-                <i class="bi bi-pencil"></i> 编辑
-            </button>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarBatchEditBtn" data-material-action="toolbarBatchEdit" disabled title="批量修改选中物料的品牌、分类、单位、库位或最低库存">
-                <i class="bi bi-pencil-square"></i> 批量修改
-            </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" data-material-action="toolbarCopy" disabled title="复制为新物料草稿">
-                <i class="bi bi-files"></i> 复制
-            </button>
-            <button type="button" class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" data-material-action="toolbarPrint" disabled title="打印标签">
-                <i class="bi bi-printer"></i> 打印
-            </button>
-            <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" data-material-action="sendLabelsToPrintStation" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
-                <i class="bi bi-send"></i> 发送打印
-            </button>
-            <button type="button" class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" data-material-action="toolbarFindImage" disabled title="网上找图">
-                <i class="bi bi-image"></i> 找图
-            </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="仅 admin 账号可删除，每次须验证 admin 密码；有库存或引用的自动保留">
-                <i class="bi bi-trash"></i> 删除
-            </button>
-            <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
-                <i class="bi bi-arrow-left-right"></i> 合并物料
-            </button>
-            <div class="vr"></div>
+            {% endif %}
             <div class="position-relative">
                 <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarColumnBtn" data-material-action="toggleMaterialColumnSettings" title="设置显示/隐藏列">
                     <i class="bi bi-layout-three-columns"></i> 列设置
@@ -44,38 +68,35 @@
                     <div id="materialColOptions"></div>
                     <div class="material-col-settings-footer">
                         <button type="button" class="btn btn-sm btn-outline-secondary w-100" data-material-action="resetMaterialColumns">
-                            <i class="bi bi-arrow-counterclockwise"></i> 重置
+                            <i class="bi bi-arrow-counterclockwise"></i> 重置列设置
                         </button>
                     </div>
                 </div>
             </div>
-            <div class="vr"></div>
-            <button type="button" class="btn btn-warning btn-sm" data-bs-toggle="modal" data-bs-target="#repairMaterialFields">
-                <i class="bi bi-arrow-repeat"></i> 修复空分类/单位
-            </button>
-            <button type="button" class="btn btn-outline-secondary btn-sm" data-material-action="openLabelTemplate">
-                <i class="bi bi-grid-3x3"></i> 标签模板
-            </button>
-            {# AI-CI-GREEN-005-F03：物料档案是设置最低库存/安全库存的地方，
-                设完直接跳预警页看结果是最自然的一条路径。 #}
-            {% if inventory_alert_enabled %}
-            <div class="vr"></div>
-            <a href="/alert" class="btn btn-outline-danger btn-sm" title="查看低于最低库存与低于安全库存的物料">
-                <i class="bi bi-exclamation-triangle"></i> 库存预警
-            </a>
-            {% endif %}
+            <div class="dropdown">
+                <button type="button" class="btn btn-outline-secondary btn-sm dropdown-toggle" id="toolbarMaintenanceBtn" data-bs-toggle="dropdown" aria-expanded="false" title="数据清洗与档案维护工具">
+                    <i class="bi bi-arrow-repeat"></i> 维护 <span class="material-dropdown-caret" aria-hidden="true">▾</span>
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="toolbarMaintenanceBtn">
+                    <li>
+                        <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#repairMaterialFields">
+                            <i class="bi bi-arrow-repeat me-2"></i>修复空分类/单位
+                        </button>
+                    </li>
+                </ul>
+            </div>
         </div>
     </div>
 </div>
 
 <div class="card mb-3">
     <div class="card-body py-2">
-        <form method="get" class="d-flex gap-2 flex-wrap" id="searchForm">
+        <form method="get" class="d-flex gap-2 flex-wrap align-items-center material-search-form" id="searchForm">
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
             {% if inventory_alert_enabled %}
-            <select name="stock_filter" class="form-select" style="width: 150px;" data-material-change="submitFilterForm" aria-label="库存条件">
+            <select name="stock_filter" class="form-select flex-shrink-0" style="width: 136px;" data-material-change="submitFilterForm" aria-label="库存条件">
                 <option value="" {% if not stock_filter %}selected{% endif %}>全部库存</option>
                 <option value="low" {% if stock_filter == 'low' %}selected{% endif %}>库存预警</option>
             </select>
@@ -83,15 +104,15 @@
             <input type="hidden" name="category_id" value="{{ category_id or '' }}" id="materialCategoryFilter">
             {# 2026-09-25：默认只看启用，停用物料需显式切到「停用/全部」才能看到，
                这样被停用的重复档案不会继续在日常列表里占位干扰。 #}
-            <select name="status" class="form-select" style="width: 130px;" data-material-change="submitFilterForm" aria-label="启用状态">
+            <select name="status" class="form-select flex-shrink-0" style="width: 116px;" data-material-change="submitFilterForm" aria-label="启用状态">
                 <option value="active" {% if status_filter == 'active' %}selected{% endif %}>启用</option>
                 <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
                 <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
             </select>
-            <input type="text" name="search" class="form-control flex-grow-1" style="min-width: 260px;" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
-            <button type="submit" class="btn btn-primary"><i class="bi bi-search"></i> 搜索</button>
+            <input type="text" name="search" class="form-control flex-grow-1 material-search-input" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
+            <button type="submit" class="btn btn-primary flex-shrink-0"><i class="bi bi-search"></i> 搜索</button>
             {% if request.args.get('search') or stock_filter or category_id %}
-            <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary">清除</a>
+            <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary flex-shrink-0">清除</a>
             {% endif %}
         </form>
     </div>
@@ -125,28 +146,67 @@
     <section class="material-list-panel">
     <div class="card">
     <div class="card-body p-0">
+        {# 勾选上下文批量操作栏：未勾选时隐藏，勾选 ≥1 条物料后在表格上方浮现，避免 8 个常驻禁用灰钮占用页头空间 #}
+        <div class="material-selection-bar" id="materialSelectionBar" hidden>
+            <span class="material-selection-summary">
+                <i class="bi bi-check2-square"></i>
+                已选 <strong id="materialSelectionCount">0</strong> 项
+            </span>
+            <div class="material-selection-actions">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarEditBtn" data-material-action="toolbarEdit" disabled title="编辑选中物料">
+                    <i class="bi bi-pencil"></i> 编辑
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarBatchEditBtn" data-material-action="toolbarBatchEdit" disabled title="批量修改选中物料的品牌、分类、单位、库位或最低库存">
+                    <i class="bi bi-pencil-square"></i> 批量修改
+                </button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="toolbarCopyBtn" data-material-action="toolbarCopy" disabled title="复制为新物料草稿">
+                    <i class="bi bi-files"></i> 复制
+                </button>
+                <button type="button" class="btn btn-outline-success btn-sm" id="toolbarFindImageBtn" data-material-action="toolbarFindImage" disabled title="网上找图">
+                    <i class="bi bi-image"></i> 找图
+                </button>
+                <span class="material-selection-divider" aria-hidden="true"></span>
+                <button type="button" class="btn btn-outline-info btn-sm" id="toolbarPrintBtn" data-material-action="toolbarPrint" disabled title="打印标签">
+                    <i class="bi bi-printer"></i> 打印
+                </button>
+                <button type="button" class="btn btn-outline-primary btn-sm" id="toolbarRemotePrintBtn" data-runtime-paused="{{ '1' if runtime_external_paused else '0' }}" data-material-action="sendLabelsToPrintStation" disabled title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送标签到桌面打印工作站' }}">
+                    <i class="bi bi-send"></i> 发送打印
+                </button>
+                <span class="material-selection-divider" aria-hidden="true"></span>
+                <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
+                    <i class="bi bi-arrow-left-right"></i> 合并物料
+                </button>
+                <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="仅 admin 账号可删除，每次须验证 admin 密码；有库存或引用的自动保留">
+                    <i class="bi bi-trash"></i> 删除
+                </button>
+            </div>
+            <button type="button" class="btn btn-link btn-sm material-clear-selection-btn" id="materialClearSelectionBtn" data-material-action="clearMaterialSelection">
+                取消选择
+            </button>
+        </div>
         <div class="table-responsive-wrapper">
         {% if materials and materials|length > 0 %}
-        <table class="table table-bordered table-hover table-sm mb-0" id="materialTable">
+        <table class="table table-bordered table-hover table-sm mb-0" id="materialTable" data-disable-field-settings="true">
             <thead>
                 <tr>
-                    <th width="50" data-column-key="select" data-default-label="选择"><span class="visually-hidden">选择</span><input type="checkbox" id="checkAll" aria-label="全选物料"></th>
-                    <th data-column-key="code" data-sortable="code" class="sortable-header">物料编码 {% if sort_by=='code' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
-                    <th data-column-key="name" data-sortable="name" class="sortable-header">物料名称 {% if sort_by=='name' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
-                    <th data-column-key="brand" data-sortable="brand" class="sortable-header">品牌 {% if sort_by=='brand' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
-                    <th data-column-key="spec" data-sortable="spec" class="sortable-header">规格 {% if sort_by=='spec' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
-                    <th data-column-key="storage_location" data-sortable="storage_location" class="sortable-header">库位 {% if sort_by=='storage_location' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th width="44" data-column-key="select" data-default-label="选择"><span class="visually-hidden">选择</span><input type="checkbox" id="checkAll" aria-label="全选物料"></th>
+                    <th data-column-key="code" data-sortable="code" class="sortable-header"{% if sort_by=='code' %} data-sort-active="1"{% endif %}>物料编码 {% if sort_by=='code' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="name" data-sortable="name" class="sortable-header"{% if sort_by=='name' %} data-sort-active="1"{% endif %}>物料名称 {% if sort_by=='name' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="brand" data-sortable="brand" class="sortable-header"{% if sort_by=='brand' %} data-sort-active="1"{% endif %}>品牌 {% if sort_by=='brand' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="spec" data-sortable="spec" class="sortable-header"{% if sort_by=='spec' %} data-sort-active="1"{% endif %}>规格 {% if sort_by=='spec' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="storage_location" data-sortable="storage_location" class="sortable-header"{% if sort_by=='storage_location' %} data-sort-active="1"{% endif %}>库位 {% if sort_by=='storage_location' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="stock" data-sortable="stock" class="sortable-header"{% if sort_by=='stock' %} data-sort-active="1"{% endif %}>库存 {% if sort_by=='stock' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="unit">单位<span class="col-resize"></span></th>
-                    <th data-column-key="category" data-sortable="category_id" class="sortable-header">分类 {% if sort_by=='category_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
-                    <th data-column-key="supplier" data-sortable="supplier_id" class="sortable-header">供应商 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="price" data-sortable="price" class="sortable-header"{% if sort_by=='price' %} data-sort-active="1"{% endif %}>单价 {% if sort_by=='price' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="status">状态<span class="col-resize"></span></th>
+                    <th data-column-key="actions" class="material-actions-col">操作</th>
+                    <th data-column-key="category" data-sortable="category_id" class="sortable-header"{% if sort_by=='category_id' %} data-sort-active="1"{% endif %}>分类 {% if sort_by=='category_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
+                    <th data-column-key="supplier" data-sortable="supplier_id" class="sortable-header"{% if sort_by=='supplier_id' %} data-sort-active="1"{% endif %}>供应商 {% if sort_by=='supplier_id' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="purpose">用途<span class="col-resize"></span></th>
-                    <th data-column-key="stock" data-sortable="stock" class="sortable-header">库存 {% if sort_by=='stock' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     {% if inventory_alert_enabled %}
                     <th data-column-key="min_stock">最低库存<span class="col-resize"></span></th>
                     {% endif %}
-                    <th data-column-key="price" data-sortable="price" class="sortable-header">单价 {% if sort_by=='price' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}<span class="col-resize"></span></th>
                     <th data-column-key="remark">备注<span class="col-resize"></span></th>
-                    <th data-column-key="status">状态<span class="col-resize"></span></th>
                     <th data-column-key="image">图片<span class="col-resize"></span></th>
                 </tr>
             </thead>
@@ -160,45 +220,73 @@
                 {% set mat_stock = mat.stock or 0 %}
                 {% set is_low = inventory_alert_enabled and alert_enabled and mat_stock <= mat_min %}
                 {% set is_danger = inventory_alert_enabled and alert_enabled and (not is_low) and mat_stock <= mat_safety %}
-                <tr class="{{ 'table-danger' if is_low else ('table-warning' if is_danger else '') }}">
-                    <td data-column-key="select"><input type="checkbox" class="check-item" value="{{ mat.id }}"></td>
-                    <td data-column-key="code">{{ mat.code }}</td>
-                    <td data-column-key="name">{{ mat.name }}</td>
-                    <td data-column-key="brand">{{ mat.brand or '-' }}</td>
-                    <td data-column-key="spec">{{ mat.spec or '-' }}</td>
+                <tr class="{{ 'table-danger' if is_low else ('table-warning' if is_danger else '') }} material-table-row" data-material-id="{{ mat.id }}">
+                    <td data-column-key="select"><input type="checkbox" class="check-item" value="{{ mat.id }}" aria-label="选择物料 {{ mat.code }}"></td>
+                    <td data-column-key="code" title="{{ mat.code }}">{{ mat.code }}</td>
+                    <td data-column-key="name" title="{{ mat.name }}">{{ mat.name }}</td>
+                    <td data-column-key="brand" title="{{ mat.brand or '' }}">{{ mat.brand or '-' }}</td>
+                    <td data-column-key="spec" title="{{ mat.spec or '' }}">{{ mat.spec or '-' }}</td>
                     <td data-column-key="storage_location" title="{{ mat.storage_location or '' }}">{{ mat.storage_location or '-' }}</td>
-                    <td data-column-key="unit">{{ mat.unit.name if mat.unit else '-' }}</td>
-                    <td data-column-key="category">{{ mat.category.name if mat.category else '-' }}</td>
-                    <td data-column-key="supplier">{{ mat.supplier.name if mat.supplier else '-' }}</td>
-                    <td data-column-key="purpose">{{ mat.purpose or '-' }}</td>
                     <td data-column-key="stock" class="{{ 'text-danger fw-bold' if is_low else ('text-warning fw-bold' if is_danger else '') }}">{{ (mat.stock)|quantity }}</td>
-                    {% if inventory_alert_enabled %}
-                    <td data-column-key="min_stock">{{ (mat.min_stock)|quantity }}</td>
-                    {% endif %}
+                    <td data-column-key="unit" title="{{ mat.unit.name if mat.unit else '' }}">{{ mat.unit.name if mat.unit else '-' }}</td>
                     <td data-column-key="price">¥{{ mat.price }}</td>
-                    <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>
                     <td data-column-key="status">
                         {% if (mat.status or 'active') == 'inactive' %}
                         <span class="badge bg-secondary">停用</span>
-                        <button type="button" class="btn btn-sm btn-outline-success ms-1"
-                                data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="active" title="重新启用">
-                            <i class="bi bi-play-circle"></i> 启用
-                        </button>
                         {% else %}
                         <span class="badge bg-success">启用</span>
-                        <button type="button" class="btn btn-sm btn-outline-secondary ms-1"
-                                data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="inactive"
-                                title="停用后新建单据不能再选到它；历史单据、库存与报表不受影响">
-                            <i class="bi bi-pause-circle"></i> 停用
-                        </button>
                         {% endif %}
-                        <button type="button" class="btn btn-sm btn-outline-danger ms-1"
-                                data-code="{{ mat.code }}"
-                                data-material-action="mergeMaterialInto" data-material-id="{{ mat.id }}"
-                                title="把本物料合并到另一个物料：一个物料只保留一个物料编号">
-                            <i class="bi bi-arrow-bar-right"></i> 合并
-                        </button>
                     </td>
+                    <td data-column-key="actions" class="material-actions-cell">
+                        <div class="material-row-actions">
+                            <button type="button" class="btn btn-sm btn-outline-primary" data-material-action="editMaterialRow" data-material-id="{{ mat.id }}" title="编辑物料 {{ mat.code }}">
+                                编辑
+                            </button>
+                            <div class="dropdown d-inline-block">
+                                <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle material-row-more-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="物料 {{ mat.code }} 更多操作" title="更多操作">
+                                    更多 <span class="material-dropdown-caret" aria-hidden="true">▾</span>
+                                </button>
+                                <ul class="dropdown-menu dropdown-menu-end material-row-menu">
+                                    <li>
+                                        <button type="button" class="dropdown-item" data-material-action="copyMaterialRow" data-material-id="{{ mat.id }}">
+                                            <i class="bi bi-files me-2"></i>复制为新物料
+                                        </button>
+                                    </li>
+                                    <li>
+                                        <button type="button" class="dropdown-item" data-material-action="findMaterialImage" data-material-id="{{ mat.id }}">
+                                            <i class="bi bi-image me-2"></i>网上找图
+                                        </button>
+                                    </li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    {% if (mat.status or 'active') == 'inactive' %}
+                                    <li>
+                                        <button type="button" class="dropdown-item text-success" data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="active" title="重新启用">
+                                            <i class="bi bi-play-circle me-2"></i>重新启用
+                                        </button>
+                                    </li>
+                                    {% else %}
+                                    <li>
+                                        <button type="button" class="dropdown-item" data-material-action="toggleMaterialStatus" data-material-id="{{ mat.id }}" data-material-value="inactive" title="停用后新建单据不能再选到它；历史单据、库存与报表不受影响">
+                                            <i class="bi bi-pause-circle me-2"></i>停用物料
+                                        </button>
+                                    </li>
+                                    {% endif %}
+                                    <li>
+                                        <button type="button" class="dropdown-item text-danger" data-code="{{ mat.code }}" data-material-action="mergeMaterialInto" data-material-id="{{ mat.id }}" title="把本物料合并到另一个物料：一个物料只保留一个物料编号">
+                                            <i class="bi bi-arrow-bar-right me-2"></i>合并到其他物料
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </td>
+                    <td data-column-key="category" title="{{ mat.category.name if mat.category else '' }}">{{ mat.category.name if mat.category else '-' }}</td>
+                    <td data-column-key="supplier" title="{{ mat.supplier.name if mat.supplier else '' }}">{{ mat.supplier.name if mat.supplier else '-' }}</td>
+                    <td data-column-key="purpose" title="{{ mat.purpose or '' }}">{{ mat.purpose or '-' }}</td>
+                    {% if inventory_alert_enabled %}
+                    <td data-column-key="min_stock">{{ (mat.min_stock)|quantity }}</td>
+                    {% endif %}
+                    <td data-column-key="remark" title="{{ mat.remark or '' }}">{{ (mat.remark[:30] + '...') if mat.remark and mat.remark|length > 30 else (mat.remark or '-') }}</td>
                     <td data-column-key="image">
                         {% if mat.image %}
                         <img src="{{ url_for('static', filename=mat.image) }}" style="width: 40px; height: 40px; object-fit: cover; cursor: zoom-in;" class="img-thumbnail" title="点击放大" data-material-action="previewMaterialImage" role="button" tabindex="0" aria-label="预览物料图片">
@@ -220,7 +308,7 @@
             {% if request.args.get('search') %}
             <p class="small">搜索关键词：「{{ request.args.get('search') }}」；如果确认有该物料，请点上方「清除」后重试（全角/半角数字已自动兼容）。</p>
             {% else %}
-            <p class="small">请先在右上角「批量导入」或通过弹窗添加物料</p>
+            <p class="small">请先点击右上角「新增物料」，或通过「导入/导出 → 批量导入物料」添加物料</p>
             {% endif %}
             <button type="button" class="btn btn-primary btn-sm mt-2" data-bs-toggle="modal" data-bs-target="#addModal">
                 <i class="bi bi-plus-circle"></i> 新增物料
@@ -230,10 +318,10 @@
         </div><!-- end table-responsive-wrapper -->
 
         {% if materials and materials|length > 0 %}
-        <div class="d-flex justify-content-between align-items-center mt-3">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mt-3 px-3 pb-3">
             <div class="d-flex align-items-center">
                 <span class="text-muted me-2">每页显示：</span>
-                <select class="form-select form-select-sm" id="perPageSelect" style="width: auto;">
+                <select class="form-select form-select-sm" id="perPageSelect" style="width: auto;" aria-label="每页显示条数">
                     <option value="10" {% if per_page == 10 %}selected{% endif %}>10 条</option>
                     <option value="20" {% if per_page == 20 %}selected{% endif %}>20 条</option>
                     <option value="50" {% if per_page == 50 %}selected{% endif %}>50 条</option>
@@ -1121,7 +1209,82 @@
 {% block extra_css %}
 <style>
 #materialTable tbody td { padding: 6px 8px; line-height: 1.4; }
-#materialTable tbody td:not([data-column-key="image"]) { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#materialTable tbody td:not([data-column-key="image"]):not([data-column-key="actions"]) { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.material-search-form .material-search-input {
+    flex: 1 1 260px;
+    width: auto;
+    min-width: 220px;
+}
+.material-dropdown-caret {
+    font-size: 0.72em;
+    margin-left: 2px;
+    opacity: 0.75;
+    line-height: 1;
+}
+.material-selection-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+}
+.material-selection-bar[hidden] {
+    display: none !important;
+}
+.material-selection-summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 13px;
+    color: #1e293b;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    white-space: nowrap;
+}
+.material-selection-summary strong {
+    color: #1d4ed8;
+}
+.material-selection-actions {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.material-selection-divider {
+    display: inline-block;
+    width: 1px;
+    height: 20px;
+    background: #cbd5e1;
+    margin: 0 2px;
+}
+.material-clear-selection-btn {
+    margin-left: auto;
+    padding-left: 6px !important;
+    padding-right: 6px !important;
+    text-decoration: none;
+}
+.material-actions-col,
+.material-actions-cell {
+    white-space: nowrap;
+    text-align: center;
+}
+.material-row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+.material-row-menu {
+    min-width: 152px;
+    font-size: 13px;
+    z-index: 1070;
+}
+.material-table-row {
+    cursor: default;
+}
 .field-item {
     background: white;
     border: 1px solid #dee2e6;
@@ -1237,7 +1400,7 @@
 }
 .material-layout {
     display: grid;
-    grid-template-columns: 300px minmax(0, 1fr);
+    grid-template-columns: 240px minmax(0, 1fr);
     gap: 14px;
 }
 .material-category-panel,
@@ -1368,12 +1531,28 @@
         max-height: 260px;
     }
 }
+@media (max-width: 768px) {
+    .material-header-actions > .dropdown,
+    .material-header-actions > .position-relative {
+        width: 100%;
+    }
+    .material-selection-bar {
+        gap: 6px;
+        padding: 8px 10px;
+    }
+    .material-selection-divider {
+        display: none;
+    }
+    .material-clear-selection-btn {
+        margin-left: 0;
+    }
+}
 /* BUG-2026-09-08-002：全局工具栏「打印」在物料列表页走 window.print() 兜底，
    原样输出整张网页（分类树/搜索框/弹窗等全部上纸）。打印时只输出物料表格本体：
    按区块 display:none 页面功能部件，并解除表格祖先的滚动/裁剪约束。 */
 @media print {
-    /* 功能区全部不上纸：全局工具栏、页头按钮区、搜索卡、分类树、各类弹窗、列设置面板 */
-    .cb-actionbar, .page-header, .card.mb-3, .material-category-panel,
+    /* 功能区全部不上纸：全局工具栏、页头按钮区、勾选操作栏、搜索卡、分类树、各类弹窗、列设置面板 */
+    .cb-actionbar, .page-header, .material-selection-bar, .card.mb-3, .material-category-panel,
     .modal, .material-col-settings-panel { display: none !important; }
     /* 左右栅格退化为单列，表格占满纸宽 */
     .material-layout { display: block !important; }
@@ -1402,9 +1581,11 @@
         text-overflow: clip !important;
         word-break: break-all !important;
     }
-    /* 勾选列、排序图标（<i> 与 custom.css 的 ⇅ ::after）、列宽拖拽手柄不上纸 */
+    /* 勾选列、操作列、排序图标（<i> 与 custom.css 的 ⇅ ::after）、列宽拖拽手柄不上纸 */
     #materialTable th[data-column-key="select"],
     #materialTable td[data-column-key="select"],
+    #materialTable th[data-column-key="actions"],
+    #materialTable td[data-column-key="actions"],
     #materialTable th i,
     #materialTable .col-resize { display: none !important; }
     #materialTable .sortable-header::after { content: none !important; }
@@ -1431,7 +1612,7 @@
         {"id": {{ sup.id|tojson }}, "name": {{ sup.name|tojson }}, "code": {{ (sup.code or '')|tojson }} }{% if not loop.last %},{% endif %}
         {% endfor %}
     ]
-}, "canDelete": {{ (current_user.username == 'admin' and current_user.role == 'admin')|tojson }}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "batchEdit": {{ url_for("batch_edit_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
+}, "canDelete": {{ (current_user.username == 'admin' and current_user.role == 'admin')|tojson }}, "inventoryAlertEnabled": {{ (inventory_alert_enabled|default(false))|tojson }}, "sortBy": {{ sort_by|tojson }}, "sortOrder": {{ sort_order|tojson }}, "urls": {"add": {{ url_for("add_material")|tojson }}, "batchEdit": {{ url_for("batch_edit_material")|tojson }}, "delete": {{ url_for("delete_material")|tojson }}, "fix": {{ url_for("fix_empty_fields")|tojson }}, "printBatch": {{ url_for("print_batch_labels")|tojson }} } }
 </script>
 <script src="{{ url_for('static', filename='js/pages/material-list.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% endblock %}

@@ -1084,7 +1084,9 @@ function setupDynamicDetailColumnControls(config) {
 
     // The page controller may initialize before or after the shared field dialog.
     // Keep existing shared preferences when there is no independent drag order.
-    const sharedState = readJson('wms:field-settings:v3:' + (table.dataset?.fieldSettingsKey || window.location.pathname + ':' + (table.id || 'document-grid')), null);
+    const sharedState = table.dataset?.disableFieldSettings === 'true'
+        ? null
+        : readJson('wms:field-settings:v3:' + (table.dataset?.fieldSettingsKey || window.location.pathname + ':' + (table.id || 'document-grid')), null);
     const fallbackOrder = sharedState && Array.isArray(sharedState.order) ? sharedState.order : initialOrder;
 
     const getMinWidth = function(cellOrKey) {
@@ -1735,6 +1737,9 @@ function batchDelete(url, tableId) {
 
 function setupSortableHeaders() {
     document.querySelectorAll('.sortable-header[data-sortable]').forEach(function(th) {
+        if (th.querySelector('.bi-caret-up-fill, .bi-caret-down-fill')) {
+            th.dataset.sortActive = '1';
+        }
         if (th.dataset.sortReady === 'true') return;
         th.dataset.sortReady = 'true';
         th.addEventListener('click', function() {
@@ -4168,9 +4173,11 @@ function getRecentVisits() {
         rememberWmsColumnDefaults(table, headers);
         return headers.map(function(th, index) {
             var key = th.dataset.columnKey;
-            // BUG-2026-07-28-006 修复：checkbox 列（仅含 <input type="checkbox"> 无文本节点）
-            // 不要回退到 key 作为 label，否则会显示「COLU...」之类被截断的字段名。
-            var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn'))); });
+            // BUG-2026-07-28-006 修复：checkbox 列（仅含 <input type="checkbox"> 及可选 .visually-hidden 辅助标签，无可见文本节点）
+            // 不要回退到 key 作为 label，否则会显示「COLU...」或与复选框重叠的「选择□」。
+            var contentChildren = Array.from(th.children).filter(function(child) {
+                return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn') || child.classList.contains('visually-hidden')));
+            });
             var hasOnlyCheckbox = contentChildren.length === 1
                 && contentChildren[0].tagName === 'INPUT'
                 && (contentChildren[0].type || '').toLowerCase() === 'checkbox';
@@ -4207,9 +4214,11 @@ function getRecentVisits() {
     }
 
     function setHeaderLabel(th, label) {
-        // BUG-2026-07-28-006 修复：checkbox 列无 label，不要插入任何文本节点，
-        // 否则 50px 窄列会显示「COLU...」之类被截断的字段名。
-        var contentChildren = Array.from(th.children).filter(function(child) { return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn'))); });
+        // BUG-2026-07-28-006 修复：checkbox 列无可见 label（允许保留 .visually-hidden 无障碍文本），
+        // 不要插入可见文本节点，否则 44-50px 窄列会显示「选择□」或「COLU...」。
+        var contentChildren = Array.from(th.children).filter(function(child) {
+            return !(child.classList && (child.classList.contains('cb-col-resizer') || child.classList.contains('wms-fill-down-btn') || child.classList.contains('visually-hidden')));
+        });
         var hasOnlyCheckbox = contentChildren.length === 1
             && contentChildren[0].tagName === 'INPUT'
             && (contentChildren[0].type || '').toLowerCase() === 'checkbox';
@@ -4411,6 +4420,7 @@ function getRecentVisits() {
 
     function initializeTables() {
         document.querySelectorAll('table').forEach(function(table) {
+            if (table.dataset && table.dataset.disableFieldSettings === 'true') return;
             if (!prepareTable(table) || table.dataset.fieldSettingsReady) return;
             table.dataset.fieldSettingsReady = '1';
             var columns = columnsOf(table);
