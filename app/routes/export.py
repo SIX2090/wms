@@ -19,6 +19,8 @@ import io
 from flask import request, send_file
 from flask_login import login_required
 
+from utils import require_role
+
 
 # no-test:reason=路由注册辅助函数，能力由 export_* 各路由测试覆盖
 def register_export_routes(app):

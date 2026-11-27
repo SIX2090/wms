@@ -133,6 +133,7 @@ def test_p1_biz_5_roles_and_price_dimension_gates_ast():
     assert any("require_role('warehouse')" in d for d in _decorator_calls(out_add_fn))
 
     exp_in_fn, exp_in_body = _get_func(EXPORT_PY, "export_in_order")
+    assert "from utils import require_role" in EXPORT_PY.read_text(encoding="utf-8")
     assert any("require_role('warehouse', 'finance', 'purchase')" in d for d in _decorator_calls(exp_in_fn))
     assert "price_dimension_enabled()" in exp_in_body
 
