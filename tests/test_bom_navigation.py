@@ -23,5 +23,10 @@ def test_bom_is_under_master_data_for_existing_roles(role, monkeypatch):
     submenus = re.findall(r'<ul class="submenu-list">(.*?)</ul>', html, re.S)
     assert sum('href="/bom"' in section for section in submenus) == 1
     assert html.count('href="/bom"') == 2
-    if role != 'admin':
+    if role == 'production':
         assert not any('href="/material"' in section for section in owners)
+    elif role == 'warehouse':
+        for allowed_href in ('/material', '/category', '/unit', '/supplier', '/customer'):
+            assert f'href="{allowed_href}"' in owners[0]
+        for admin_only_href in ('/contract', '/opening_stock', '/warehouse', '/department', '/employee'):
+            assert f'href="{admin_only_href}"' not in owners[0]

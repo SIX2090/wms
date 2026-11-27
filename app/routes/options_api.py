@@ -50,8 +50,9 @@ except Exception:  # pragma: no cover - 降级路径
 
 # entity -> (模型名, 编码字段, 名称字段, 参与匹配的额外字段)
 ENTITY_CONFIG = {
-    'material':   ('Material',         'code', 'name', ('spec', 'brand', 'storage_location')),
-    'supplier':   ('Supplier',         'code', 'name', ()),
+    'material':     ('Material',         'code', 'name', ('spec', 'brand', 'storage_location')),
+    'material_all': ('Material',         'code', 'name', ('spec', 'brand', 'storage_location')),
+    'supplier':     ('Supplier',         'code', 'name', ()),
     'customer':   ('Customer',         'code', 'name', ()),
     'warehouse':  ('Warehouse',        'code', 'name', ()),
     'employee':   ('Employee',         'code', 'name', ()),
@@ -164,10 +165,12 @@ def _build_entity_pool(entity):
             extras_text,
             None,
         )
-        # AI-WMS-FILTER-005：extras 字段（物料 spec/brand）独立下发，
-        # 供前端富展示「编码+名称+规格+品牌」，不再只依赖 sub 拼接文本。
+        # AI-WMS-FILTER-005：extras 字段（物料 spec/brand/storage_location）独立下发，
+        # 供前端富展示「编码+名称+规格+品牌+库位」，不再只依赖 sub 拼接文本。
         for f in extras:
             item[f] = str(getattr(r, f) or '').strip()
+        if entity == 'material_all' and hasattr(r, 'status'):
+            item['status'] = str(getattr(r, 'status') or 'active').strip()
         pool.append(item)
     return pool
 
@@ -234,6 +237,8 @@ def _sql_like_pool(entity, kw):
                         getattr(r, nfield, ''), extras_text, None)
         for f in extras:
             item[f] = str(getattr(r, f) or '').strip()
+        if entity == 'material_all' and hasattr(r, 'status'):
+            item['status'] = str(getattr(r, 'status') or 'active').strip()
         items.append(item)
     return items
 
@@ -264,7 +269,7 @@ def _entity_pool_signature(key):
         eligible = None
         # 物料/BOM 候选池带 status 过滤（见 _build_entity_pool），停用/启用
         # 不改变总行数与最大 id，必须用「可入池行数」这一维才能感知。
-        if key == 'material' and hasattr(M, 'status'):
+        if key in ('material', 'material_all') and hasattr(M, 'status'):
             eligible = M.query.filter(_db.or_(M.status == 'active',
                                               M.status.is_(None),
                                               M.status == '')).count()
@@ -288,6 +293,8 @@ def invalidate_options_pool(entity=None):
     with _POOL_LOCK:
         if entity:
             _POOL_CACHE.pop(entity, None)
+            if entity == 'material':
+                _POOL_CACHE.pop('material_all', None)
         else:
             _POOL_CACHE.clear()
 

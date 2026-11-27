@@ -900,8 +900,9 @@ document.addEventListener('DOMContentLoaded', function() {
             // 统一多图：加载物料档案图片（手机/电脑共用 MaterialImage 表）
             loadEditMaterialImages(mat.id);
 
-            // 显示编辑弹窗
-            var editModal = new bootstrap.Modal(document.getElementById('editModal'));
+            // 显示编辑弹窗（复用已有 Modal 实例，避免重复实例化）
+            var editModalEl = document.getElementById('editModal');
+            var editModal = bootstrap.Modal.getInstance(editModalEl) || new bootstrap.Modal(editModalEl);
             editModal.show();
         });
     };
@@ -1619,7 +1620,8 @@ function restoreTemplateDraft(afterWrite) {
 
 function openLabelTemplate() {
     if (labelTemplateWriteBusy) return;
-    labelTemplateModal = new bootstrap.Modal(document.getElementById('labelTemplateModal'));
+    var modalEl = document.getElementById('labelTemplateModal');
+    labelTemplateModal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
     labelTemplateModal.show();
 
     // 重置选中状态
@@ -1997,11 +1999,47 @@ if (barcodeHeightInput) {
     });
 }
 
+function applyCellColspanChange(cell, requestedSpan) {
+    if (!cell) return 1;
+    var row = cell.parentElement;
+    var oldSpan = cell.colSpan || 1;
+    var newSpan = Math.max(1, parseInt(requestedSpan, 10) || 1);
+    if (!row || newSpan === oldSpan) return oldSpan;
+
+    if (newSpan > oldSpan) {
+        var needed = newSpan - oldSpan;
+        var absorbed = 0;
+        while (absorbed < needed && cell.nextElementSibling) {
+            var nextCell = cell.nextElementSibling;
+            var nextSpan = nextCell.colSpan || 1;
+            if (absorbed + nextSpan > needed) break;
+            row.removeChild(nextCell);
+            absorbed += nextSpan;
+        }
+        newSpan = oldSpan + absorbed;
+        cell.colSpan = newSpan;
+    } else {
+        var toInsert = oldSpan - newSpan;
+        cell.colSpan = newSpan;
+        var insertIndex = cell.cellIndex + 1;
+        for (var k = 0; k < toInsert; k++) {
+            var extra = row.insertCell(insertIndex + k);
+            extra.className = 'label-cell';
+            extra.style.cssText = 'border: 1px solid #dee2e6; min-height: 25px; padding: 2px 5px; cursor: move; background: #f8f9fa;';
+            extra.innerHTML = '<span class="cell-content" contenteditable="true" style="display: block; font-size: 12px; overflow: hidden; white-space: normal; word-break: break-all;"></span>';
+        }
+    }
+    reindexLabelCells();
+    if (typeof initTemplateDragDrop === 'function') initTemplateDragDrop();
+    return newSpan;
+}
+
 var cellColspanSelect = document.getElementById('cellColspan');
 if (cellColspanSelect) {
     cellColspanSelect.addEventListener('change', function() {
         if (selectedCell) {
-            selectedCell.colSpan = parseInt(this.value);
+            var applied = applyCellColspanChange(selectedCell, this.value);
+            this.value = String(applied);
             saveTemplateToStorage();
         }
     });
@@ -2098,11 +2136,16 @@ function deleteRow() {
 
 function deleteCol() {
     var table = document.getElementById('labelTable');
+    if (!table || !table.rows || !table.rows.length) return;
 
-    // 计算实际列数（考虑跨列）
+    // 计算实际列数（跨所有行取最大网格列数）
     var actualCols = 0;
-    for (var i = 0; i < table.rows[0].cells.length; i++) {
-        actualCols += table.rows[0].cells[i].colSpan || 1;
+    for (var r = 0; r < table.rows.length; r++) {
+        var rowSpanSum = 0;
+        for (var c = 0; c < table.rows[r].cells.length; c++) {
+            rowSpanSum += table.rows[r].cells[c].colSpan || 1;
+        }
+        if (rowSpanSum > actualCols) actualCols = rowSpanSum;
     }
 
     if (actualCols <= 1) {
@@ -2111,20 +2154,20 @@ function deleteCol() {
     }
 
     var colIndex = actualCols - 1; // 默认删除最后一列
-    if (selectedCell) {
-        // 计算选中单元格的实际列索引
+    if (selectedCell && selectedCell.parentElement && selectedCell.parentElement.cells) {
+        // 按选中单元格所在行计算真实列索引，避免跨行 cellIndex 与 rows[0] 长度不一致越界
+        var selRow = selectedCell.parentElement;
         var tempIndex = 0;
-        for (var i = 0; i < selectedCell.cellIndex; i++) {
-            tempIndex += table.rows[0].cells[i].colSpan || 1;
+        for (var k = 0; k < selectedCell.cellIndex && k < selRow.cells.length; k++) {
+            tempIndex += selRow.cells[k].colSpan || 1;
         }
-        colIndex = tempIndex + (selectedCell.colSpan || 1) - 1;
+        colIndex = Math.min(actualCols - 1, tempIndex + (selectedCell.colSpan || 1) - 1);
     }
 
-    // 从后往前遍历每行，删除指定列
+    // 遍历每行，删除目标列（跨列合并单元格仅缩减 colSpan，不误删自身）
     for (var i = 0; i < table.rows.length; i++) {
         var row = table.rows[i];
 
-        // 计算该行的实际列索引
         var currentColIndex = 0;
         var targetCellIndex = -1;
         for (var j = 0; j < row.cells.length; j++) {
@@ -2138,22 +2181,20 @@ function deleteCol() {
 
         if (targetCellIndex >= 0 && row.cells[targetCellIndex]) {
             var cell = row.cells[targetCellIndex];
-            if (cell.colSpan > 1) {
-                // 合并单元格：减少跨度，如果只剩1则删除
-                cell.colSpan--;
-                if (cell.colSpan === 1) {
-                    row.deleteCell(targetCellIndex);
-                }
+            if ((cell.colSpan || 1) > 1) {
+                cell.colSpan = (cell.colSpan || 1) - 1;
             } else {
                 row.deleteCell(targetCellIndex);
             }
         }
     }
 
-    currentTemplate.cols--;
+    currentTemplate.cols = Math.max(1, actualCols - 1);
     selectedCell = null;
+    selectedCells = [];
     document.getElementById('cellProperties').style.display = 'none';
     document.getElementById('noSelection').style.display = 'block';
+    reindexLabelCells();
     saveTemplateToStorage();
 }
 
@@ -2432,6 +2473,8 @@ function updateExistingTemplate() {
         var templateData = __collectTemplateData();
         var templateId = currentTemplateId;
         if (!templateId) throw new Error('请先加载要更新的模板');
+        var nameInput = document.getElementById('templateNameInput');
+        var updatedName = nameInput ? nameInput.value.trim() : '';
         var payload = {
             layout: templateData,
             width: currentTemplate.labelWidth,
@@ -2439,6 +2482,7 @@ function updateExistingTemplate() {
             cols: currentTemplate.cols,
             rows: currentTemplate.rows
         };
+        if (updatedName) payload.name = updatedName;
         return WMS.api.postRaw('/label_template/' + templateId + '/save_layout', payload)
         .then(__requireTemplateSuccess).then(function() {
             try { localStorage.removeItem('labelTemplateDraft'); } catch (e) {}
@@ -2753,6 +2797,7 @@ function clearTemplate() {
 var labelSampleData = {
     code: 'MAT-0001',
     name: '深沟球轴承 6204-2RS',
+    brand: 'SKF',
     spec: '内径20×外径47×厚14',
     storage_location: 'A-01-02',
     unit_name: '套',
@@ -2901,7 +2946,8 @@ function __renderPreview() {
 
 function previewLabel() {
     __renderPreview();
-    new bootstrap.Modal(document.getElementById('previewModal')).show();
+    var modalEl = document.getElementById('previewModal');
+    (bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl)).show();
 }
 
 function printLabels() {
@@ -2933,6 +2979,10 @@ function doPrint() {
     for (var i = 0; i < model.rowHeights.length; i++) { totalPx += model.rowHeights[i]; }
 
     var printWindow = window.open('', '', 'width=600,height=400');
+    if (!printWindow) {
+        __notify('打印窗口被浏览器拦截，请允许弹窗后重试', 'warning');
+        return;
+    }
     printWindow.document.write('<!DOCTYPE html><html><head><title>标签打印</title>');
     printWindow.document.write('<style>');
     printWindow.document.write('@page { size: ' + w + 'mm ' + h + 'mm; margin: 0; }');

@@ -637,14 +637,16 @@
                 <div class="module-flyout">
                     <div class="flyout-title">基础资料</div>
                     <a class="flyout-link" href="/bom"><i class="bi bi-diagram-3"></i> BOM表管理</a>
-                    {% if current_user.role == 'admin' %}
+                    {% if current_user.role in ['admin', 'warehouse'] %}
                     <a class="flyout-link" href="/material"><i class="bi bi-box"></i> 物料管理</a>
-<a class="flyout-link" href="/contract"><i class="bi bi-file-earmark-text"></i> 合同/工程档案</a>
-<a class="flyout-link" href="/opening_stock"><i class="bi bi-bank"></i> 期初库存</a>
                     <a class="flyout-link" href="/category"><i class="bi bi-tags"></i> 物料分类</a>
                     <a class="flyout-link" href="/unit"><i class="bi bi-rulers"></i> 计量单位</a>
                     <a class="flyout-link" href="/supplier"><i class="bi bi-building"></i> 供应商管理</a>
                     <a class="flyout-link" href="/customer"><i class="bi bi-people"></i> 客户管理</a>
+                    {% endif %}
+                    {% if current_user.role == 'admin' %}
+<a class="flyout-link" href="/contract"><i class="bi bi-file-earmark-text"></i> 合同/工程档案</a>
+<a class="flyout-link" href="/opening_stock"><i class="bi bi-bank"></i> 期初库存</a>
                     <a class="flyout-link" href="/warehouse"><i class="bi bi-house-door"></i> 仓库档案</a>
                     <a class="flyout-link" href="/department"><i class="bi bi-diagram-2"></i> 部门档案</a>
                     <a class="flyout-link" href="/employee"><i class="bi bi-person-badge"></i> 员工管理</a>
@@ -812,14 +814,16 @@
                 </button>
                 <ul class="submenu-list">
                     <li><a class="nav-link" href="/bom"><i class="bi bi-circle"></i> BOM表管理</a></li>
-                    {% if current_user.role == 'admin' %}
+                    {% if current_user.role in ['admin', 'warehouse'] %}
                     <li><a class="nav-link" href="/material"><i class="bi bi-circle"></i> 物料管理</a></li>
-<li><a class="nav-link" href="/contract"><i class="bi bi-circle"></i> 合同/工程档案</a></li>
-<li><a class="nav-link" href="/opening_stock"><i class="bi bi-circle"></i> 期初库存</a></li>
                     <li><a class="nav-link" href="/category"><i class="bi bi-circle"></i> 物料分类</a></li>
                     <li><a class="nav-link" href="/unit"><i class="bi bi-circle"></i> 计量单位</a></li>
                     <li><a class="nav-link" href="/supplier"><i class="bi bi-circle"></i> 供应商管理</a></li>
                     <li><a class="nav-link" href="/customer"><i class="bi bi-circle"></i> 客户管理</a></li>
+                    {% endif %}
+                    {% if current_user.role == 'admin' %}
+<li><a class="nav-link" href="/contract"><i class="bi bi-circle"></i> 合同/工程档案</a></li>
+<li><a class="nav-link" href="/opening_stock"><i class="bi bi-circle"></i> 期初库存</a></li>
                     <li><a class="nav-link" href="/warehouse"><i class="bi bi-circle"></i> 仓库档案</a></li>
                     <li><a class="nav-link" href="/department"><i class="bi bi-circle"></i> 部门档案</a></li>
                     <li><a class="nav-link" href="/employee"><i class="bi bi-circle"></i> 员工管理</a></li>

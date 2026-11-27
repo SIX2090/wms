@@ -176,6 +176,17 @@ def register_label_barcode_routes(app):
         if not isinstance(layout, (dict, list)):
             return jsonify({'status': 'error', 'msg': '布局数据格式不正确（必须为对象或数组）'}), 400
         try:
+            new_name = (payload.get('name') or '').strip() if 'name' in payload else ''
+            if new_name:
+                if len(new_name) > 100:
+                    return jsonify({'status': 'error', 'msg': '模板名称不能超过 100 个字符'}), 400
+                conflict = LabelTemplate.query.filter(
+                    LabelTemplate.name == new_name,
+                    LabelTemplate.id != id,
+                ).first()
+                if conflict:
+                    return jsonify({'status': 'error', 'msg': '模板名称已存在，请更换名称'}), 409
+                template.name = new_name
             template.layout = json.dumps(layout, ensure_ascii=False)
             # 标签设计器可用性增强（AA2）：原地更新模板时同步持久化宽/高/行/列，
             # 批量打印页物理尺寸读的是数据库列而非 layout JSON，不同步会导致

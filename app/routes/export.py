@@ -401,27 +401,8 @@ def register_export_routes(app):
     @app.route('/export/template/material')
     @login_required
     def export_material_template():
-        # 注意：物料导入模板在 routes/material.py 的 /material/download_template 另有一份实现。
-        # 两者表头当前一致，但属于**重复实现**——改动任一处务必同步另一处，
-        # 否则会出现"两个入口下载的模板不一样"。理想做法是收敛为单一实现，
-        # 此处暂按最小改动保留，并在两侧都留这条提示。
-        # 表头叫法遵循 Material 模型 docstring 的「库存阈值命名约定」：
-        # reorder_point 对外一律叫「安全库存」，min_stock 对外一律叫「最低库存」。
-        from openpyxl import Workbook
-        from app import inventory_alert_enabled
-        wb = Workbook()
-        ws = wb.active
-        ws.title = '物料导入模板'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '单价']
-        example = ['MAT001', '示例物料', 'ABB', '规格A', 'A-01-01', '个', '原材料', '示例供应商', 0]
-        if inventory_alert_enabled():
-            headers.extend(['最低库存', '安全库存'])
-            example.extend([0, 0])
-        ws.append(headers)
-        ws.append(example)
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
+        from routes.material import build_material_import_template_stream
+        output = build_material_import_template_stream()
         return send_file(output, download_name='material_template.xlsx', as_attachment=True)
 
     @app.route('/export/template/in_order')

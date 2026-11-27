@@ -235,15 +235,20 @@
         var name = it.name || '';
         var spec = it.spec || '';
         var brand = it.brand || '';
+        var storageLoc = it.storage_location || '';
         var main = code || name || it.label || '';
         var extras = [];
         if (spec) extras.push('规格 ' + highlight(spec, kw));
         if (brand) extras.push('品牌 ' + highlight(brand, kw));
+        if (storageLoc) extras.push('库位 ' + highlight(storageLoc, kw));
+        var inactiveTag = it.status === 'inactive'
+            ? '<span class="badge bg-secondary ms-1" style="font-size:10px;">停用</span>' : '';
         return '<div class="ks-item ks-item-rich" data-idx="' + idx + '">' +
                '<div class="ks-rich-line1">' +
                '<span class="ks-main">' + highlight(main, kw) + '</span>' +
                (name && name !== main
                    ? '<span class="ks-rich-name">' + highlight(name, kw) + '</span>' : '') +
+               inactiveTag +
                '</div>' +
                (extras.length
                    ? '<div class="ks-rich-sub">' + extras.join(' · ') + '</div>' : '') +
@@ -268,7 +273,7 @@
             var html = '';
             for (var i = 0; i < items.length; i++) {
                 var it = items[i];
-                if (entity === 'material') {
+                if (entity === 'material' || entity === 'material_all') {
                     html += renderMaterialItem(it, i, kw);
                     continue;
                 }

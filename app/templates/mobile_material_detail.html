@@ -27,15 +27,19 @@
   </div>
   <section class="card"><div class="card-body">
     <dl class="row mb-0" style="overflow-wrap:anywhere;white-space:pre-wrap">
-      {% for label, value in [
+      {% set detail_fields = [
         ('物料编码', material.code), ('品牌', material.brand), ('物料名称', material.name),
         ('规格', material.spec), ('库位', material.storage_location), ('单位', material.unit.name if material.unit else ''),
         ('分类', material.category.name if material.category else ''),
-        ('供应商', material.supplier.name if material.supplier else ''), ('用途', material.purpose),
-        ('单价', material.price), ('最低库存', material.min_stock|quantity), ('最大库存', material.max_stock|quantity),
+        ('供应商', material.supplier.name if material.supplier else ''), ('用途', material.purpose)
+      ] %}
+      {% if price_dimension_enabled %}{% set detail_fields = detail_fields + [('单价', material.price)] %}{% endif %}
+      {% set detail_fields = detail_fields + [
+        ('最低库存', material.min_stock|quantity), ('最大库存', material.max_stock|quantity),
         ('安全库存', material.reorder_point|quantity), ('有效期', material.expiry_date), ('预警天数', material.alert_days),
         ('状态', '启用' if material.status == 'active' else '停用'), ('备注', material.remark), ('创建时间', material.created_at)
-      ] %}<dt class="col-4 mb-2 text-muted">{{ label }}</dt><dd class="col-8 mb-2">{{ value if value is not none and value != '' else '—' }}</dd>{% endfor %}
+      ] %}
+      {% for label, value in detail_fields %}<dt class="col-4 mb-2 text-muted">{{ label }}</dt><dd class="col-8 mb-2">{{ value if value is not none and value != '' else '—' }}</dd>{% endfor %}
     </dl>
     {% set primary_rel = material.image.removeprefix('/static/') if material.image else '' %}
     {% if primary_rel %}<img src="{{ url_for('static', filename=primary_rel) }}" alt="物料主图" class="img-fluid rounded my-2" style="max-height:240px">{% endif %}

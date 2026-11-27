@@ -69,6 +69,32 @@ def _material_edit_revision(material):
     return hashlib.sha256(json.dumps(values, default=str).encode()).hexdigest()
 
 
+# no-test:reason=纯 Excel 模板生成辅助函数（无参无失败分支），已由 test_p2_3_both_material_template_endpoints_identical_http 与 verify_inventory_threshold_naming.py 覆盖
+def build_material_import_template_stream():
+    """单一物料导入模板生成入口（/material/download_template 与 /export/template/material 共用）。
+
+    表头叫法遵循 Material 模型 docstring 的「库存阈值命名约定」：
+    reorder_point 对外一律叫「安全库存」，min_stock 对外一律叫「最低库存」。
+    """
+    from app import inventory_alert_enabled
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = '物料导入模板'
+    headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '单价']
+    example = ['MAT-001', '示例物料', 'ABB', '示例规格', 'A-01-01', '个', '原材料', '示例供应商', 0]
+    if inventory_alert_enabled():
+        headers.extend(['最低库存', '安全库存'])
+        example.extend([0, 0])
+    ws.append(headers)
+    ws.append(example)
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 # no-test:reason=路由注册辅助函数，能力由 material_* 各路由测试覆盖
 def register_material_routes(app):
     from services.material_form_policy import material_page_uses_strict_scripts
@@ -530,9 +556,16 @@ def register_material_routes(app):
         })
 
     @app.route('/material/<int:id>/image_candidates')
+    @require_role('warehouse')
     @login_required
     def material_image_candidates(id):
+        from flask_login import current_user
         from app import Material, _search_material_images_online
+        from rate_limit import is_rate_limited, record_failure
+        rate_key = f'material_image_candidates:{getattr(current_user, "id", "anon")}'
+        if is_rate_limited(rate_key, 20, 60):
+            return jsonify({'status': 'error', 'msg': '网上找图过于频繁，请稍后再试'}), 429
+        record_failure(rate_key, 60)
         material = Material.query.options(joinedload(Material.category)).get_or_404(id)
         try:
             candidates, query = _search_material_images_online(material)
@@ -1528,28 +1561,11 @@ def register_material_routes(app):
     @app.route('/material/download_template')
     @login_required
     def download_material_template():
-        # 注意：物料导入模板在 routes/export.py 的 /export/template/material 另有一份实现。
-        # 两者表头当前一致，但属于**重复实现**——改动任一处务必同步另一处。
-        # 表头叫法遵循 Material 模型 docstring 的「库存阈值命名约定」：
-        # reorder_point 对外一律叫「安全库存」，min_stock 对外一律叫「最低库存」。
-        from app import inventory_alert_enabled
-        from openpyxl import Workbook
-        wb = Workbook()
-        ws = wb.active
-        ws.title = '物料导入模板'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '单价']
-        example = ['MAT-001', '示例物料', 'ABB', '示例规格', 'A-01-01', '个', '原材料', '默认供应商', 0]
-        if inventory_alert_enabled():
-            headers.extend(['最低库存', '安全库存'])
-            example.extend([0, 0])
-        ws.append(headers)
-        ws.append(example)
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
+        output = build_material_import_template_stream()
         return send_file(output, download_name='material_import_template.xlsx', as_attachment=True)
 
     @app.route('/material/export')
+    @require_role('warehouse', 'finance')
     @login_required
     def export_material():
         from app import (
@@ -1559,12 +1575,16 @@ def register_material_routes(app):
             build_category_tree_rows,
             export_max_rows,
             inventory_alert_enabled,
+            price_dimension_enabled,
         )
         from openpyxl import Workbook
+        include_price = price_dimension_enabled()
         wb = Workbook()
         ws = wb.active
         ws.title = '物料数据'
-        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '当前库存', '单价']
+        headers = ['物料编码', '物料名称', '品牌', '规格', '库位', '单位', '分类', '供应商', '当前库存']
+        if include_price:
+            headers.append('单价')
         if inventory_alert_enabled():
             headers.extend(['最低库存', '安全库存'])
         ws.append(headers)
@@ -1625,7 +1645,9 @@ def register_material_routes(app):
             return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, status=status_filter, sort=sort_by, order=sort_order))
         from utils import _sanitize_excel_cell
         for m in query.all():
-            row = [m.code, m.name, m.brand or '', m.spec or '', m.storage_location or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
+            row = [m.code, m.name, m.brand or '', m.spec or '', m.storage_location or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0]
+            if include_price:
+                row.append(m.price or 0)
             if inventory_alert_enabled():
                 safety_stock = max(m.reorder_point or 0, m.min_stock or 0)
                 row.extend([m.min_stock or 0, safety_stock])

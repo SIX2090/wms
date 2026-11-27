@@ -9,7 +9,7 @@
 
 <div class="card">
     <div class="card-body">
-        <form id="addMaterialForm" method="post" action="{{ url_for('add_material') }}">
+        <form id="addMaterialForm" method="post" action="{{ url_for('add_material') }}" enctype="multipart/form-data">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row">
                 <div class="col-md-3">
@@ -21,13 +21,13 @@
                 <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-name-2">物料名称 <span class="text-danger">*</span></label>
-                        <input type="text" class="form-control" name="name" required id="material-add-name-2">
+                        <input type="text" class="form-control" name="name" maxlength="100" required id="material-add-name-2">
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-spec-3">规格型号</label>
-                        <input type="text" class="form-control" name="spec" id="material-add-spec-3">
+                        <input type="text" class="form-control" name="spec" maxlength="100" id="material-add-spec-3">
                     </div>
                 </div>
                 <div class="col-md-3">
@@ -78,46 +78,79 @@
             </div>
             
             <div class="row">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-stock-7">初始库存</label>
                         <input type="number" class="form-control" name="stock" value="0" min="0" step="0.01" id="material-add-stock-7">
                         <div class="form-text" id="initialStockOpeningHint">建议留 0，保存后统一通过【期初库存】建账，便于与期初单据及报表对账。</div>
                     </div>
                 </div>
+                <div class="col-md-3">
+                    <div class="mb-3">
+                        <label class="form-label" for="material-add-max_stock">最大库存</label>
+                        <input type="number" class="form-control" name="max_stock" value="0" min="0" step="0.01" id="material-add-max_stock">
+                    </div>
+                </div>
                 {% if inventory_alert_enabled %}
-                    <div class="col-md-4">
+                    <div class="col-md-2">
                         <div class="mb-3">
                             <label class="form-label" for="material-add-min_stock-8">最低库存</label>
                             <input type="number" class="form-control" name="min_stock" value="0" min="0" step="0.01" id="material-add-min_stock-8">
                         </div>
                     </div>
-                    <div class="col-md-4">
+                    <div class="col-md-2">
                         <div class="mb-3">
                             <label class="form-label" for="material-add-safety_stock-9">安全库存</label>
                             <input type="number" class="form-control" name="safety_stock" value="0" min="0" step="0.01" id="material-add-safety_stock-9">
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="mb-3">
+                            <label class="form-label" for="material-add-alert_days">预警天数</label>
+                            <input type="number" class="form-control" name="alert_days" value="30" min="1" max="3650" step="1" id="material-add-alert_days">
                         </div>
                     </div>
                 {% endif %}
             </div>
             
             <div class="row">
-                <div class="col-md-4">
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-storage_location">库位</label>
                         <input type="text" class="form-control" name="storage_location" maxlength="100" placeholder="如 A-01-02（选填）" id="material-add-storage_location">
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <div class="mb-3">
+                        <label class="form-label" for="material-add-purpose">用途</label>
+                        <input type="text" class="form-control" name="purpose" maxlength="200" placeholder="选填" id="material-add-purpose">
+                    </div>
+                </div>
+                <div class="col-md-3">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-price-10">参考单价</label>
                         <input type="number" class="form-control" name="price" value="0" min="0" step="0.01" id="material-add-price-10">
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-3">
+                    <div class="mb-3">
+                        <label class="form-label" for="material-add-expiry_date">有效期至</label>
+                        <input type="date" class="form-control" name="expiry_date" id="material-add-expiry_date">
+                    </div>
+                </div>
+            </div>
+
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label" for="material-add-image">物料图片</label>
+                        <input type="file" class="form-control" name="image" accept="image/*" id="material-add-image">
+                    </div>
+                </div>
+                <div class="col-md-6">
                     <div class="mb-3">
                         <label class="form-label" for="material-add-remark-11">备注</label>
-                        <textarea class="form-control" name="remark" rows="2" id="material-add-remark-11"></textarea>
+                        <textarea class="form-control" name="remark" rows="2" maxlength="500" placeholder="可填写物料相关备注（最多500字）" id="material-add-remark-11"></textarea>
                     </div>
                 </div>
             </div>

@@ -95,6 +95,9 @@
             {% if request.args.get('embedded') == '1' %}
             <input type="hidden" name="embedded" value="1">
             {% endif %}
+            <input type="hidden" name="per_page" value="{{ per_page }}">
+            <input type="hidden" name="sort" value="{{ sort_by }}">
+            <input type="hidden" name="order" value="{{ sort_order }}">
             {% if inventory_alert_enabled %}
             <select name="stock_filter" class="form-select flex-shrink-0" style="width: 136px;" data-material-change="submitFilterForm" aria-label="库存条件">
                 <option value="" {% if not stock_filter %}selected{% endif %}>全部库存</option>
@@ -109,9 +112,9 @@
                 <option value="inactive" {% if status_filter == 'inactive' %}selected{% endif %}>停用</option>
                 <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
             </select>
-            <input type="text" name="search" class="form-control flex-grow-1 material-search-input" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="material" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
+            <input type="text" name="search" class="form-control flex-grow-1 material-search-input" placeholder="搜索物料编码/名称/品牌/规格/库位..." value="{{ request.args.get('search', '') }}" data-ks="{{ 'material_all' if status_filter != 'active' else 'material' }}" data-ks-put="code" data-ks-submit="1" aria-label="搜索关键词">
             <button type="submit" class="btn btn-primary flex-shrink-0"><i class="bi bi-search"></i> 搜索</button>
-            {% if request.args.get('search') or stock_filter or category_id %}
+            {% if request.args.get('search') or stock_filter or category_id or status_filter != 'active' %}
             <a href="/material{% if request.args.get('embedded') == '1' %}?embedded=1{% endif %}" class="btn btn-outline-secondary flex-shrink-0">清除</a>
             {% endif %}
         </form>
@@ -123,10 +126,10 @@
         {# 切换分类即重新浏览分类明细，不沿用上一次搜索词；分类内搜索仍由上方表单处理。 #}
         <div class="material-category-header">
             <span><i class="bi bi-diagram-3"></i> 分类树</span>
-            <a href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}" class="small">全部</a>
+            <a href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, per_page=per_page, sort=sort_by, order=sort_order, embedded=request.args.get('embedded')) }}" class="small">全部</a>
         </div>
         <div class="material-category-tree">
-            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}">
+            <a class="material-category-node {{ 'active' if not category_id else '' }}" href="{{ url_for('material_list', stock_filter=stock_filter, status=status_filter, per_page=per_page, sort=sort_by, order=sort_order, embedded=request.args.get('embedded')) }}">
                 <span class="material-category-code">全部</span>
                 <i class="bi bi-folder2-open"></i>
                 <span class="material-category-name">全部分类</span>
@@ -134,7 +137,7 @@
             {% for row in category_rows %}
             {% set cat = row.category %}
             <a class="material-category-node {{ 'active' if category_id == cat.id else '' }}"
-               href="{{ url_for('material_list', category_id=cat.id, stock_filter=stock_filter, status=status_filter, embedded=request.args.get('embedded')) }}"
+               href="{{ url_for('material_list', category_id=cat.id, stock_filter=stock_filter, status=status_filter, per_page=per_page, sort=sort_by, order=sort_order, embedded=request.args.get('embedded')) }}"
                style="padding-left: {{ 10 + row.level * 18 }}px;">
                 <span class="material-category-code">{{ cat.code }}</span>
                 <i class="bi {{ 'bi-folder2-open' if row.has_children else 'bi-tag' }}"></i>
@@ -605,7 +608,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label" for="add_name">物料名称 *</label>
-                                <input type="text" class="form-control" name="name" id="add_name" required>
+                                <input type="text" class="form-control" name="name" id="add_name" maxlength="100" required>
                             </div>
                         </div>
                     </div>
@@ -668,13 +671,13 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="add_purpose">用途</label>
-                                <input type="text" class="form-control" name="purpose" id="add_purpose">
+                                <input type="text" class="form-control" name="purpose" id="add_purpose" maxlength="200">
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="add_price">单价</label>
-                                <input type="number" class="form-control" name="price" id="add_price" value="0" step="0.01">
+                                <input type="number" class="form-control" name="price" id="add_price" value="0" min="0" step="0.01">
                             </div>
                         </div>
                     </div>
@@ -683,21 +686,21 @@
                         <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label" for="add_min_stock">最低库存</label>
-                                <input type="number" class="form-control" name="min_stock" id="add_min_stock" value="0" step="0.01">
+                                <input type="number" class="form-control" name="min_stock" id="add_min_stock" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         {% endif %}
                         <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label" for="add_max_stock">最大库存</label>
-                                <input type="number" class="form-control" name="max_stock" id="add_max_stock" value="0" step="0.01">
+                                <input type="number" class="form-control" name="max_stock" id="add_max_stock" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         {% if inventory_alert_enabled %}
                         <div class="col-md-3">
                             <div class="mb-3">
                                 <label class="form-label" for="add_reorder_point">安全库存</label>
-                                <input type="number" class="form-control" name="reorder_point" id="add_reorder_point" value="0" step="0.01">
+                                <input type="number" class="form-control" name="reorder_point" id="add_reorder_point" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         <div class="col-md-3">
@@ -750,13 +753,14 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_code">物料编码 *</label>
-                                <input type="text" class="form-control" name="code" maxlength="50" id="edit_code" required>
+                                <input type="text" class="form-control" name="code" maxlength="50" id="edit_code" required {% if not material_code_editable %}readonly{% endif %}>
+                                {% if not material_code_editable %}<div class="form-text text-muted">系统参数已禁止修改物料编码</div>{% endif %}
                             </div>
                         </div>
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_name">物料名称 *</label>
-                                <input type="text" class="form-control" name="name" id="edit_name" required>
+                                <input type="text" class="form-control" name="name" id="edit_name" maxlength="100" required>
                             </div>
                         </div>
                     </div>
@@ -819,13 +823,13 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_purpose">用途</label>
-                                <input type="text" class="form-control" name="purpose" id="edit_purpose">
+                                <input type="text" class="form-control" name="purpose" id="edit_purpose" maxlength="200">
                             </div>
                         </div>
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_price">单价</label>
-                                <input type="number" class="form-control" name="price" id="edit_price" value="0" step="0.01">
+                                <input type="number" class="form-control" name="price" id="edit_price" value="0" min="0" step="0.01">
                             </div>
                         </div>
                     </div>
@@ -834,21 +838,21 @@
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_min_stock">最低库存</label>
-                                <input type="number" class="form-control" name="min_stock" id="edit_min_stock" value="0" step="0.01">
+                                <input type="number" class="form-control" name="min_stock" id="edit_min_stock" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         {% endif %}
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_max_stock">最大库存</label>
-                                <input type="number" class="form-control" name="max_stock" id="edit_max_stock" value="0" step="0.01">
+                                <input type="number" class="form-control" name="max_stock" id="edit_max_stock" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         {% if inventory_alert_enabled %}
                         <div class="col-md-4">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_reorder_point">安全库存</label>
-                                <input type="number" class="form-control" name="reorder_point" id="edit_reorder_point" value="0" step="0.01">
+                                <input type="number" class="form-control" name="reorder_point" id="edit_reorder_point" value="0" min="0" step="0.01">
                             </div>
                         </div>
                         {% endif %}
@@ -864,7 +868,7 @@
                         <div class="col-md-6">
                             <div class="mb-3">
                                 <label class="form-label" for="edit_alert_days">预警天数</label>
-                                <input type="number" class="form-control" name="alert_days" id="edit_alert_days" value="30" step="1">
+                                <input type="number" class="form-control" name="alert_days" id="edit_alert_days" value="30" min="1" max="3650" step="1">
                             </div>
                         </div>
                         {% endif %}
@@ -908,6 +912,9 @@
                         </div>
                         <div class="field-item" draggable="true" data-field="name" data-label="物料名称">
                             <i class="bi bi-box"></i> 物料名称
+                        </div>
+                        <div class="field-item" draggable="true" data-field="brand" data-label="品牌">
+                            <i class="bi bi-award"></i> 品牌
                         </div>
                         <div class="field-item" draggable="true" data-field="spec" data-label="规格">
                             <i class="bi bi-rulers"></i> 规格
@@ -1055,6 +1062,7 @@
                                     <option value="">-- 无 --</option>
                                     <option value="code">物料编码</option>
                                     <option value="name">物料名称</option>
+                                    <option value="brand">品牌</option>
                                     <option value="spec">规格</option>
                                     <option value="storage_location">库位</option>
                                     <option value="unit_name">单位</option>
