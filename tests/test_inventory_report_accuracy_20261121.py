@@ -300,7 +300,14 @@ def test_other_document_customer_matches_screen_and_exports(reports, kind, busin
 
 def test_daily_summary_separates_date_and_unit(reports):
     client, ids = reports
-    args = {'warehouse_id': ids['warehouse_id']}
+    # 默认口径仅统计已完成单据（与 in_detail / out_detail 一致），排除草稿
+    posted_args = {'warehouse_id': ids['warehouse_id']}
+    posted = client.get('/report/api/summary', query_string=posted_args).get_json()
+    assert posted['summary']['quantity_text'] == '13 件'
+    assert posted['summary']['count'] == 1 and posted['total'] == 1
+    assert {row['unit']: row['net_quantity'] for row in posted['data']} == {'件': 7}
+    # 显式 status=all 时包含草稿并按日期和单位分列统计
+    args = {'warehouse_id': ids['warehouse_id'], 'status': 'all'}
     data = client.get('/report/api/summary', query_string=args).get_json()
     assert data['summary']['quantity_text'] == '13 件 / 8 米'
     assert data['summary']['count'] == 1 and data['total'] == 2

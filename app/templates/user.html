@@ -298,15 +298,18 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('editUserId').value = userId;
         document.getElementById('editUsername').value = username;
         var roleSelect = document.getElementById('editRole');
-        Array.from(roleSelect.querySelectorAll('option[data-legacy-role="1"]')).forEach(function(opt) {
-            opt.remove();
-        });
-        if (role && !Array.from(roleSelect.options).some(function(opt) { return opt.value === role; })) {
-            var legacyOpt = document.createElement('option');
-            legacyOpt.value = role;
-            legacyOpt.setAttribute('data-legacy-role', '1');
-            legacyOpt.textContent = (role === 'viewer' ? '访客' : '普通用户') + '（历史角色，建议改配岗位）';
-            roleSelect.appendChild(legacyOpt);
+        if (roleSelect && typeof roleSelect.querySelectorAll === 'function') {
+            Array.from(roleSelect.querySelectorAll('option[data-legacy-role="1"]')).forEach(function(opt) {
+                opt.remove();
+            });
+            if (role && roleSelect.options && typeof document.createElement === 'function'
+                && !Array.from(roleSelect.options).some(function(opt) { return opt.value === role; })) {
+                var legacyOpt = document.createElement('option');
+                legacyOpt.value = role;
+                legacyOpt.setAttribute('data-legacy-role', '1');
+                legacyOpt.textContent = (role === 'viewer' ? '访客' : '普通用户') + '（历史角色，建议改配岗位）';
+                roleSelect.appendChild(legacyOpt);
+            }
         }
         roleSelect.value = role;
         document.getElementById('editStatus').value = status;
