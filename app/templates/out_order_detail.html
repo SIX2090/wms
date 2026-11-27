@@ -1369,7 +1369,7 @@ document.getElementById('selectAll')?.addEventListener('change', function() {
     document.querySelectorAll('.itemCheck').forEach(cb => cb.checked = this.checked);
 });
 
-// ==================== 批量删除 ====================
+// ==================== 批量删除（串行执行，避免触发乐观锁 409 版本冲突）====================
 document.getElementById('batchDeleteBtn')?.addEventListener('click', function() {
     const checked = document.querySelectorAll('.itemCheck:checked');
     if (!checked.length) {
@@ -1379,30 +1379,28 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
     _showConfirm('确定要删除选中的 ' + checked.length + ' 项物料吗？', {title: '批量删除'}).then(function(confirmed) {
         if (!confirmed) return;
         const ids = Array.from(checked).map(function(cb) { return cb.value; });
-        var completed = 0;
         var failed = 0;
-        ids.forEach(function(id) {
-            WMS.api.postRaw('/out_order/{{ order.id }}/delete_item/' + id)
-            .then(function(res) {
-                completed++;
-                if (!res || res.status !== 'success') failed++;
-                if (completed === ids.length) {
-                    if (failed === 0) {
-                        _showToast('删除成功', 'success');
-                    } else {
-                        _showToast('部分删除失败', 'warning');
-                    }
-                    setTimeout(function() { location.reload(); }, 600);
-                }
-            })
-            .catch(function() {
-                completed++;
-                failed++;
-                if (completed === ids.length) {
-                    _showToast('删除失败', 'danger');
-                    setTimeout(function() { location.reload(); }, 600);
-                }
+        var lastCatch = false;
+        ids.reduce(function(chain, id) {
+            return chain.then(function() {
+                return WMS.api.postRaw('/out_order/{{ order.id }}/delete_item/' + id)
+                    .then(function(res) {
+                        if (!res || res.status !== 'success') failed++;
+                    })
+                    .catch(function() {
+                        failed++;
+                        lastCatch = true;
+                    });
             });
+        }, Promise.resolve()).then(function() {
+            if (failed === 0) {
+                _showToast('删除成功', 'success');
+            } else if (lastCatch && failed === ids.length) {
+                _showToast('删除失败', 'danger');
+            } else {
+                _showToast('部分删除失败', 'warning');
+            }
+            setTimeout(function() { location.reload(); }, 600);
         });
     });
 });

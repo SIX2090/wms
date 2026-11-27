@@ -3232,3 +3232,25 @@ body:not(.embedded-page) .cb-actionbar-toolbar { display: none !important; }
 
 html[data-batch-management="off"] [data-column-key="batch_no"],
 html[data-batch-management="off"] [data-column-key="colBatchNo"] { display: none !important; }
+
+/* BUG-2026-11-27-005（P1-UI-2/3/4/5）：单据表单视觉收口，不改动 document-form.css 既有快照 */
+/* P1-UI-3：表格只读格改用透明底色，不再用实白底击穿斑马纹与行悬停高亮 */
+body #materialTable tbody td input.form-control[readonly] {
+    background: transparent !important;
+    color: #374151;
+}
+/* P1-UI-4：flatpickr 可选日期展示框保持白底与手型指针，区别于真正的只读灰底字段 */
+body .form-control.wms-date-display[readonly],
+body .form-control.flatpickr-input[readonly] {
+    background: #ffffff !important;
+    color: #1f2937 !important;
+    cursor: pointer;
+}
+/* P1-UI-5：单据明细仅含孤立「明细」单标签时隐藏冗余标签栏（多标签页保持显示） */
+.wms-doc-tabs:has(> .wms-doc-tab:only-child) {
+    display: none !important;
+}
+/* P1-UI-2：吸底汇总栏右侧避让浮动通知铃铛，避免数值被遮挡 */
+body .quantity-summary.wms-sticky-summary {
+    padding-right: 76px !important;
+}

@@ -1423,7 +1423,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!isSaleOrder && !isOtherOut && !isPurchaseReturn) {
         ensureIssueEntryRow();
     } else if (!editItems.length) {
-        for (var i = 0; i < 30; i++) { addNewRow(); }
+        for (var i = 0; i < 6; i++) { addNewRow(); }
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();

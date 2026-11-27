@@ -110,16 +110,6 @@
                         </select>
                     </div>
                 </div>
-                {% if not is_product_in and not is_other_in and not is_sales_return %}
-                <div class="col-md-3">
-                    <div class="mb-2 pt-4">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="auto_push_requisition" id="autoPushRequisition" value="1"{% if prefill and prefill.auto_push_requisition %} checked{% endif %}>
-                            <label class="form-check-label" for="autoPushRequisition">入库时同时完成领料出库</label>
-                        </div>
-                    </div>
-                </div>
-                {% endif %}
                 {% if is_product_in %}
                 <div class="col-md-3"><div class="mb-2">
                     <label class="form-label" for="productCustomer">客户名称</label>
@@ -146,12 +136,29 @@
                     </div>
                 </div>
                 {% endif %}
+                {% if not is_product_in and not is_other_in and not is_sales_return %}
+                <div class="{{ 'col-md-3' if location_management_enabled else 'col-md-6' }}">
+                    <div class="mb-2">
+                        <label class="form-label">备注</label>
+                        <textarea class="form-control" name="remark" rows="1" placeholder="选填：送货单号、车牌或验收说明">{{ prefill.remark if prefill and prefill.remark else '' }}</textarea>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2 pt-4">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" name="auto_push_requisition" id="autoPushRequisition" value="1"{% if prefill and prefill.auto_push_requisition %} checked{% endif %}>
+                            <label class="form-check-label" for="autoPushRequisition">入库时同时完成领料出库</label>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
                 <div class="col-md-12">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
-                        <textarea class="form-control" name="remark" rows="4">{{ prefill.remark if prefill and prefill.remark else '' }}</textarea>
+                        <textarea class="form-control" name="remark" rows="2" placeholder="选填备注">{{ prefill.remark if prefill and prefill.remark else '' }}</textarea>
                     </div>
                 </div>
+                {% endif %}
             </div>
 
             <div id="inOrderValidationPanel" class="wms-validation-panel" role="alert" aria-live="polite">
@@ -184,9 +191,14 @@
                     <i class="bi bi-layout-three-columns"></i> 栏目设置
                 </button>
             </div>
-            <div class="text-muted small mb-2">物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
-            {% if business_type == '采购入库' %}<div class="text-muted small mb-2">选好物料后，点击起始数量格，可从 Excel / WPS 粘贴一整列数量。</div>{% endif %}
-            {% if business_type == '采购入库' %}<div class="text-muted small mb-2">合同编号可输入数字尾号，按回车或离开单元格补全。新合同请填写编号和工程名称，随入库单保存建档。</div>{% endif %}
+            <details class="text-muted small mb-2 wms-entry-hints">
+                <summary style="cursor:pointer;user-select:none;"><i class="bi bi-question-circle me-1"></i>操作提示（键盘选料{% if business_type == '采购入库' %} / Excel 粘贴数量 / 合同尾号补全{% endif %}）</summary>
+                <div class="pt-1 ps-3">
+                    <div>物料选择：↑↓ 切换候选，Enter 选中并录数量，Esc 关闭；输入中文时回车仅确认汉字。</div>
+                    {% if business_type == '采购入库' %}<div>选好物料后，点击起始数量格，可从 Excel / WPS 粘贴一整列数量。</div>{% endif %}
+                    {% if business_type == '采购入库' %}<div>合同编号可输入数字尾号，按回车或离开单元格补全。新合同请填写编号和工程名称，随入库单保存建档。</div>{% endif %}
+                </div>
+            </details>
             
             <div class="table-responsive">
                 <table id="materialTable">
@@ -238,7 +250,11 @@
                     </tfoot>
                 </table>
             </div>
-            <div class="quantity-summary border-top px-3 py-2 bg-warning-subtle text-end" style="position:sticky;bottom:0;z-index:2;" data-quantity-summary="materialTable" data-quantity-selector=".material-qty" data-material-selector="{{ '.material-name' if is_product_in else '.material-code' }}">数量合计：<strong data-quantity-value aria-live="polite">0.00</strong></div>
+            <div class="quantity-summary wms-sticky-summary border-top px-3 py-2 bg-warning-subtle text-end" style="position:sticky;bottom:0;z-index:2;" data-quantity-summary="materialTable" data-quantity-selector=".material-qty" data-material-selector="{{ '.material-name' if is_product_in else '.material-code' }}">
+                <span class="me-3 text-muted">有效行数：<strong id="stickyLineCount" class="text-dark">0</strong> 行</span>
+                <span>数量合计：<strong data-quantity-value aria-live="polite">0.00</strong></span>
+                <span class="ms-3 wms-price-col">金额合计：<strong id="stickyTotalAmount" class="text-danger">¥0.00</strong></span>
+            </div>
         </form>
     </div>
 </div>
@@ -352,14 +368,7 @@ function handleMaterialCodeInput(row) {
     showDropdown(row);
 }
 
-function addNewRow() {
-    const tbody = document.getElementById('materialTableBody');
-    if (!tbody) {
-        console.error('materialTableBody not found');
-        return;
-    }
-    const row = tbody.insertRow();
-    const rowIndex = tbody.rows.length;
+function populateMaterialRow(row, rowIndex) {
     row.innerHTML = `
         <td data-column-key="row_no" class="row-num">${rowIndex}</td>
         <td data-column-key="material_code">
@@ -391,6 +400,9 @@ function addNewRow() {
 
     row.querySelector('.material-code').addEventListener('input', function() {
         handleMaterialCodeInput(row);
+        if (this.value.trim() && !row.nextElementSibling) {
+            addNewRow();
+        }
     });
     row.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, row);
@@ -403,14 +415,6 @@ function addNewRow() {
             event.preventDefault();
             row.querySelector('.material-price').focus();
             row.querySelector('.material-price').select();
-        }
-    });
-    row.querySelector('.material-qty').addEventListener('blur', function() {
-        WMS.normalizeDecimalInput(this);
-        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
-        if (this.value) {
-            this.value = formatQtyTrim(this.value);
-            calcAmount(row);
         }
     });
     row.querySelector('.material-price').addEventListener('input', function() {
@@ -436,7 +440,22 @@ function addNewRow() {
             calcAmount(row);
         }
     });
+    return row;
+}
 
+function addNewRow() {
+    const tbody = document.getElementById('materialTableBody');
+    if (!tbody) return null;
+    const row = tbody.insertRow();
+    populateMaterialRow(row, tbody.rows.length);
+    row.querySelector('.material-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
+        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
+        if (this.value) {
+            this.value = formatQtyTrim(this.value);
+            calcAmount(row);
+        }
+    });
     if (window.inOrderColumnController) {
         window.inOrderColumnController.applyOrder();
     }
@@ -672,10 +691,21 @@ function calcAmount(row) {
 function calcTotal() {
     if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('materialTable');
     let total = 0;
+    let activeLines = 0;
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
     document.querySelectorAll('#materialTableBody tr').forEach(row => {
-        total += parseFloat(row.querySelector('.material-amount').value) || 0;
+        total += parseFloat(row.querySelector('.material-amount')?.value) || 0;
+        const hasCode = !!(row.querySelector('.material-code')?.value || '').trim();
+        const hasName = isProductIn && !!(row.querySelector('.material-name')?.value || '').trim();
+        if (hasCode || hasName) activeLines++;
     });
-    document.getElementById('totalAmount').textContent = '¥' + total.toFixed(2);
+    const formatted = '¥' + total.toFixed(2);
+    const totalEl = document.getElementById('totalAmount');
+    if (totalEl) totalEl.textContent = formatted;
+    const stickyAmt = document.getElementById('stickyTotalAmount');
+    if (stickyAmt) stickyAmt.textContent = formatted;
+    const stickyCnt = document.getElementById('stickyLineCount');
+    if (stickyCnt) stickyCnt.textContent = String(activeLines);
 }
 
 function deleteRow(btn) {
@@ -748,65 +778,15 @@ function insertRowBefore(btn) {
     const tbody = document.getElementById('materialTableBody');
     const currentRow = btn.closest('tr');
     const newRow = tbody.insertRow(currentRow.rowIndex - 1);
-    const rowIndex = currentRow.rowIndex;
-    newRow.innerHTML = `
-        <td data-column-key="row_no" class="row-num">${rowIndex}</td>
-        <td data-column-key="material_code">
-            <div class="material-input">
-                <input type="text" class="form-control material-code" placeholder="">
-                <div class="material-dropdown" style="display:none;"></div>
-            </div>
-        </td>
-        {% if is_product_in %}<td data-column-key="box_no"><input type="text" class="form-control material-box-no" maxlength="100" autocomplete="off"></td>{% endif %}
-        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
-        <td data-column-key="material_name"><input type="text" class="form-control material-name" {% if not is_product_in %}readonly{% endif %} maxlength="100"></td>
-        <td data-column-key="spec"><input type="text" class="form-control material-spec" {% if not is_product_in %}readonly{% endif %} maxlength="100"></td>
-        <td data-column-key="unit"><input type="text" class="form-control material-unit" {% if not is_product_in %}readonly{% endif %} maxlength="20"></td>
-        <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
-        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
-        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
-        <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
-        <td data-column-key="batch_no"><input type="text" class="form-control material-batch-no" maxlength="50" autocomplete="off" placeholder="批次"></td>
-        <td data-column-key="expiry_date"><input type="date" class="form-control material-expiry" title="有效期（到日）"></td>
-        ${isOtherIn ? '<td data-column-key="is_customer_supplied" class="text-center"><input type="checkbox" class="form-check-input line-customer-supplied" title="该行物料所有权属于客户"></td>' : ''}
-        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50" autocomplete="off" placeholder=""></td>
-        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200" autocomplete="off" placeholder=""></td>
-        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
-        <td data-column-key="actions" class="action-col">
-            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
-        </td>
-    `;
-
-    newRow.querySelector('.material-code').addEventListener('input', function() {
-        handleMaterialCodeInput(newRow);
-    });
-    newRow.querySelector('.material-code').addEventListener('keydown', function(event) {
-        handleKeydown(event, newRow);
-    });
-    newRow.querySelector('.material-qty').addEventListener('input', function() {
-        calcAmount(newRow);
-    });
+    populateMaterialRow(newRow, currentRow.rowIndex);
     newRow.querySelector('.material-qty').addEventListener('blur', function() {
         WMS.normalizeDecimalInput(this);
         // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
         if (this.value) {
             this.value = formatQtyTrim(this.value);
-            calcAmount(newRow.closest('tr'));
+            calcAmount(newRow);
         }
     });
-    newRow.querySelector('.material-price').addEventListener('input', function() {
-        calcAmount(newRow);
-    });
-    newRow.querySelector('.material-price').addEventListener('blur', function() {
-        WMS.normalizeDecimalInput(this, '单价');
-        // 失去焦点时格式化
-        if (this.value) {
-            this.value = parseFloat(this.value).toFixed(2);
-            calcAmount(newRow.closest('tr'));
-        }
-    });
-
     renumberRows();
     if (window.inOrderColumnController) {
         window.inOrderColumnController.applyOrder();
@@ -887,8 +867,16 @@ window.handleOtherOrderToolbar = handleOtherOrderToolbar;
 
 // 导出当前明细行为 CSV（参考期初库存单的导出实现）
 function exportDetailRows() {
-    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
-    const otherReceipt = document.querySelector?.('[name="business_type"]')?.value === '其他入库';
+    const businessType = (document.querySelector?.('[name="business_type"]')?.value || '采购入库').trim();
+    const isProductIn = businessType === '产品入库';
+    const otherReceipt = businessType === '其他入库';
+    const sanitizeCsvCell = function(val) {
+        const s = String(val === null || val === undefined ? '' : val);
+        if (s && /^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+(?:\.\d+)?$/.test(s)) {
+            return "'" + s;
+        }
+        return s;
+    };
     const headers = ['物料编码','品牌','物料名称','规格','单位','数量','单价','金额','合同编号','工程名称','备注'];
     if (isProductIn) headers.splice(1, 0, '箱体编号');
     if (otherReceipt) headers.push('客供');
@@ -911,7 +899,7 @@ function exportDetailRows() {
         ];
         if (isProductIn) values.splice(1, 0, row.querySelector('.material-box-no')?.value || '');
         if (otherReceipt) values.push(row.querySelector('.line-customer-supplied')?.checked ? '是' : '否');
-        lines.push(values.map(function(v) { return '"' + String(v).replace(/"/g, '""') + '"'; }).join(','));
+        lines.push(values.map(function(v) { return '"' + sanitizeCsvCell(v).replace(/"/g, '""') + '"'; }).join(','));
     });
     if (lines.length === 1) {
         showToast('当前没有可导出的物料明细', 'info');
@@ -921,7 +909,7 @@ function exportDetailRows() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = '其他入库单明细.csv';
+    a.download = businessType + '单明细.csv';
     a.click();
     URL.revokeObjectURL(url);
 }
@@ -1207,7 +1195,7 @@ document.addEventListener('DOMContentLoaded', function() {
         calcAmount(row);
     });
     if (!editItems.length && !document.querySelector('#materialTableBody tr')) {
-        for (let i = 0; i < 30; i++) addNewRow();
+        for (let i = 0; i < 6; i++) addNewRow();
     }
     if (window.WMS && window.WMS.ContractAutocomplete) {
         window.WMS.ContractAutocomplete.bindAll();
@@ -1259,9 +1247,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         searchInput.addEventListener('input', function() {
+            // P1-UI-7：手改往来单位文本后立即清空旧隐藏 ID，避免提交时静默发往旧供应商/客户
+            hiddenInput.value = '';
             const keyword = this.value.trim().toLowerCase();
             if (!keyword) {
-                hiddenInput.value = '';
                 dropdown.style.display = 'none';
                 return;
             }
@@ -2299,13 +2288,26 @@ function applyBatchUpdate() {
 <script>
 // ==================== 草稿自动保存 ====================
 (function() {
-    const DRAFT_KEY = 'wms:in_order_draft';
+    const _draftBusinessType = (document.querySelector('[name="business_type"]')?.value || '采购入库').trim();
+    const _draftOrderId = (document.querySelector('[name="order_id"]')?.value || '').trim() || 'new';
+    const DRAFT_KEY = 'wms:in_order_draft:' + _draftBusinessType + ':' + _draftOrderId;
     const AUTO_SAVE_INTERVAL = 30000; // 30秒自动保存
     let autoSaveTimer = null;
+    let isDirty = false;
+
+    function hasDraftContent(formData) {
+        return !!(
+            (formData.rows && formData.rows.length > 0) ||
+            (formData.supplier && formData.supplier.trim()) ||
+            (formData.remark && formData.remark.trim())
+        );
+    }
 
     // 保存草稿到 localStorage
-    function saveDraft() {
+    function saveDraft(force) {
+        if (!force && !isDirty) return;
         const formData = collectFormData();
+        if (!force && !hasDraftContent(formData)) return;
         try {
             localStorage.setItem(DRAFT_KEY, JSON.stringify({
                 data: formData,
@@ -2313,7 +2315,7 @@ function applyBatchUpdate() {
             }));
             showDraftSavedTip();
         } catch (e) {
-            console.warn('保存草稿失败:', e);
+            // localStorage 满或禁用时静默降级
         }
     }
 
@@ -2332,6 +2334,11 @@ function applyBatchUpdate() {
                 box_no: row.querySelector('.material-box-no')?.value || '',
                 batch_no: row.querySelector('.material-batch-no')?.value || '',
                 expiry_date: row.querySelector('.material-expiry')?.value || '',
+                contract_no: row.querySelector('.line-contract-no')?.value || '',
+                project_name: row.querySelector('.line-project-name')?.value || '',
+                is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked,
+                source_purchase_order_item_id: row.dataset.sourcePurchaseOrderItemId || '',
+                source_purchase_order_no: row.dataset.sourcePurchaseOrderNo || '',
                 remark: row.querySelector('.material-remark')?.value || ''
             };
             if (rowData.material_code || rowData.material_name || (isProductIn && (rowData.box_no || rowData.quantity || rowData.spec || rowData.unit))) {
@@ -2344,10 +2351,13 @@ function applyBatchUpdate() {
             contract_no: document.querySelector('[name="contract_no"]')?.value || '',
             project_name: document.querySelector('[name="project_name"]')?.value || '',
             supplier: document.querySelector('#supplierSearch')?.value || '',
+            supplier_id: document.querySelector('#supplierIdHidden')?.value || '',
             // BUG-2026-09-27-002：'#warehouseSelect' 元素在本模板中不存在，
             // 取值恒为 undefined→''，导致自动草稿永远存不到仓库、恢复也回填不了。
             // 统一改用真实存在的 [name="warehouse_id"]。
             warehouse_id: document.querySelector('[name="warehouse_id"]')?.value || '',
+            location: document.querySelector('[name="location"]')?.value || '',
+            auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
             // BUG-2026-09-27-002：'#remarkInput' 同样不存在，改用 [name="remark"]
             // （与 1465/1633 行提交路径、2181/2427 行读取路径保持一致）。
             remark: document.querySelector('[name="remark"]')?.value || '',
@@ -2375,11 +2385,24 @@ function applyBatchUpdate() {
                 const supplierInput = document.querySelector('#supplierSearch');
                 if (supplierInput) supplierInput.value = data.supplier;
             }
+            if (data.supplier_id) {
+                const supplierHidden = document.querySelector('#supplierIdHidden');
+                if (supplierHidden) supplierHidden.value = data.supplier_id;
+            }
 
             // 恢复仓库（BUG-2026-09-27-002：改用真实存在的 [name="warehouse_id"]）
             if (data.warehouse_id) {
                 const warehouseSelect = document.querySelector('[name="warehouse_id"]');
                 if (warehouseSelect) warehouseSelect.value = data.warehouse_id;
+            }
+
+            if (data.location) {
+                const locationInput = document.querySelector('[name="location"]');
+                if (locationInput) locationInput.value = data.location;
+            }
+            if (data.auto_push_requisition !== undefined) {
+                const autoPushEl = document.querySelector('[name="auto_push_requisition"]');
+                if (autoPushEl) autoPushEl.checked = !!data.auto_push_requisition;
             }
 
             // 恢复备注（BUG-2026-09-27-002：改用真实存在的 [name="remark"]）
@@ -2402,6 +2425,8 @@ function applyBatchUpdate() {
                         if (rowData.material_code) {
                             const codeInput = lastRow.querySelector('.material-code');
                             if (codeInput) codeInput.value = rowData.material_code;
+                            const cached = typeof findMaterialByCode === 'function' ? findMaterialByCode(rowData.material_code) : null;
+                            if (cached && typeof fillMaterialFields === 'function') fillMaterialFields(lastRow, cached);
                         }
                         if (rowData.material_name) {
                             const nameInput = lastRow.querySelector('.material-name');
@@ -2433,10 +2458,29 @@ function applyBatchUpdate() {
                             const expiryInput = lastRow.querySelector('.material-expiry');
                             if (expiryInput) expiryInput.value = rowData.expiry_date;
                         }
+                        if (rowData.contract_no) {
+                            const cInput = lastRow.querySelector('.line-contract-no');
+                            if (cInput) cInput.value = rowData.contract_no;
+                        }
+                        if (rowData.project_name) {
+                            const pInput = lastRow.querySelector('.line-project-name');
+                            if (pInput) pInput.value = rowData.project_name;
+                        }
+                        if (rowData.is_customer_supplied) {
+                            const csInput = lastRow.querySelector('.line-customer-supplied');
+                            if (csInput) csInput.checked = true;
+                        }
+                        if (rowData.source_purchase_order_item_id) {
+                            lastRow.dataset.sourcePurchaseOrderItemId = rowData.source_purchase_order_item_id;
+                        }
+                        if (rowData.source_purchase_order_no) {
+                            lastRow.dataset.sourcePurchaseOrderNo = rowData.source_purchase_order_no;
+                        }
                         if (rowData.remark) {
                             const remarkInput = lastRow.querySelector('.material-remark');
                             if (remarkInput) remarkInput.value = rowData.remark;
                         }
+                        if (typeof calcAmount === 'function') calcAmount(lastRow);
                     }
                 });
 
@@ -2448,7 +2492,7 @@ function applyBatchUpdate() {
 
             showDraftRestoredTip();
         } catch (e) {
-            console.warn('恢复草稿失败:', e);
+            // 草稿损坏时忽略
         }
     }
 
@@ -2475,48 +2519,52 @@ function applyBatchUpdate() {
 
     // 清除草稿
     function clearDraft() {
+        isDirty = false;
+        const form = document.querySelector('#addForm');
+        if (form) form.dataset.modified = 'false';
         try {
             localStorage.removeItem(DRAFT_KEY);
         } catch (e) {
-            console.warn('清除草稿失败:', e);
+            // 忽略存储清理异常
         }
     }
 
-    // 页面加载时恢复草稿
+    // 页面加载后绑定 #addForm 脏状态与离开保护
     document.addEventListener('DOMContentLoaded', function() {
-        // 延迟恢复，等待页面完全加载
         // 新增页面不自动恢复上次草稿，避免带出上一张已完成单据的数据
         // 用户仍可手动通过 WmsDraft.restore() 恢复，或通过"清除草稿"按钮清理
-
-        // 启动自动保存
-        autoSaveTimer = setInterval(saveDraft, AUTO_SAVE_INTERVAL);
-
-        // 监听表单变化
-        document.querySelector('#inOrderForm')?.addEventListener('input', function() {
-            // 用户输入后重置自动保存计时器
+        const form = document.querySelector('#addForm');
+        const markDirty = function() {
+            isDirty = true;
+            if (form) form.dataset.modified = 'true';
             clearInterval(autoSaveTimer);
-            autoSaveTimer = setInterval(saveDraft, AUTO_SAVE_INTERVAL);
-        });
+            autoSaveTimer = setInterval(function() { saveDraft(false); }, AUTO_SAVE_INTERVAL);
+        };
 
-        // 提交表单时清除草稿
-        document.querySelector('#inOrderForm')?.addEventListener('submit', function() {
-            clearDraft();
-            clearInterval(autoSaveTimer);
-        });
+        autoSaveTimer = setInterval(function() { saveDraft(false); }, AUTO_SAVE_INTERVAL);
 
-        // 离开页面前提示
+        if (form) {
+            form.addEventListener('input', markDirty);
+            form.addEventListener('change', markDirty);
+            form.addEventListener('submit', function() {
+                clearDraft();
+                clearInterval(autoSaveTimer);
+            });
+        }
+
+        // 离开页面前提示（仅在真实编辑且非提交跳转时触发）
         window.addEventListener('beforeunload', function(e) {
-            const form = document.querySelector('#inOrderForm');
-            if (form && form.dataset.modified === 'true') {
+            if (form && form.dataset.modified === 'true' && !inOrderSubmitting) {
                 e.preventDefault();
                 e.returnValue = '';
             }
         });
     });
 
-    // 暴露全局方法
+    // 暴露全局方法（submitForm 直接调用 clearDraft）
+    window.clearDraft = clearDraft;
     window.WmsDraft = {
-        save: saveDraft,
+        save: function() { saveDraft(true); },
         restore: restoreDraft,
         clear: clearDraft
     };
