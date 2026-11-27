@@ -3239,8 +3239,8 @@ body #materialTable tbody td input.form-control[readonly] {
     background: transparent !important;
     color: #374151;
 }
-/* P1-UI-4：flatpickr 可选日期展示框保持白底与手型指针，区别于真正的只读灰底字段 */
-body .form-control.wms-date-display[readonly],
+/* P1-UI-4：flatpickr 可选日期展示框保持白底与手型指针，区别于真正的只读灰底字段（不改 base.html 内联脚本以保持严格 CSP 哈希） */
+body input.flatpickr-input + input.form-control[readonly],
 body .form-control.flatpickr-input[readonly] {
     background: #ffffff !important;
     color: #1f2937 !important;

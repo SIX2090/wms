@@ -146,9 +146,9 @@ def test_p1_ui_2_3_4_5_css_layout_and_sticky_totals():
     m_ro = re.search(r"body #materialTable tbody td input\.form-control\[readonly\]\s*\{([^}]+)\}", css)
     assert m_ro and "background: transparent !important" in m_ro.group(1)
 
-    # P1-UI-4: flatpickr editable date display keeps white background
-    assert "altInputClass: 'form-control wms-date-display'" in base
-    assert ".form-control.wms-date-display[readonly]" in css
+    # P1-UI-4: flatpickr editable date display keeps white background via sibling CSS (without altering base.html CSP hashes)
+    assert "input.flatpickr-input + input.form-control[readonly]" in css
+    assert "altInputClass:" not in base
 
     # P1-UI-5: hide single lone detail tab via CSS & collapsible hints & compact remark
     assert ".wms-doc-tabs:has(> .wms-doc-tab:only-child)" in css

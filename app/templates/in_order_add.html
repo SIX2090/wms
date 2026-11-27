@@ -1628,7 +1628,7 @@ function setHeaderSupplier(supplierId, supplierName) {
     if (search && supplierName) search.value = supplierName;
 }
 
-async function applyPurchaseOrderSelectionToForm() {
+function applyPurchaseOrderSelectionToForm() {
     const confirmBtn = document.querySelector('#purchaseOrderSelectModal button[onclick*="applyPurchaseOrderSelectionToForm"]');
     if (confirmBtn?.disabled) return;
     const checkedRows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody .po-select-row:checked'));
@@ -1665,25 +1665,83 @@ async function applyPurchaseOrderSelectionToForm() {
         return;
     }
 
+    function fillSelectedRows() {
+        const tbody = document.getElementById('materialTableBody');
+        Array.from(tbody.querySelectorAll('tr')).forEach(function(row) {
+            if (!row.querySelector('.material-code').value.trim()) row.remove();
+        });
+
+        selected.forEach(function(entry) {
+            const source = entry.source;
+            let row = findEmptyRow();
+            if (!row) {
+                addNewRow();
+                row = document.querySelector('#materialTableBody tr:last-child');
+            }
+            const material = findMaterialByCode(source.material_code);
+            if (material) {
+                fillMaterialFields(row, material, { forcePrice: true });
+            } else {
+                row.querySelector('.material-code').value = source.material_code || '';
+                row.querySelector('.material-brand').value = source.brand || '';
+                row.querySelector('.material-name').value = source.material_name || '';
+                row.querySelector('.material-spec').value = source.spec || '';
+                row.querySelector('.material-unit').value = source.unit || '';
+                row.querySelector('.material-stock').value = '0.00';
+            }
+            row.dataset.sourcePurchaseOrderItemId = source.purchase_order_item_id || '';
+            row.dataset.sourcePurchaseOrderNo = source.purchase_order_no || '';
+            row.querySelector('.material-qty').value = formatQtyTrim(entry.quantity);
+            row.querySelector('.material-price').value = formatPurchaseQty(source.price);
+            calcAmount(row);
+        });
+
+        const first = selected[0] && selected[0].source;
+        if (first) {
+            setHeaderSupplier(first.supplier_id, first.supplier_name);
+            const remarkInput = document.querySelector('[name="remark"]');
+            if (remarkInput && !remarkInput.value.trim()) {
+                const orderNos = Array.from(new Set(selected.map(item => item.source.purchase_order_no))).filter(Boolean);
+                remarkInput.value = '由采购单选单带入：' + orderNos.join('、');
+            }
+        }
+        renumberRows();
+        calcTotal();
+        document.getElementById('purchaseOrderSelectModal')?.remove();
+        if (window.showToast) {
+            window.showToast('已带入采购单明细，请核对后保存', 'success');
+        }
+    }
+
     // P0-1：采购单所含物料可能位于初始 300 条预载缓存之外，带入前按当前仓库批量补拉
     // 物料对象及真实仓库级库存并写入 materials 缓存，避免显示假 0.00 库存或保存时报「物料编码不存在」。
-    const missingCodes = Array.from(new Set(
+    const hasMaterialCache = typeof materials !== 'undefined' && Array.isArray(materials);
+    const missingCodes = hasMaterialCache ? Array.from(new Set(
         selected
             .map(entry => String(entry.source.material_code || '').trim())
             .filter(code => code && !findMaterialByCode(code))
-    ));
-    if (missingCodes.length) {
-        const modalEl = document.getElementById('purchaseOrderSelectModal');
-        const warehouseContext = (typeof WMS !== 'undefined' && WMS.materialCache && typeof WMS.materialCache.warehouseFromForm === 'function')
-            ? WMS.materialCache.warehouseFromForm()
-            : '';
-        if (confirmBtn) confirmBtn.disabled = true;
-        try {
-            for (let offset = 0; offset < missingCodes.length; offset += 200) {
-                const params = new URLSearchParams();
-                missingCodes.slice(offset, offset + 200).forEach(code => params.append('code', code));
-                if (warehouseContext) params.set('warehouse', warehouseContext);
-                const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
+    )) : [];
+    if (!missingCodes.length) {
+        fillSelectedRows();
+        return;
+    }
+
+    const modalEl = document.getElementById('purchaseOrderSelectModal');
+    const warehouseContext = (typeof WMS !== 'undefined' && WMS.materialCache && typeof WMS.materialCache.warehouseFromForm === 'function')
+        ? WMS.materialCache.warehouseFromForm()
+        : '';
+    if (confirmBtn) confirmBtn.disabled = true;
+    const chunks = [];
+    for (let offset = 0; offset < missingCodes.length; offset += 200) {
+        chunks.push(missingCodes.slice(offset, offset + 200));
+    }
+    return chunks.reduce(function(chain, chunk) {
+        return chain.then(function() {
+            if (modalEl && !modalEl.isConnected) return;
+            const params = new URLSearchParams();
+            chunk.forEach(code => params.append('code', code));
+            if (warehouseContext) params.set('warehouse', warehouseContext);
+            return WMS.api.get('/material/api/by_codes?' + params.toString()).then(function(found) {
                 if (modalEl && !modalEl.isConnected) return;
                 if (Array.isArray(found)) {
                     found.forEach(material => {
@@ -1692,66 +1750,21 @@ async function applyPurchaseOrderSelectionToForm() {
                         }
                     });
                 }
-            }
-        } catch (error) {
-            showToast('获取物料及仓库库存失败，请重试：' + ((error && error.message) || '未知错误'), 'danger', 5000);
-            return;
-        } finally {
-            if (confirmBtn && confirmBtn.isConnected) confirmBtn.disabled = false;
-        }
+            });
+        });
+    }, Promise.resolve()).then(function() {
         if (modalEl && !modalEl.isConnected) return;
         const unresolved = missingCodes.filter(code => !findMaterialByCode(code));
         if (unresolved.length) {
             showToast('以下物料不存在或已停用，无法带入：' + unresolved.slice(0, 5).join('、'), 'danger', 5000);
             return;
         }
-    }
-
-    const tbody = document.getElementById('materialTableBody');
-    Array.from(tbody.querySelectorAll('tr')).forEach(function(row) {
-        if (!row.querySelector('.material-code').value.trim()) row.remove();
+        fillSelectedRows();
+    }).catch(function(error) {
+        showToast('获取物料及仓库库存失败，请重试：' + ((error && error.message) || '未知错误'), 'danger', 5000);
+    }).finally(function() {
+        if (confirmBtn && confirmBtn.isConnected) confirmBtn.disabled = false;
     });
-
-    selected.forEach(function(entry) {
-        const source = entry.source;
-        let row = findEmptyRow();
-        if (!row) {
-            addNewRow();
-            row = document.querySelector('#materialTableBody tr:last-child');
-        }
-        const material = findMaterialByCode(source.material_code);
-        if (material) {
-            fillMaterialFields(row, material, { forcePrice: true });
-        } else {
-            row.querySelector('.material-code').value = source.material_code || '';
-            row.querySelector('.material-brand').value = source.brand || '';
-            row.querySelector('.material-name').value = source.material_name || '';
-            row.querySelector('.material-spec').value = source.spec || '';
-            row.querySelector('.material-unit').value = source.unit || '';
-            row.querySelector('.material-stock').value = '0.00';
-        }
-        row.dataset.sourcePurchaseOrderItemId = source.purchase_order_item_id || '';
-        row.dataset.sourcePurchaseOrderNo = source.purchase_order_no || '';
-        row.querySelector('.material-qty').value = formatQtyTrim(entry.quantity);
-        row.querySelector('.material-price').value = formatPurchaseQty(source.price);
-        calcAmount(row);
-    });
-
-    const first = selected[0] && selected[0].source;
-    if (first) {
-        setHeaderSupplier(first.supplier_id, first.supplier_name);
-        const remarkInput = document.querySelector('[name="remark"]');
-        if (remarkInput && !remarkInput.value.trim()) {
-            const orderNos = Array.from(new Set(selected.map(item => item.source.purchase_order_no))).filter(Boolean);
-            remarkInput.value = '由采购单选单带入：' + orderNos.join('、');
-        }
-    }
-    renumberRows();
-    calcTotal();
-    document.getElementById('purchaseOrderSelectModal')?.remove();
-    if (window.showToast) {
-        window.showToast('已带入采购单明细，请核对后保存', 'success');
-    }
 }
 
 function showPurchaseOrderSelectModal() {

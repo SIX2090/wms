@@ -216,8 +216,8 @@ def _build_out_order_excel(order, box_numbers=None):
             unit = material.unit.name or ''
         if box_numbers:
             raw_box = box_numbers.get(item.id, '')
-            box_val = _sanitize_excel_cell(raw_box) if raw_box else '-'
-            cell = ws.cell(row=row, column=1, value=box_val)
+            # 箱体编号用显式字符串单元格（data_type='s'）避免公式求值，同时保留原样箱号文本（如 =001+A）
+            cell = ws.cell(row=row, column=1, value=raw_box or '-')
             cell.data_type = 's'
         for col, value in enumerate(vals, start=1 + offset):
             ws.cell(row=row, column=col, value=_sanitize_excel_cell(value))
@@ -602,6 +602,7 @@ def register_out_order_routes(app):
 
     @app.route('/other_out_order/add')
     @app.route('/out_order/add')
+    @require_role('warehouse')
     @login_required
     def out_order_add_page():
         from datetime import date, datetime
@@ -1946,16 +1947,18 @@ def register_out_order_routes(app):
         return delete_print_template(OutOrderPrintTemplate, template_id)
 
     @app.route('/out_order/export')
+    @require_role('warehouse', 'finance', 'sales', 'purchase')
     @login_required
     def export_out_order():
         from app import (Material, OutOrder, OutOrderItem,
                          _apply_header_or_item_contract_filters,
                          _apply_out_order_search, _apply_status_date_filters,
                          _get_order_list_filters, _warehouse_document_match_clause,
-                         resolve_request_warehouse)
+                         price_dimension_enabled, resolve_request_warehouse)
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload
         from utils import _sanitize_excel_cell
+        show_price = price_dimension_enabled()
         wb = Workbook()
         ws = wb.active
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
@@ -2028,8 +2031,8 @@ def register_out_order_routes(app):
                     item.project_name or order.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    item.price or 0,
-                    item.amount or 0,
+                    (item.price or 0) if show_price else '',
+                    (item.amount or 0) if show_price else '',
                     '未审核/待完成' if order.status == 'pending' else ('已完成' if order.status == 'completed' else (order.status or '')),
                     order.remark or ''
                 ]])
@@ -2052,12 +2055,18 @@ def register_out_order_routes(app):
         return send_file(output, download_name='out_orders.xlsx', as_attachment=True)
 
     @app.route('/out_order/<int:id>/export')
+    @require_role('warehouse', 'finance', 'sales', 'purchase')
     @login_required
     def export_single_out_order(id):
-        from app import OutOrder
+        from app import Material, OutOrder, OutOrderItem, price_dimension_enabled
         from openpyxl import Workbook
+        from sqlalchemy.orm import joinedload, selectinload
         from utils import _sanitize_excel_cell
-        order = OutOrder.query.get_or_404(id)
+        show_price = price_dimension_enabled()
+        order = OutOrder.query.options(
+            joinedload(OutOrder.department),
+            selectinload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+        ).get_or_404(id)
         wb = Workbook()
         ws = wb.active
         ws.title = _out_order_title(order.business_type)
@@ -2078,8 +2087,8 @@ def register_out_order_routes(app):
                     item.project_name or order.project_name or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    item.price or 0,
-                    item.amount or 0,
+                    (item.price or 0) if show_price else '',
+                    (item.amount or 0) if show_price else '',
                     order.remark or ''
                 ]])
         output = io.BytesIO()

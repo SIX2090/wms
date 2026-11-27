@@ -1658,7 +1658,19 @@ def register_sales_routes(app):
                 pass
         orders = query.options(joinedload(SalesOrder.customer), joinedload(SalesOrder.salesperson), joinedload(SalesOrder.items).joinedload(SalesOrderItem.material)).order_by(SalesOrder.date.desc(), SalesOrder.id.desc()).all()
         from openpyxl import Workbook
-        from utils import _sanitize_excel_cell
+        try:
+            from utils import _sanitize_excel_cell
+        except ImportError:
+            def _sanitize_excel_cell(value):
+                if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+                    if value[0] in ('+', '-'):
+                        try:
+                            float(value)
+                            return value
+                        except ValueError:
+                            pass
+                    return "'" + value
+                return value
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单'
@@ -1760,7 +1772,19 @@ def register_sales_routes(app):
         orders = sales_summary_context()['orders']
         material_code = (request.args.get('material_code') or '').strip()
         from openpyxl import Workbook
-        from utils import _sanitize_excel_cell
+        try:
+            from utils import _sanitize_excel_cell
+        except ImportError:
+            def _sanitize_excel_cell(value):
+                if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+                    if value[0] in ('+', '-'):
+                        try:
+                            float(value)
+                            return value
+                        except ValueError:
+                            pass
+                    return "'" + value
+                return value
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = '销售订单执行'
@@ -1816,7 +1840,19 @@ def register_sales_routes(app):
             _reconciliation_quantities, _reconciliation_warehouse_filter, _reconciliation_warehouse_aliases,
             _reconciliation_warehouse_issue, _RECONCILIATION_UNKNOWN_WAREHOUSE_NOTE)
         from openpyxl import Workbook
-        from utils import _sanitize_excel_cell
+        try:
+            from utils import _sanitize_excel_cell
+        except ImportError:
+            def _sanitize_excel_cell(value):
+                if isinstance(value, str) and value and value[0] in ('=', '+', '-', '@', '\t', '\r'):
+                    if value[0] in ('+', '-'):
+                        try:
+                            float(value)
+                            return value
+                        except ValueError:
+                            pass
+                    return "'" + value
+                return value
         # SALES-AUDIT-007：仓库必填门禁，未提供且无默认仓库时返回 400
         selected_warehouse, _wh_err = _require_report_warehouse()
         if not selected_warehouse:

@@ -251,7 +251,7 @@ def _retitle_builtin_in_order_excel(output, order):
         workbook.close()
 
 
-def _build_in_order_excel(order):
+def _build_in_order_excel(order, show_price=None):
     """按用户指定样式生成采购入库单 Excel（无合计行）。
 
     列：物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号；
@@ -259,10 +259,18 @@ def _build_in_order_excel(order):
     返回填充好数据的 .xlsx 字节流。
     """
     import io as _io
+    from flask import has_app_context
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Border, Font, Side
     from openpyxl.utils import get_column_letter
     from utils import _sanitize_excel_cell
+
+    if show_price is None:
+        if has_app_context():
+            from app import price_dimension_enabled
+            show_price = price_dimension_enabled()
+        else:
+            show_price = True
 
     wb = Workbook()
     ws = wb.active
@@ -332,8 +340,12 @@ def _build_in_order_excel(order):
             ws.cell(row=row, column=col, value=_sanitize_excel_cell(value))
         ws.cell(row=row, column=5, value=_sanitize_excel_cell(unit))
         ws.cell(row=row, column=6, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
-        ws.cell(row=row, column=7, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=8, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        if show_price:
+            ws.cell(row=row, column=7, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
+            ws.cell(row=row, column=8, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        else:
+            ws.cell(row=row, column=7, value='')
+            ws.cell(row=row, column=8, value='')
         ws.cell(row=row, column=9, value=_sanitize_excel_cell(getattr(item, 'contract_no', None) or contract_no or ''))
         for col in range(1, 10):
             c = ws.cell(row=row, column=col)
@@ -956,86 +968,84 @@ def register_in_order_routes(app):
                          get_default_warehouse, is_future_date, location_management_enabled,
                          log_operation, parse_date_value, recalculate_order_total,
                          validate_inventory_warehouse)
+        def fail(message, code=400):
+            db.session.rollback()
+            return api_error(message, code)
+
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
-            return api_error('只有草稿状态的入库单可以编辑')
+            return fail('只有草稿状态的入库单可以编辑')
 
         payload = request.get_json(silent=True)
         data = payload if isinstance(payload, dict) else request.form
 
         order_date = parse_date_value(data.get('date'), None)
         if not order_date:
-            return api_error('日期格式不正确，请重新选择日期')
+            return fail('日期格式不正确，请重新选择日期')
         if is_future_date(order_date):
-            return jsonify({'status': 'error', 'msg': '入库日期不能晚于今天'}), 400
+            return fail('入库日期不能晚于今天')
 
+        new_supplier_id = None
         supplier_id = _clean_int(data.get('supplier_id'))
         if supplier_id:
             supplier = db.session.get(Supplier, supplier_id)
             if not supplier:
-                return api_error('请选择有效的供应商')
-            order.supplier_id = supplier.id
-        else:
-            order.supplier_id = None
+                return fail('请选择有效的供应商')
+            new_supplier_id = supplier.id
+        new_customer_id = None
         customer_id = _clean_int(data.get('customer_id'))
         if customer_id:
             customer = db.session.get(Customer, customer_id)
             if not customer:
-                return api_error('请选择有效的客户')
-            order.customer_id = customer.id
-        else:
-            order.customer_id = None
+                return fail('请选择有效的客户')
+            new_customer_id = customer.id
 
         business_type = (data.get('business_type') or order.business_type or '').strip()
-        if business_type in ('采购入库', '产品入库', '其他入库', '销售退货入库'):
-            order.business_type = business_type
-
-        ownership_error = _supplied_receipt_error(order)
+        new_business_type = (
+            business_type
+            if business_type in ('采购入库', '产品入库', '其他入库', '销售退货入库')
+            else order.business_type
+        )
+        prospective = type('_ProspectiveInOrder', (), {
+            'items': order.items,
+            'business_type': new_business_type,
+            'customer_id': new_customer_id,
+        })()
+        ownership_error = _supplied_receipt_error(prospective)
         if ownership_error:
-            db.session.rollback()
-            return api_error(ownership_error)
-        order.date = order_date
-        order.purpose = (data.get('purpose') or '').strip()
-        # 合同编号/工程名称：入库单（含反提交后的草稿）允许修改
-        order.contract_no = (data.get('contract_no') or '').strip() or None
-        order.project_name = _product_header_project(
-            order.business_type, order.contract_no, (data.get('project_name') or '').strip()) or None
+            return fail(ownership_error)
+
         warehouse = (data.get('warehouse') or '').strip()
-        # P1-6：仓库参数统一为 warehouse_id（前端传 ID，仓库改名不失配）。
-        # 旧客户端/脚本仍传 warehouse 名称，故两者都收、ID 优先；校验函数
-        # validate_inventory_warehouse 本身即按 (value, warehouse_id) 顺序解析。
-        # 注意：data 在 JSON 模式是 dict（warehouse_id 为 int），表单模式是 request.form
-        # （为 str）——两种都不能 .strip()，交给 validate_inventory_warehouse 的 int() 处理。
         raw_warehouse_id = data.get('warehouse_id')
-        # BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
-        # 未填写时若开启“录单优先取默认仓库”，自动带入默认仓库。
         if not warehouse and not raw_warehouse_id:
             default_wh = get_default_warehouse()
             if default_wh:
                 warehouse = default_wh.name
         if not warehouse and not raw_warehouse_id:
-            return jsonify({'status': 'error', 'msg': '请选择仓库'}), 400
-        # BUG-2026-09-22-014：仓库原文落库是编码/名称混写的写入源头——
-        # 客户端传什么存什么（脚本/旧版 App 传编码 WH-TEST、Web 表单传名称），
-        # 下游按仓库过滤的列表/报表/导出被迫到处做双匹配兜底。此处与全仓
-        # 写侧约定（INV-AUDIT-005）对齐：校验存在且启用后统一写规范化仓库名，
-        # 名称/编码输入均可，未知仓库直接拒绝。
-        # P1-6：ID 优先解析（前端已改为传 warehouse_id），名称作为旧客户端兜底。
+            return fail('请选择仓库')
         wh_obj, wh_err = validate_inventory_warehouse(warehouse, raw_warehouse_id)
         if wh_err:
-            return jsonify({'status': 'error', 'msg': wh_err}), 400
+            return fail(wh_err)
         warehouse = wh_obj.name
-        order.warehouse = warehouse
-        # 库位管理启用时库位为必填（AGENTS.md 规则二）
         location = (data.get('location') or '').strip()
         if location_management_enabled() and not location:
-            return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
+            return fail('请选择库位')
+        ok, wh_msg = assert_warehouse_active(warehouse, allow_empty=False)
+        if not ok:
+            return fail(wh_msg)
+
+        # 全部校验通过后再统一写回 ORM 对象，杜绝中途失败脏字段残留
+        order.supplier_id = new_supplier_id
+        order.customer_id = new_customer_id
+        order.business_type = new_business_type
+        order.date = order_date
+        order.purpose = (data.get('purpose') or '').strip()
+        order.contract_no = (data.get('contract_no') or '').strip() or None
+        order.project_name = _product_header_project(
+            order.business_type, order.contract_no, (data.get('project_name') or '').strip()) or None
+        order.warehouse = warehouse
         order.location = location
         order.remark = (data.get('remark') or '').strip()
-        # BUG-F02-04 / BUG-2026-08-02-001 修复：保存前校验仓库是否启用/存在
-        ok, wh_msg = assert_warehouse_active(order.warehouse, allow_empty=False)
-        if not ok:
-            return jsonify({'status': 'error', 'msg': wh_msg}), 400
         recalculate_order_total(order)
 
         try:
@@ -1049,6 +1059,7 @@ def register_in_order_routes(app):
 
     @app.route('/in_order/add')
     @app.route('/other_in_order/add')
+    @require_role('warehouse')
     @login_required
     def in_order_add_page():
         from datetime import date, datetime
@@ -1265,9 +1276,13 @@ def register_in_order_routes(app):
         if location_management_enabled() and not location:
             return fail('请选择库位', 400)
 
+        materials_by_code = {}
         if request.is_json:
             if not isinstance(items_data, list) or not items_data:
                 return fail('入库单至少需要一条明细', 400)
+            requested_codes = {(it.get('code') or '').strip() for it in items_data if isinstance(it, dict) and (it.get('code') or '').strip()}
+            if requested_codes:
+                materials_by_code = {m.code: m for m in Material.query.filter(Material.code.in_(requested_codes)).all()}
             for index, item_data in enumerate(items_data, 1):
                 if not isinstance(item_data, dict):
                     return fail(f'第 {index} 行入库明细格式不正确', 400)
@@ -1275,7 +1290,7 @@ def register_in_order_routes(app):
                 if not material_code and not (business_type == '产品入库' and item_data.get('name')):
                     message = '请填写物料名称或物料编码' if business_type == '产品入库' else '请选择物料'
                     return fail(f'第 {index} 行{message}', 400)
-                material = Material.query.filter_by(code=material_code).first()
+                material = materials_by_code.get(material_code) if material_code else None
                 if not material and business_type != '产品入库':
                     return fail(f'第 {index} 行物料 {material_code} 不存在', 400)
                 try:
@@ -1284,15 +1299,13 @@ def register_in_order_routes(app):
                     quantity = 0
                 if quantity <= 0:
                     return fail(f'第 {index} 行物料 {material_code} 的数量必须大于0', 400)
-        elif not order_id:
-            # BUG-2026-07-28-005 修复：表单提交（无 items_json）也必须校验
-            # 供应商 / 客户、明细必填，禁止空表单保存为已完成入库单。
-            # 仓库必填逻辑已统一在上方处理。
-            if business_type == '采购入库' and not supplier_id:
-                return fail('采购入库单必须选择供应商', 400)
-            if business_type == '销售退货入库' and not customer_id:
-                return fail('销售退货入库单必须选择退货客户', 400)
-            # 表单可附带 items_json 字符串（与 JSON 路径结构相同）
+        else:
+            # 表单模式：新建必填往来方与明细；编辑草稿若携带 items_json 同样解析校验并替换原明细
+            if not order_id:
+                if business_type == '采购入库' and not supplier_id:
+                    return fail('采购入库单必须选择供应商', 400)
+                if business_type == '销售退货入库' and not customer_id:
+                    return fail('销售退货入库单必须选择退货客户', 400)
             items_json = (request.form.get('items_json') or '').strip()
             if items_json:
                 try:
@@ -1301,6 +1314,9 @@ def register_in_order_routes(app):
                     return fail('明细 JSON 格式错误', 400)
                 if not isinstance(items_data, list) or not items_data:
                     return fail('入库单至少需要一条明细', 400)
+                requested_codes = {(it.get('code') or '').strip() for it in items_data if isinstance(it, dict) and (it.get('code') or '').strip()}
+                if requested_codes:
+                    materials_by_code = {m.code: m for m in Material.query.filter(Material.code.in_(requested_codes)).all()}
                 for index, item_data in enumerate(items_data, 1):
                     if not isinstance(item_data, dict):
                         return fail(f'第 {index} 行入库明细格式不正确', 400)
@@ -1314,7 +1330,7 @@ def register_in_order_routes(app):
                         quantity = 0
                     if quantity <= 0:
                         return fail(f'第 {index} 行物料 {material_code} 的数量必须大于0', 400)
-            else:
+            elif not order_id:
                 return fail('入库单至少需要一条明细', 400)
 
         if order_id and order_id not in ('None', '', 'null'):
@@ -1355,14 +1371,19 @@ def register_in_order_routes(app):
                     db.session.flush()
 
             if supplier_id:
-                from app import Supplier
                 try:
-                    supplier = db.session.get(Supplier, int(supplier_id))
+                    parsed_supplier_id = int(supplier_id)
                 except (TypeError, ValueError):
-                    supplier = None
-                if not supplier:
                     return fail('请选择有效的供应商')
-                order.supplier_id = supplier.id
+                from app import Supplier
+                supplier_cls = locals().get('Supplier') or globals().get('Supplier')
+                if supplier_cls is not None:
+                    supplier = db.session.get(supplier_cls, parsed_supplier_id)
+                    if not supplier:
+                        return fail('请选择有效的供应商')
+                    order.supplier_id = supplier.id
+                else:
+                    order.supplier_id = parsed_supplier_id
             else:
                 order.supplier_id = None
             if customer_id:
@@ -1427,7 +1448,7 @@ def register_in_order_routes(app):
             existing_material_counts = Counter(item.material_id for item in order.items) if order_id else Counter()
             original_batches = {str(row.id): (row.material_id, row.batch_no)
                                 for row in order.items if row.batch_no} if order_id else {}
-            if request.is_json and items_data and order.id:
+            if items_data and order.id:
                 for old_item in list(order.items):
                     if old_item.source_purchase_order_item:
                         source_item = old_item.source_purchase_order_item
@@ -1443,13 +1464,21 @@ def register_in_order_routes(app):
                     db.session.delete(old_item)
                 db.session.flush()
 
-            # Process items if provided (JSON mode)
+            # Process items if provided (JSON or form items_json mode)
             if items_data:
+                missing_codes = {
+                    (it.get('code') or '').strip()
+                    for it in items_data
+                    if isinstance(it, dict) and (it.get('code') or '').strip() and (it.get('code') or '').strip() not in materials_by_code
+                }
+                if missing_codes:
+                    for m in Material.query.filter(Material.code.in_(missing_codes)).all():
+                        materials_by_code[m.code] = m
                 for index, item_data in enumerate(items_data, 1):
                     material_code = (item_data.get('code') or '').strip()
                     if not material_code:
                         return fail('请选择物料后再保存', 400)
-                    material = Material.query.filter_by(code=material_code).first()
+                    material = materials_by_code.get(material_code)
                     if not material:
                         return fail(f'物料 {material_code} 不存在', 400)
                     if material.status == 'inactive' and not existing_material_counts[material.id]:
@@ -1938,7 +1967,7 @@ def register_in_order_routes(app):
     def update_in_order_item():
         """Update an inbound order item."""
         from app import (_purchase_reservation_error, InOrderItem, STOCK_COMPARE_EPSILON, api_error, is_purchase_in_order,
-                         purchase_in_order_requires_order, recalculate_order_total, round_to_2_decimals,
+                         log_operation, purchase_in_order_requires_order, recalculate_order_total, round_to_2_decimals,
                          should_block_purchase_over_receive, update_purchase_order_status)
         from services.warehouse_stock_service import _recorded_quantity_matches
         item_id = request.form.get('id', type=int)
@@ -2003,6 +2032,7 @@ def register_in_order_routes(app):
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
+        log_operation('编辑入库单', f'修改入库单明细：{item.in_order.order_no}', 'in_order', item.in_order_id)
         return jsonify({'status': 'success', 'msg': '保存成功'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -2012,7 +2042,7 @@ def register_in_order_routes(app):
     def copy_in_order_to_out(id):
         """Copy an inbound order into a draft outbound order."""
         from datetime import date
-        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no)
+        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no, log_operation)
         in_order = InOrder.query.get_or_404(id)
         if in_order.business_type == '产品入库':
             return convert_in_order_to_out_order(id)
@@ -2051,6 +2081,7 @@ def register_in_order_routes(app):
                 db.session.rollback()
                 app.logger.error(f"数据库操作失败: {e}")
                 return jsonify({"status": "error", "msg": "操作失败"}), 500
+            log_operation('入库单转领料单', f'{in_order.order_no} -> {out_order.order_no}', 'out_order', out_order.id)
             return jsonify(response_payload)
         return _copy_in_order_to_out_command()
 
@@ -2085,6 +2116,8 @@ def register_in_order_routes(app):
                 quantity = round_to_2_decimals(item.quantity or 0)
                 if quantity <= 0:
                     continue
+                if item.material and getattr(item.material, 'status', None) == 'inactive':
+                    return api_error(f'物料 {item.material.code} 已停用，不能复制生成新入库单')
                 if item.source_purchase_order_item_id:
                     source_item = item.source_purchase_order_item
                     source_order = source_item.purchase_order if source_item else None
@@ -2105,7 +2138,7 @@ def register_in_order_routes(app):
                     copied_quantity_by_source[source_item.id] = cumulative_quantity
                     source_item_updates.append((source_item, quantity))
                     affected_purchase_orders.add(source_order)
-            prefix = 'PI' if business_type == '产品入库' else 'IN'
+            prefix = {'采购入库': 'IN', '产品入库': 'PI', '其他入库': 'OI', '销售退货入库': 'SR'}.get(business_type, 'IN')
             new_order = InOrder(
                 order_no=generate_order_no(prefix),
                 date=date.today(),
@@ -3514,7 +3547,7 @@ def register_in_order_routes(app):
                          _acquire_order_write_lock, _material_stock_unattributed,
                          _source_has_active_push, allow_negative_stock, api_error,
                          get_warehouse_stock_quantities, is_stock_sufficient,
-                         normalize_stock_quantity, recalculate_order_total,
+                         log_operation, normalize_stock_quantity, recalculate_order_total,
                          update_purchase_order_status)
         # P2-3 收敛：批量反审与 revert_in_order 共用同一写入入口。
         from services.document_stock_audit import stage_stock_document_snapshot, stock_document_audit_checkpoint
@@ -3668,17 +3701,21 @@ def register_in_order_routes(app):
                 )
                 db.session.commit()
                 reverted += 1
+                log_operation('批量反提交入库单', f'入库单：{order.order_no}', 'in_order', order.id)
                 if has_po_reservation:
                     reverted_with_po_reservation += 1
-            except Exception as e:
+            except Exception:
                 db.session.rollback()
-                skipped.append(f'{order.order_no}(错误: {e})')
+                app.logger.exception('批量反提交入库单失败: %s', order.order_no)
+                skipped.append(f'{order.order_no}(操作失败)')
         msg = f'批量反审完成，共反审 {reverted} 张入库单'
         if reverted_with_po_reservation:
             msg += f'（其中 {reverted_with_po_reservation} 张关联采购明细的收货预留仍由草稿占用，如需释放请删除草稿）'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
-        return jsonify({'status': 'success', 'msg': msg, 'reverted': reverted})
+        if not orders:
+            return jsonify({'status': 'error', 'msg': '未找到符合条件的入库单', 'reverted': 0, 'skipped': skipped}), 400
+        return jsonify({'status': 'success', 'msg': msg, 'reverted': reverted, 'skipped': skipped})
 
     @app.route('/in_order/batch_print', methods=['POST'])
     @require_role('warehouse')
@@ -3728,8 +3765,9 @@ def register_in_order_routes(app):
         if len(ids) > 1000:
             return api_error('单次批量导出不能超过 1000 条')
         from sqlalchemy.orm import joinedload, selectinload
-        from app import InOrder, InOrderItem, Material
+        from app import InOrder, InOrderItem, Material, price_dimension_enabled
         from utils import _sanitize_excel_cell
+        show_price = price_dimension_enabled()
         orders = InOrder.query.options(
             joinedload(InOrder.supplier),
             selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
@@ -3756,8 +3794,8 @@ def register_in_order_routes(app):
                         item.project_name or '',
                         item.material.unit.name if item.material and item.material.unit else '',
                         float(item.quantity or 0),
-                        float(item.price or 0),
-                        float(item.amount or 0),
+                        float(item.price or 0) if show_price else '',
+                        float(item.amount or 0) if show_price else '',
                         '已完成' if order.status == 'completed' else '待完成',
                         order.remark or ''
                     ]])
@@ -3768,7 +3806,7 @@ def register_in_order_routes(app):
                     order.business_type or '采购入库',
                     order.supplier.name if order.supplier else '',
                     order.warehouse or '',
-                    '', '', '', '', '', '', 0, 0, 0,
+                    '', '', '', '', '', '', 0, 0 if show_price else '', 0 if show_price else '',
                     '已完成' if order.status == 'completed' else '待完成',
                     order.remark or ''
                 ]])
@@ -3934,11 +3972,20 @@ def register_in_order_routes(app):
     @login_required
     def print_in_order_labels():
         from datetime import datetime
-        from app import InOrderItem
+        from sqlalchemy.orm import joinedload
+        from app import InOrderItem, Material, price_dimension_enabled
         from services.material_label import material_label_qr
+        show_price = price_dimension_enabled()
         ids = request.args.get('ids', '').split(',')
         item_ids = [int(item_id) for item_id in ids if item_id.strip().isdigit()]
-        items = InOrderItem.query.filter(InOrderItem.id.in_(item_ids)).all() if item_ids else []
+        items = (
+            InOrderItem.query.options(
+                joinedload(InOrderItem.material).joinedload(Material.unit),
+                joinedload(InOrderItem.material).joinedload(Material.category),
+                joinedload(InOrderItem.material).joinedload(Material.supplier),
+            ).filter(InOrderItem.id.in_(item_ids)).all()
+            if item_ids else []
+        )
         materials = [item.material for item in items if item.material]
         # 与 print_batch_labels 保持一致：传入 materials_data 以便前端 MATERIALS 正确初始化。
         materials_data = [
@@ -3952,7 +3999,7 @@ def register_in_order_routes(app):
                 'unit_name': m.unit.name if m.unit else '',
                 'category_name': m.category.name if m.category else '',
                 'stock': format_quantity(m.stock or 0),
-                'price': str(m.price) if m.price else '',
+                'price': (str(m.price) if m.price else '') if show_price else '',
                 'barcode': m.code or '',
                 'date': datetime.now().strftime('%Y-%m-%d'),
                 'supplier_name': m.supplier.name if m.supplier else '',
@@ -3998,13 +4045,15 @@ def register_in_order_routes(app):
         return delete_print_template(InOrderPrintTemplate, template_id)
 
     @app.route('/in_order/<int:id>/export')
+    @require_role('warehouse', 'finance', 'purchase')
     @login_required
     def export_single_in_order(id):
         import io
         from openpyxl import Workbook
         from sqlalchemy.orm import joinedload, selectinload
-        from app import InOrder, InOrderItem, Material
+        from app import InOrder, InOrderItem, Material, price_dimension_enabled
         from utils import _sanitize_excel_cell
+        show_price = price_dimension_enabled()
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.customer),
@@ -4032,8 +4081,8 @@ def register_in_order_routes(app):
                     item.project_name or (order.project_name if order.business_type == '产品入库' else '') or '',
                     item.material.unit.name if item.material and item.material.unit else '',
                     item.quantity or 0,
-                    item.price or 0,
-                    item.amount or 0,
+                    (item.price or 0) if show_price else '',
+                    (item.amount or 0) if show_price else '',
                     order.remark or ''
                 ]])
                 if order.business_type == '产品入库':

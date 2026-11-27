@@ -16,6 +16,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+import math
+import zipfile
 
 from flask import flash, jsonify, redirect, render_template, request, url_for
 from flask_login import login_required
@@ -23,6 +25,21 @@ from flask_login import login_required
 from db import db
 from utils import require_role, validate_excel_extension, validate_excel_size, round_to_2_decimals
 from utils import round_money_product
+
+
+def _parse_nonneg_import_number(col_map, row, key, label):
+    if key not in col_map:
+        return 0.0, None
+    idx = col_map[key]
+    if idx >= len(row) or row[idx] is None or str(row[idx]).strip() == '':
+        return 0.0, None
+    try:
+        raw_val = float(row[idx])
+    except (ValueError, TypeError):
+        return None, f'{label}格式不正确'
+    if not math.isfinite(raw_val) or raw_val < 0:
+        return None, f'{label}不能小于 0'
+    return round_to_2_decimals(raw_val), None
 
 
 def _opening_stock_existing_summary(OpeningStock, OpeningStockDoc, material_id, warehouse_id):
@@ -73,7 +90,13 @@ def register_batch_import_routes(app):
             api_error,
             current_user,
             get_default_warehouse,
+            import_max_rows,
+            is_future_date,
             location_management_enabled,
+            log_audit,
+            log_operation,
+            recalculate_order_total,
+            sanitize_text_input,
             validate_inventory_warehouse,
             reuse_material_by_name_spec,
         )
@@ -98,8 +121,22 @@ def register_batch_import_routes(app):
             return redirect(url_for('batch_import_page'))
         try:
             from openpyxl import load_workbook
-            wb = load_workbook(file)
+            from openpyxl.utils.exceptions import InvalidFileException
+            try:
+                wb = load_workbook(file)
+            except (zipfile.BadZipFile, InvalidFileException):
+                err_msg = '文件格式不受支持（不支持旧版 .xls），请在 Excel 中另存为 .xlsx 后重新导入'
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return api_error(err_msg)
+                flash(err_msg, 'danger')
+                return redirect(url_for('batch_import_page'))
             ws = wb.active
+            if (ws.max_row or 1) - 1 > import_max_rows():
+                err_msg = f'导入行数超过系统上限（最多 {import_max_rows()} 行），请拆分后重新导入'
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return api_error(err_msg)
+                flash(err_msg, 'danger')
+                return redirect(url_for('batch_import_page'))
             header_row = [str(cell).strip() if cell else '' for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
             col_map = {}
             for idx, h in enumerate(header_row):
@@ -180,9 +217,14 @@ def register_batch_import_routes(app):
                     skip_details.append(f'第{row_idx}行：{row_error}')
                     continue
                 if current_order and order_no != current_order.order_no:
-                    for item in current_items:
-                        db.session.add(item)
-                    count += 1
+                    if current_items:
+                        for item in current_items:
+                            db.session.add(item)
+                        db.session.flush()
+                        recalculate_order_total(current_order)
+                        count += 1
+                    else:
+                        db.session.delete(current_order)
                     current_order = None
                     current_items = []
                 if not current_order:
@@ -223,6 +265,10 @@ def register_batch_import_routes(app):
                                 date_val = raw_date.date()
                             elif hasattr(raw_date, 'year'):
                                 date_val = raw_date
+                    if date_val is not None and is_future_date(date_val):
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：出库日期不能晚于今天')
+                        continue
                     current_order = OutOrder(
                         order_no=order_no,
                         date=date_val,
@@ -250,6 +296,34 @@ def register_batch_import_routes(app):
                         continue
                 material_code = get_val('material_code')
                 if material_code:
+                    material_name = sanitize_text_input(get_val('material_name'), max_len=100)
+                    material_spec = sanitize_text_input(get_val('spec'), max_len=200)
+                    unit_name = sanitize_text_input(get_val('unit'), max_len=20)
+                    if len(material_code) > 50:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：物料编码长度不能超过 50 个字符')
+                        continue
+                    if len(get_val('unit')) > 20:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：单位名称长度不能超过 20 个字符')
+                        continue
+                    qty = get_num('quantity')
+                    prc, prc_err = _parse_nonneg_import_number(col_map, row, 'price', '单价')
+                    amt, amt_err = _parse_nonneg_import_number(col_map, row, 'amount', '金额')
+                    # BUG-2026-08-30-007：负数数量/单价直接拒绝（与 Web 端校验对齐），
+                    # 此前 -5 可原样写入导致库存被反扣/金额倒挂
+                    if qty <= 0:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：数量必须大于 0')
+                        continue
+                    if prc_err:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：{prc_err}')
+                        continue
+                    if amt_err:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：{amt_err}')
+                        continue
                     material = Material.query.filter_by(code=material_code).first()
                     if material and getattr(material, 'status', None) == 'inactive':
                         skip += 1
@@ -260,18 +334,17 @@ def register_batch_import_routes(app):
                         # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
                         # 详见 reuse_material_by_name_spec 注释。
                         material = reuse_material_by_name_spec(
-                            material_code, get_val('material_name'), get_val('spec'),
+                            material_code, material_name, material_spec,
                             warnings=warnings)
                     if not material:
                         material = Material(
                             code=material_code,
-                            name=get_val('material_name'),
-                            spec=get_val('spec')
+                            name=material_name or material_code,
+                            spec=material_spec
                         )
                         db.session.add(material)
                         db.session.flush()
                         warnings.append(f'自动创建物料：{material_code}')
-                    unit_name = get_val('unit')
                     unit = Unit.query.filter_by(name=unit_name).first() if unit_name else None
                     if not unit and unit_name:
                         unit = Unit.query.filter_by(code=unit_name).first()
@@ -282,17 +355,6 @@ def register_batch_import_routes(app):
                         warnings.append(f'自动创建单位：{unit_name}')
                     if material and unit and not material.unit_id:
                         material.unit_id = unit.id
-                    qty = get_num('quantity')
-                    prc = get_num('price')
-                    amt = get_num('amount')
-                    # BUG-2026-08-30-007：负数数量/单价直接拒绝（与 Web 端校验对齐），
-                    # 此前 -5 可原样写入导致库存被反扣/金额倒挂
-                    if qty <= 0:
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：数量必须大于 0')
-                        continue
-                    prc = max(0, prc)
-                    amt = max(0, amt)
                     if amt == 0:
                         amt = round_money_product(qty, prc)
                     item = OutOrderItem(
@@ -307,7 +369,11 @@ def register_batch_import_routes(app):
             if current_order and current_items:
                 for item in current_items:
                     db.session.add(item)
+                db.session.flush()
+                recalculate_order_total(current_order)
                 count += 1
+            elif current_order:
+                db.session.delete(current_order)
             try:
                 db.session.commit()
             except Exception as e:
@@ -316,6 +382,9 @@ def register_batch_import_routes(app):
                     return api_error(f'导入失败，请稍后重试或联系管理员')
                 flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('batch_import_page'))
+            if count > 0:
+                log_operation('批量导入领料单', f'导入领料单 {count} 张（跳过 {skip} 行）', 'out_order', None)
+                log_audit('batch_import_out_order', 'out_order', 0, new_data={'imported_orders': count, 'skipped_rows': skip})
             msg = f'领料单导入成功，共导入 {count} 张单据'
             if skip:
                 msg += f'，跳过 {skip} 条'
@@ -353,9 +422,15 @@ def register_batch_import_routes(app):
             assert_warehouse_active,
             current_user,
             get_default_warehouse,
+            import_max_rows,
+            is_future_date,
             location_management_enabled,
+            log_audit,
+            log_operation,
+            recalculate_order_total,
             resolve_item_contract,
             reuse_material_by_name_spec,
+            sanitize_text_input,
             validate_inventory_warehouse,
         )
         file = request.files.get('file')
@@ -379,8 +454,22 @@ def register_batch_import_routes(app):
             return redirect(url_for('batch_import_page'))
         try:
             from openpyxl import load_workbook
-            wb = load_workbook(file)
+            from openpyxl.utils.exceptions import InvalidFileException
+            try:
+                wb = load_workbook(file)
+            except (zipfile.BadZipFile, InvalidFileException):
+                err_msg = '文件格式不受支持（不支持旧版 .xls），请在 Excel 中另存为 .xlsx 后重新导入'
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return api_error(err_msg)
+                flash(err_msg, 'danger')
+                return redirect(url_for('batch_import_page'))
             ws = wb.active
+            if (ws.max_row or 1) - 1 > import_max_rows():
+                err_msg = f'导入行数超过系统上限（最多 {import_max_rows()} 行），请拆分后重新导入'
+                if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return api_error(err_msg)
+                flash(err_msg, 'danger')
+                return redirect(url_for('batch_import_page'))
             header_row = [str(cell).strip() if cell else '' for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
             col_map = {}
             for idx, h in enumerate(header_row):
@@ -424,8 +513,6 @@ def register_batch_import_routes(app):
                     col_map['customer_supplied'] = idx
                 elif '合同编号' in h or '合同单号' in h:
                     col_map['contract_no'] = idx
-                elif '工程名称' in h:
-                    col_map['project_name'] = idx
                 # P0 批次/有效期捕获：入库 Excel 支持行级批次号与有效期列。
                 # 该分支必须位于「备注」之前：否则「批次备注」这类表头会被
                 # '备注' in h 先吃掉，批次数据静默丢失。
@@ -474,11 +561,18 @@ def register_batch_import_routes(app):
                 _, expiry_error = _parse_item_expiry_date(expiry_raw)
                 normalized_batch_no, batch_error = resolve_document_batch_no(get_val('batch_no'))
                 row_kind = current_order.business_type if current_order and current_order.order_no == order_no else (get_val('business_type') or '采购入库')
+                row_customer_supplied = get_val('customer_supplied').lower() in ('是', 'yes', 'y', 'true', '1')
+                row_prc, row_prc_err = _parse_nonneg_import_number(col_map, row, 'price', '单价')
+                row_amt, row_amt_err = _parse_nonneg_import_number(col_map, row, 'amount', '金额')
                 row_error = ('物料编码不能为空' if not get_val('material_code') else
+                             '物料编码长度不能超过 50 个字符' if len(get_val('material_code')) > 50 else
+                             '单位名称长度不能超过 20 个字符' if len(get_val('unit')) > 20 else
                              '数量必须大于 0' if get_num('quantity') <= 0 else
+                             row_prc_err if row_prc_err else
+                             row_amt_err if row_amt_err else
                              '批次号超过50个字符' if len(get_val('batch_no')) > 50 else
                              batch_error if batch_error else
-                             '客供料只能用于其他入库' if get_val('customer_supplied').lower() in ('是','yes','y','true','1') and row_kind != '其他入库' else expiry_error)
+                             '客供料只能用于其他入库' if row_customer_supplied and row_kind != '其他入库' else expiry_error)
                 if row_error:
                     skip += 1
                     skip_details.append(f'第{row_idx}行：{row_error}')
@@ -487,6 +581,8 @@ def register_batch_import_routes(app):
                     if current_items:
                         for item in current_items:
                             db.session.add(item)
+                        db.session.flush()
+                        recalculate_order_total(current_order)
                         count += 1
                     else:
                         # PC-P1-11：所有明细行均被跳过时清理空单据头，不留 0 行孤儿入库单
@@ -515,37 +611,32 @@ def register_batch_import_routes(app):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：库位为空')
                         continue
-                    supplier_name = get_val('supplier') or (get_val('party') if business_type == '采购入库' else '')
-                    customer_name = get_val('customer') or (get_val('party') if business_type == '其他入库' else '')
+                    supplier_raw = get_val('supplier') or (get_val('party') if business_type == '采购入库' else '')
+                    customer_raw = get_val('customer') or (get_val('party') if business_type == '其他入库' else '')
+                    if len(supplier_raw) > 50:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：供应商名称长度不能超过 50 个字符')
+                        continue
+                    if len(customer_raw) > 50:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：客户名称长度不能超过 50 个字符')
+                        continue
+                    supplier_name = sanitize_text_input(supplier_raw, max_len=50)
+                    customer_name = sanitize_text_input(customer_raw, max_len=50)
                     # PC-P1-11：先校验必填往来方，再自动创建供应商/客户档案，避免跳过行污染主数据
                     if business_type == '采购入库' and not supplier_name:
                         skip += 1
                         skip_details.append(f'第{row_idx}行：采购入库缺少供应商')
                         continue
-                    if business_type == '其他入库' and not customer_name:
+                    # 2026-11-21 现场确认：其他入库单仅含客供料时必须选择客户，全自有料允许留空
+                    if business_type == '其他入库' and row_customer_supplied and not customer_name:
                         skip += 1
-                        skip_details.append(f'第{row_idx}行：其他入库缺少客户')
+                        skip_details.append(f'第{row_idx}行：含客供料的其他入库单必须选择客户')
                         continue
                     if InOrder.query.filter_by(order_no=order_no).first():
                         skip += 1
                         skip_details.append(f'第{row_idx}行：单据编号{order_no}已存在')
                         continue
-                    supplier = Supplier.query.filter_by(name=supplier_name).first() if supplier_name else None
-                    if not supplier and supplier_name:
-                        supplier = Supplier.query.filter_by(code=supplier_name).first()
-                    if not supplier and supplier_name:
-                        supplier = Supplier(code=supplier_name, name=supplier_name)
-                        db.session.add(supplier)
-                        db.session.flush()
-                        warnings.append(f'自动创建供应商：{supplier_name}')
-                    customer = Customer.query.filter_by(name=customer_name).first() if customer_name else None
-                    if not customer and customer_name:
-                        customer = Customer.query.filter_by(code=customer_name).first()
-                    if not customer and customer_name:
-                        customer = Customer(code=customer_name, name=customer_name)
-                        db.session.add(customer)
-                        db.session.flush()
-                        warnings.append(f'自动创建客户：{customer_name}')
                     date_str = get_val('date')
                     date_val = None
                     if date_str:
@@ -566,6 +657,26 @@ def register_batch_import_routes(app):
                                 date_val = raw_date.date()
                             elif hasattr(raw_date, 'year'):
                                 date_val = raw_date
+                    if date_val is not None and is_future_date(date_val):
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：入库日期不能晚于今天')
+                        continue
+                    supplier = Supplier.query.filter_by(name=supplier_name).first() if supplier_name else None
+                    if not supplier and supplier_name:
+                        supplier = Supplier.query.filter_by(code=supplier_name).first()
+                    if not supplier and supplier_name:
+                        supplier = Supplier(code=supplier_name, name=supplier_name)
+                        db.session.add(supplier)
+                        db.session.flush()
+                        warnings.append(f'自动创建供应商：{supplier_name}')
+                    customer = Customer.query.filter_by(name=customer_name).first() if customer_name else None
+                    if not customer and customer_name:
+                        customer = Customer.query.filter_by(code=customer_name).first()
+                    if not customer and customer_name:
+                        customer = Customer(code=customer_name, name=customer_name)
+                        db.session.add(customer)
+                        db.session.flush()
+                        warnings.append(f'自动创建客户：{customer_name}')
                     current_order = InOrder(
                         order_no=order_no,
                         date=date_val,
@@ -589,6 +700,18 @@ def register_batch_import_routes(app):
                     db.session.flush()
                 material_code = get_val('material_code')
                 if material_code:
+                    customer_supplied = row_customer_supplied
+                    if customer_supplied and current_order.business_type != '其他入库':
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：客供料只能用于其他入库')
+                        continue
+                    if customer_supplied and not current_order.customer_id:
+                        skip += 1
+                        skip_details.append(f'第{row_idx}行：含客供料的其他入库单必须选择客户')
+                        continue
+                    material_name = sanitize_text_input(get_val('material_name'), max_len=100)
+                    material_spec = sanitize_text_input(get_val('spec'), max_len=200)
+                    unit_name = sanitize_text_input(get_val('unit'), max_len=20)
                     material = Material.query.filter_by(code=material_code).first()
                     if material and getattr(material, 'status', None) == 'inactive':
                         skip += 1
@@ -599,18 +722,17 @@ def register_batch_import_routes(app):
                         # 物料，避免「同一个物料在 Excel 里换个编码就被再建一条」，
                         # 详见 reuse_material_by_name_spec 注释。
                         material = reuse_material_by_name_spec(
-                            material_code, get_val('material_name'), get_val('spec'),
+                            material_code, material_name, material_spec,
                             warnings=warnings)
                     if not material:
                         material = Material(
                             code=material_code,
-                            name=get_val('material_name'),
-                            spec=get_val('spec')
+                            name=material_name or material_code,
+                            spec=material_spec
                         )
                         db.session.add(material)
                         db.session.flush()
                         warnings.append(f'自动创建物料：{material_code}')
-                    unit_name = get_val('unit')
                     unit = Unit.query.filter_by(name=unit_name).first() if unit_name else None
                     if not unit and unit_name:
                         unit = Unit.query.filter_by(code=unit_name).first()
@@ -622,22 +744,15 @@ def register_batch_import_routes(app):
                     if material and unit and not material.unit_id:
                         material.unit_id = unit.id
                     qty = get_num('quantity')
-                    prc = get_num('price')
-                    amt = get_num('amount')
+                    prc = row_prc
+                    amt = row_amt
                     # BUG-2026-08-30-007：负数数量/单价直接拒绝（与 Web 端校验对齐）
                     if qty <= 0:
                         skip += 1
                         skip_details.append(f'第{row_idx}行：数量必须大于 0')
                         continue
-                    prc = max(0, prc)
-                    amt = max(0, amt)
                     if amt == 0:
                         amt = round_money_product(qty, prc)
-                    customer_supplied = get_val('customer_supplied').strip().lower() in ('是', 'yes', 'y', 'true', '1')
-                    if customer_supplied and current_order.business_type != '其他入库':
-                        skip += 1
-                        skip_details.append(f'第{row_idx}行：客供料只能用于其他入库')
-                        continue
                     # BUG-2026-09-18-013：Excel 明细无逐行合同列，走表头兜底；
                     # 与逐行新增（add_in_order_item）同一收口函数，避免口径分叉。
                     _c_id, _c_no, _p_name = resolve_item_contract(current_order)
@@ -677,6 +792,8 @@ def register_batch_import_routes(app):
             if current_order and current_items:
                 for item in current_items:
                     db.session.add(item)
+                db.session.flush()
+                recalculate_order_total(current_order)
                 count += 1
             elif current_order:
                 db.session.delete(current_order)
@@ -688,6 +805,9 @@ def register_batch_import_routes(app):
                     return api_error(f'导入失败，请稍后重试或联系管理员')
                 flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('batch_import_page'))
+            if count > 0:
+                log_operation('批量导入入库单', f'导入入库单 {count} 张（跳过 {skip} 行）', 'in_order', None)
+                log_audit('batch_import_in_order', 'in_order', 0, new_data={'imported_orders': count, 'skipped_rows': skip})
             msg = f'入库单导入成功，共导入 {count} 张单据'
             if skip:
                 msg += f'，跳过 {skip} 条'

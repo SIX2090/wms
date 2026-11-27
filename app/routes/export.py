@@ -130,6 +130,7 @@ def register_export_routes(app):
 
     @app.route('/export/in_order')
     @app.route('/in_order/export')
+    @require_role('warehouse', 'finance', 'purchase')
     @login_required
     def export_in_order():
         from openpyxl import Workbook
@@ -144,14 +145,20 @@ def register_export_routes(app):
             _apply_status_date_filters,
             _get_order_list_filters,
             _warehouse_document_match_clause,
+            price_dimension_enabled,
             resolve_request_warehouse,
         )
         from db import db
         from utils import _sanitize_excel_cell
+        show_price = price_dimension_enabled()
         wb = Workbook()
         ws = wb.active
         ws.title = '入库单'
-        ws.append(['单据编号', '日期', '业务类型', '用途', '供应商', '客户', '仓库', '库位', '物料编码', '物料名称', '规格', '单位', '数量', '单价', '金额', '客供', '合同编号', '工程名称', '状态', '备注'])
+        header = ['单据编号', '日期', '业务类型', '用途', '供应商', '客户', '仓库', '库位', '物料编码', '物料名称', '规格', '单位', '数量']
+        if show_price:
+            header.extend(['单价', '金额'])
+        header.extend(['客供', '合同编号', '工程名称', '状态', '备注'])
+        ws.append(header)
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
         type_alias = {'purchase_in': '采购入库', 'product_in': '产品入库',
                       'other_in': '其他入库', 'sales_return': '销售退货入库'}
@@ -200,20 +207,25 @@ def register_export_routes(app):
                               InOrder.id, InOrderItem.id)
         for order, item in rows:
             material = item.material if item else None
-            ws.append([_sanitize_excel_cell(v) for v in [
+            row_values = [
                 order.order_no, order.date.strftime('%Y-%m-%d') if order.date else '',
                 order.business_type or '采购入库', order.purpose or '',
                 order.supplier.name if order.supplier else '', order.customer.name if order.customer else '',
                 order.warehouse or '', order.location or '',
                 material.code if material else '', material.name if material else '',
                 material.spec if material else '', material.unit.name if material and material.unit else '',
-                item.quantity if item else None, item.price if item else None, item.amount if item else None,
+                item.quantity if item else None,
+            ]
+            if show_price:
+                row_values.extend([item.price if item else None, item.amount if item else None])
+            row_values.extend([
                 ('是' if item.is_customer_supplied else '否') if item else '',
                 (item.contract_no if item else None) or order.contract_no or '',
                 (item.project_name if item else None) or order.project_name or '',
                 {'pending': '未审核/待完成', 'completed': '已完成'}.get(order.status, order.status or ''),
                 order.remark or ''
-            ]])
+            ])
+            ws.append([_sanitize_excel_cell(v) for v in row_values])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

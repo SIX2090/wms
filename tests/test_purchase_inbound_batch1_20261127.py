@@ -68,8 +68,8 @@ def test_p0_1_po_selection_fetches_uncached_materials_node_vm():
     node_bin = shutil.which("node")
     assert node_bin, "Node.js is required for frontend runtime verification"
     html = IN_ORDER_ADD_HTML.read_text(encoding="utf-8")
-    assert "async function applyPurchaseOrderSelectionToForm()" in html
-    fn_src = _extract_js_function(html, "async function applyPurchaseOrderSelectionToForm()")
+    assert "function applyPurchaseOrderSelectionToForm()" in html
+    fn_src = _extract_js_function(html, "function applyPurchaseOrderSelectionToForm()")
     find_fn = _extract_js_function(html, "function findMaterialByCode(")
     unit_fn = _extract_js_function(html, "function getMaterialUnit(")
     stock_fn = _extract_js_function(html, "function formatStock(")
@@ -319,7 +319,7 @@ def test_p0_5_p0_6_p0_7_inbound_and_peer_guards_ast():
         assert "< 0" in body and "单价不能小于" in body, f"{path.name}:{fn} missing negative price guard"
 
     add_in_src = _extract_func_source(IN_ORDER_ROUTE, "add_in_order")
-    assert "db.session.get(Supplier, int(supplier_id))" in add_in_src
+    assert "db.session.get(supplier_cls, parsed_supplier_id)" in add_in_src
     assert "合同ID格式不正确" in add_in_src
 
     upd_comp_src = _extract_func_source(IN_ORDER_ROUTE, "update_completed_in_order")
@@ -540,7 +540,12 @@ def test_p0_5_p0_6_negative_price_and_invalid_supplier_contract_rejected():
         assert r_bad_sup.status_code == 400 and "供应商" in r_bad_sup.get_json()["msg"]
 
         r_bad_cid = client.post("/in_order/add", json={**base, "contract_id": "abc", "items": [{"code": ids["mat_code"], "quantity": 2, "price": 5}]})
-        assert r_bad_cid.status_code == 400 and "合同ID" in r_bad_cid.get_json()["msg"]
+        assert r_bad_cid.status_code == 400 and "合同" in r_bad_cid.get_json()["msg"]
+        r_bad_line_cid = client.post("/in_order/add", json={
+            "business_type": "其他入库", "warehouse_id": ids["wh"], "date": date.today().isoformat(),
+            "items": [{"code": ids["mat_code"], "quantity": 2, "price": 5, "contract_id": "abc"}],
+        })
+        assert r_bad_line_cid.status_code == 400 and "合同ID" in r_bad_line_cid.get_json()["msg"]
 
         r_out_neg = client.post("/out_order/add", json={
             "business_type": "领料单", "warehouse_id": ids["wh"], "date": date.today().isoformat(),
