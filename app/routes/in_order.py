@@ -3004,9 +3004,19 @@ def register_in_order_routes(app):
                 order, deleting=False, operation='revert_in_order',
                 checkpoint=audit_checkpoint, reason='反提交入库单',
             )
+            has_po_reservation = any(
+                item.source_purchase_order_item
+                and (item.source_purchase_order_item.received_quantity or 0) > 0
+                for item in order.items
+            )
             db.session.commit()
             log_operation('反提交入库单', f'入库单：{order.order_no}', 'in_order', id)
-            return jsonify({'status': 'success', 'msg': '操作完成'})
+            msg = (
+                '反提交成功，库存已回退，单据已回到草稿。关联采购明细的收货预留仍由本草稿占用，如需释放请删除草稿。'
+                if has_po_reservation
+                else '操作完成'
+            )
+            return jsonify({'status': 'success', 'msg': msg})
         except Exception as e:
             db.session.rollback()
             return api_error('操作失败，请稍后重试')
@@ -3527,6 +3537,7 @@ def register_in_order_routes(app):
             orders = InOrder.query.options(joinedload(InOrder.items)).filter(InOrder.id.in_(ids)).all()
 
         reverted = 0
+        reverted_with_po_reservation = 0
         skipped = []
         for order in list(orders):
             # 防止列表中重复 id 触发同一单据被处理两次
@@ -3648,12 +3659,21 @@ def register_in_order_routes(app):
                     order, deleting=False, operation='revert_in_order',
                     checkpoint=audit_checkpoint, reason='批量反提交入库单',
                 )
+                has_po_reservation = any(
+                    item.source_purchase_order_item
+                    and (item.source_purchase_order_item.received_quantity or 0) > 0
+                    for item in order.items
+                )
                 db.session.commit()
                 reverted += 1
+                if has_po_reservation:
+                    reverted_with_po_reservation += 1
             except Exception as e:
                 db.session.rollback()
                 skipped.append(f'{order.order_no}(错误: {e})')
         msg = f'批量反审完成，共反审 {reverted} 张入库单'
+        if reverted_with_po_reservation:
+            msg += f'（其中 {reverted_with_po_reservation} 张关联采购明细的收货预留仍由草稿占用，如需释放请删除草稿）'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
         return jsonify({'status': 'success', 'msg': msg, 'reverted': reverted})
