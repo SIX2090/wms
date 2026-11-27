@@ -227,9 +227,10 @@ def register_department_routes(app):
         ws.title = '部门数据'
         ws.append(['部门编码', '部门名称', '状态', '备注'])
         query, _, _, _ = _department_query_from_args()
+        from utils import _sanitize_excel_cell
         for department in query.all():
             status_label = '启用' if department.status == 'active' else ('停用' if department.status == 'inactive' else (department.status or ''))
-            ws.append([department.code, department.name, status_label, department.remark or ''])
+            ws.append([_sanitize_excel_cell(v) for v in [department.code, department.name, status_label, department.remark or '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

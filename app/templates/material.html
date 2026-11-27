@@ -173,7 +173,7 @@
                     <i class="bi bi-send"></i> 发送打印
                 </button>
                 <span class="material-selection-divider" aria-hidden="true"></span>
-                <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
+                <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarMergeBtn" data-material-action="toolbarMerge" disabled title="仅 admin 账号可合并，选择1个物料后搜索保留物料，或选择2个物料核对合并方向">
                     <i class="bi bi-arrow-left-right"></i> 合并物料
                 </button>
                 <button type="button" class="btn btn-outline-danger btn-sm" id="toolbarDeleteBtn" data-material-action="toolbarDelete" disabled title="仅 admin 账号可删除，每次须验证 admin 密码；有库存或引用的自动保留">
@@ -873,7 +873,7 @@
                         <label class="form-label" for="edit_image_upload">物料图片（最多5张，手机/电脑统一）</label>
                         <div id="editMaterialImageGrid" class="material-image-grid"></div>
                         <input type="file" class="form-control" name="image" id="edit_image_upload" accept="image/*" data-material-change="uploadEditMaterialImage">
-                        <small class="text-muted">选择图片后立即追加到档案（最多5张）；已上传图片可在下方删除。保存修改时选中的图片也会一并上传。</small>
+                        <small class="text-muted">选择图片后立即追加到档案（最多5张）；已上传图片可在上方删除，无需重复上传。</small>
                     </div>
                     <div class="mb-3">
                         <label class="form-label" for="edit_remark">备注</label>

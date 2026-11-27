@@ -224,10 +224,11 @@ def register_employee_routes(app):
             except ValueError:
                 pass
         query, _ = _apply_master_order(query, Employee, sort_by, sort_order, {'id', 'code', 'name', 'position', 'phone', 'created_at'}, 'name')
+        from utils import _sanitize_excel_cell
         for e in query.all():
             dept = e.department
-            ws.append([e.code or '', e.name, e.position or '', e.phone or '',
-                       dept.code if dept else '', dept.name if dept else ''])
+            ws.append([_sanitize_excel_cell(v) for v in [e.code or '', e.name, e.position or '', e.phone or '',
+                       dept.code if dept else '', dept.name if dept else '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

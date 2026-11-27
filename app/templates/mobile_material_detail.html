@@ -37,8 +37,9 @@
         ('状态', '启用' if material.status == 'active' else '停用'), ('备注', material.remark), ('创建时间', material.created_at)
       ] %}<dt class="col-4 mb-2 text-muted">{{ label }}</dt><dd class="col-8 mb-2">{{ value if value is not none and value != '' else '—' }}</dd>{% endfor %}
     </dl>
-    {% if material.image %}<img src="{{ url_for('static', filename=material.image.removeprefix('/static/')) }}" alt="物料主图" class="img-fluid rounded my-2" style="max-height:240px">{% endif %}
-    {% for image in images %}<img src="{{ url_for('static', filename=image.image.removeprefix('/static/')) }}" alt="物料图片" class="img-fluid rounded my-2" style="max-height:240px">{% endfor %}
+    {% set primary_rel = material.image.removeprefix('/static/') if material.image else '' %}
+    {% if primary_rel %}<img src="{{ url_for('static', filename=primary_rel) }}" alt="物料主图" class="img-fluid rounded my-2" style="max-height:240px">{% endif %}
+    {% for image in images %}{% set img_rel = image.image.removeprefix('/static/') if image.image else '' %}{% if img_rel and img_rel != primary_rel %}<img src="{{ url_for('static', filename=img_rel) }}" alt="物料图片" class="img-fluid rounded my-2" style="max-height:240px">{% endif %}{% endfor %}
   </div></section>
 </main>
 {% endblock %}

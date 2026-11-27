@@ -309,43 +309,50 @@ def register_material_routes(app):
                                  suppliers=[serialize_supplier(supplier) for supplier in suppliers])
 
         # POST
-        # BUG-2026-07-29-002/009: name/code/spec/brand/purpose/remark 走 sanitize_text_input
-        # 去除 < > 与 NUL 字节，防止存储型 XSS 与 NUL 静默吞掉；截断到列宽上限。
-        if len((request.form.get('code') or '').strip()) > 50:
+        # BUG-2026-07-29-002/009 + BUG-2026-11-27-002:
+        # 先校验原始去除首尾空白后的长度，再走 sanitize_text_input，避免截断后长度校验失效，
+        # 且 purpose/remark 落库时必须使用净化后的变量。
+        raw_code = (request.form.get('code') or '').strip()
+        raw_name = (request.form.get('name') or '').strip()
+        raw_spec = (request.form.get('spec') or '').strip()
+        raw_brand = (request.form.get('brand') or '').strip()
+        raw_storage_location = (request.form.get('storage_location') or '').strip()
+        raw_purpose = (request.form.get('purpose') or '').strip()
+        raw_remark = (request.form.get('remark') or '').strip()
+
+        if len(raw_code) > 50:
             return api_error('物料编码不能超过 50 个字符')
-        code = sanitize_text_input(request.form.get('code', '').strip(), max_len=50)
+        code = sanitize_text_input(raw_code, max_len=50)
         if not code:
             return api_error('请输入物料编码')
 
-        name = sanitize_text_input(request.form.get('name', ''), max_len=100)
+        if len(raw_name) > 100:
+            return api_error(f'物料名称不能超过 100 个字符（当前 {len(raw_name)}）')
+        name = sanitize_text_input(raw_name, max_len=100)
         if not name:
             return api_error('请输入物料名称')
 
         if Material.query.filter_by(code=code).first():
             return api_error('物料编码已存在')
 
-        spec = sanitize_text_input(request.form.get('spec'), max_len=100)
-        brand = sanitize_text_input(request.form.get('brand'), max_len=100)
-        raw_storage_location = (request.form.get('storage_location') or '').strip()
         # BUG-F02-02 修复：物料主数据长度截断防护
         # 防止 DB 静默截断（DB 列宽：code=50/name=100/brand=100/spec=100/storage_location=100/purpose=200/remark=500）
-        if len(code) > 50:
-            return api_error(f'物料编码不能超过 50 个字符（当前 {len(code)}）')
-        if len(name) > 100:
-            return api_error(f'物料名称不能超过 100 个字符（当前 {len(name)}）')
-        if len(brand) > 100:
+        if len(raw_brand) > 100:
             return api_error('品牌不能超过 100 个字符')
-        if len(spec) > 100:
-            return api_error(f'物料规格不能超过 100 个字符（当前 {len(spec)}）')
+        if len(raw_spec) > 100:
+            return api_error(f'物料规格不能超过 100 个字符（当前 {len(raw_spec)}）')
         if len(raw_storage_location) > 100:
             return api_error(f'库位不能超过 100 个字符（当前 {len(raw_storage_location)}）')
+        if len(raw_purpose) > 200:
+            return api_error(f'用途不能超过 200 个字符（当前 {len(raw_purpose)}）')
+        if len(raw_remark) > 500:
+            return api_error(f'备注不能超过 500 个字符（当前 {len(raw_remark)}）')
+
+        spec = sanitize_text_input(raw_spec, max_len=100)
+        brand = sanitize_text_input(raw_brand, max_len=100)
         storage_location = sanitize_text_input(raw_storage_location, max_len=100)
-        purpose = sanitize_text_input(request.form.get('purpose'), max_len=200)
-        if len(purpose) > 200:
-            return api_error(f'用途不能超过 200 个字符（当前 {len(purpose)}）')
-        remark = sanitize_text_input(request.form.get('remark'), max_len=500)
-        if len(remark) > 500:
-            return api_error(f'备注不能超过 500 个字符（当前 {len(remark)}）')
+        purpose = sanitize_text_input(raw_purpose, max_len=200)
+        remark = sanitize_text_input(raw_remark, max_len=500)
         if material_name_spec_exists(name, spec, brand):
             return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
@@ -358,13 +365,6 @@ def register_material_routes(app):
         initial_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
         if initial_price is None:
             return api_error(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
-
-        image_file = request.files.get('image')
-        image_path = None
-        if image_file and image_file.filename:
-            image_path, image_error = save_upload_image(image_file, subfolder='material_images')
-            if image_error:
-                return jsonify({'status': 'error', 'msg': image_error}), 400
 
         expiry_date = request.form.get('expiry_date')
         try:
@@ -390,6 +390,25 @@ def register_material_routes(app):
         if sup_err:
             return api_error(sup_err)
 
+        # 所有字段校验通过后再保存图片，避免校验失败留下磁盘孤儿文件
+        image_file = request.files.get('image')
+        image_path = None
+        if image_file and image_file.filename:
+            image_path, image_error = save_upload_image(image_file, subfolder='material_images')
+            if image_error:
+                return jsonify({'status': 'error', 'msg': image_error}), 400
+
+        def _cleanup_upload_file(rel_path):
+            if not rel_path:
+                return
+            try:
+                root = (Path(current_app.static_folder) / 'uploads/material_images').resolve()
+                target = (Path(current_app.static_folder) / rel_path).resolve()
+                if target.parent == root:
+                    target.unlink(missing_ok=True)
+            except OSError:
+                pass
+
         material = Material(
             code=code,
             name=name,
@@ -400,14 +419,14 @@ def register_material_routes(app):
             spec=spec,
             storage_location=storage_location or None,
             stock=initial_stock,
-            purpose=request.form.get('purpose'),
+            purpose=purpose or None,
             min_stock=min_stock_val,
             max_stock=parse_float_value(request.form.get('max_stock'), 0),
             reorder_point=reorder_point_val,
             expiry_date=expiry_date_parsed,
             alert_days=parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650),
             price=initial_price,
-            remark=((request.form.get('remark') or '').strip() or None),
+            remark=remark or None,
             image=image_path
         )
         db.session.add(material)
@@ -445,10 +464,12 @@ def register_material_routes(app):
                 )
                 if not ok_open:
                     db.session.rollback()
+                    _cleanup_upload_file(image_path)
                     return api_error(f'初始库存写入库位账失败：{msg_open}')
             db.session.commit()
         except Exception as e:
             db.session.rollback()
+            _cleanup_upload_file(image_path)
             current_app.logger.error(f'物料创建失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料创建失败，编码可能已存在'}), 500
         # BUG-2026-08-16-012：物料新增写结构化变更审计（new_data）
@@ -663,7 +684,7 @@ def register_material_routes(app):
             sanitize_text_input,
             save_upload_image,
         )
-        from utils import sync_material_primary_image
+        from utils import MAX_MATERIAL_IMAGES, sync_material_primary_image
         material = db.session.get(Material, id)
         if not material:
             return api_error('物料不存在')
@@ -674,61 +695,65 @@ def register_material_routes(app):
             db.session.rollback()
             return api_error('档案版本已变化或缺失，请保留输入并重新打开物料后核对', 409)
 
-        new_code = (request.form.get('code') or '').strip()
-        new_name = (request.form.get('name') or '').strip()
-        if not new_code:
-            return api_error('请输入物料编码')
-        if not new_name:
-            return api_error('请输入物料名称')
-        if len(new_code) > 50 or len(new_name) > 100:
-            return jsonify({'status': 'error', 'msg': '物料编码不能超过 50 个字符，名称不能超过 100 个字符'}), 400
+        def _reject(msg, status_code=400):
+            db.session.rollback()
+            return jsonify({'status': 'error', 'msg': msg}), status_code
 
-        existing = Material.query.filter_by(code=new_code).first()
-        if existing and existing.id != id:
-            return api_error('物料编码已存在')
+        raw_code = (request.form.get('code') or '').strip()
+        raw_name = (request.form.get('name') or '').strip()
+        raw_spec = (request.form.get('spec') or '').strip()
+        raw_brand = (request.form.get('brand') or '').strip()
+        raw_purpose = (request.form.get('purpose') or '').strip()
+        raw_remark = (request.form.get('remark') or '').strip()
 
-        new_spec = (request.form.get('spec') or '').strip()
-        new_brand = (request.form.get('brand') or '').strip()
-        # BUG-F02-02 修复：物料编辑入口同样 6 字段长度校验（与新增保持一致）
-        if len(new_code) > 50:
-            return jsonify({'status': 'error', 'msg': f'物料编码不能超过 50 个字符（当前 {len(new_code)}）'}), 400
-        if len(new_name) > 100:
-            return jsonify({'status': 'error', 'msg': f'物料名称不能超过 100 个字符（当前 {len(new_name)}）'}), 400
-        if len(new_brand) > 100:
-            return jsonify({'status': 'error', 'msg': '品牌不能超过 100 个字符'}), 400
-        if len(new_spec) > 100:
-            return jsonify({'status': 'error', 'msg': f'物料规格不能超过 100 个字符（当前 {len(new_spec)}）'}), 400
-        new_purpose = (request.form.get('purpose') or '').strip()
-        if len(new_purpose) > 200:
-            return jsonify({'status': 'error', 'msg': f'用途不能超过 200 个字符（当前 {len(new_purpose)}）'}), 400
+        if not raw_code:
+            return _reject('请输入物料编码')
+        if not raw_name:
+            return _reject('请输入物料名称')
+        # BUG-F02-02 + BUG-2026-11-27-002：先检查原始长度再净化，确保与新增一致且无写锁残留
+        if len(raw_code) > 50:
+            return _reject(f'物料编码不能超过 50 个字符（当前 {len(raw_code)}）')
+        if len(raw_name) > 100:
+            return _reject(f'物料名称不能超过 100 个字符（当前 {len(raw_name)}）')
+        if len(raw_brand) > 100:
+            return _reject('品牌不能超过 100 个字符')
+        if len(raw_spec) > 100:
+            return _reject(f'物料规格不能超过 100 个字符（当前 {len(raw_spec)}）')
+        if len(raw_purpose) > 200:
+            return _reject(f'用途不能超过 200 个字符（当前 {len(raw_purpose)}）')
         if 'storage_location' in request.form:
             raw_storage_location = (request.form.get('storage_location') or '').strip()
             if len(raw_storage_location) > 100:
-                db.session.rollback()
-                return jsonify({'status': 'error', 'msg': f'库位不能超过 100 个字符（当前 {len(raw_storage_location)}）'}), 400
+                return _reject(f'库位不能超过 100 个字符（当前 {len(raw_storage_location)}）')
             new_storage_location = sanitize_text_input(raw_storage_location, max_len=100) or None
         else:
             new_storage_location = material.storage_location
-        new_remark = (request.form.get('remark') or '').strip()
-        if len(new_remark) > 500:
-            return jsonify({'status': 'error', 'msg': f'备注不能超过 500 个字符（当前 {len(new_remark)}）'}), 400
+        if len(raw_remark) > 500:
+            return _reject(f'备注不能超过 500 个字符（当前 {len(raw_remark)}）')
+
+        new_code = sanitize_text_input(raw_code, max_len=50)
+        new_name = sanitize_text_input(raw_name, max_len=100)
+        if not new_code:
+            return _reject('请输入物料编码')
+        if not new_name:
+            return _reject('请输入物料名称')
+        new_spec = sanitize_text_input(raw_spec, max_len=100)
+        new_brand = sanitize_text_input(raw_brand, max_len=100)
+        new_purpose = sanitize_text_input(raw_purpose, max_len=200)
+        new_remark = sanitize_text_input(raw_remark, max_len=500)
+
+        existing = Material.query.filter_by(code=new_code).first()
+        if existing and existing.id != id:
+            return _reject('物料编码已存在')
+
         if material_name_spec_exists(new_name, new_spec, new_brand, exclude_id=id):
-            return api_error('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
+            return _reject('物料名称、规格和品牌不能同时重复（比较时忽略空格与大小写）')
 
         # 停用状态（2026-09-25）：与 Warehouse/Department/Contract 同口径，只允许
         # active/inactive；普通编辑表单不提交状态时保留当前值。
         new_status = (request.form.get('status') or material.status or 'active').strip()
         if new_status not in ('active', 'inactive'):
-            return jsonify({'status': 'error', 'msg': '物料状态只能是启用或停用'}), 400
-
-        image_file = request.files.get('image')
-        image_path = material.image
-        new_image_path = None
-        if image_file and image_file.filename:
-            new_image_path, image_error = save_upload_image(image_file, subfolder='material_images')
-            if image_error:
-                return jsonify({'status': 'error', 'msg': image_error}), 400
-            image_path = new_image_path
+            return _reject('物料状态只能是启用或停用')
 
         expiry_date = request.form.get('expiry_date')
 
@@ -748,20 +773,47 @@ def register_material_routes(app):
         name_changed = (old_name != new_name)
         spec_changed = (old_spec != new_spec)  # 必须在 material.spec = new_spec 之前比较
         if code_changed and not material_code_editable():
-            return api_error('系统参数已禁止修改物料编码')
+            return _reject('系统参数已禁止修改物料编码')
 
         cat_id, cat_err = _parse_optional_fk(request.form.get('category_id'), '物料分类')
         if cat_err:
-            db.session.rollback()
-            return api_error(cat_err)
+            return _reject(cat_err)
         unit_id_val, unit_err = _parse_optional_fk(request.form.get('unit_id'), '计量单位')
         if unit_err:
-            db.session.rollback()
-            return api_error(unit_err)
+            return _reject(unit_err)
         sup_id, sup_err = _parse_optional_fk(request.form.get('supplier_id'), '默认供应商')
         if sup_err:
-            db.session.rollback()
-            return api_error(sup_err)
+            return _reject(sup_err)
+
+        alert_enabled = inventory_alert_enabled()
+        min_stock_val = None
+        reorder_point_val = None
+        if alert_enabled:
+            # BUG-2026-09-18-002：同新增——安全库存不得小于最低库存。
+            min_stock_val = parse_float_value(request.form.get('min_stock'), 0)
+            reorder_point_val = parse_float_value(request.form.get('reorder_point'), 0)
+            reorder_point_val, threshold_err = _resolve_alert_thresholds(min_stock_val, reorder_point_val)
+            if threshold_err:
+                return _reject(threshold_err)
+
+        # BUG-2026-08-04-007: 编辑物料价格上限必须与新增一致（MAX_REASONABLE_PRICE），
+        # 原来用 MAX_TRANSACTION_PRICE（1 万亿）可绕过新增时的 99999999.99 上限。
+        parsed_price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
+        if parsed_price is None:
+            return _reject(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
+
+        # 所有字段与阈值校验通过后再处理图片上传与上限检查，避免孤儿文件与突破 5 张上限
+        image_file = request.files.get('image')
+        new_image_path = None
+        current_img_count = 0
+        if image_file and image_file.filename:
+            from app import MaterialImage
+            current_img_count = MaterialImage.query.filter_by(material_id=id).count()
+            if current_img_count >= MAX_MATERIAL_IMAGES:
+                return _reject(f'每个物料最多保存 {MAX_MATERIAL_IMAGES} 张图片，请先移除一张')
+            new_image_path, image_error = save_upload_image(image_file, subfolder='material_images')
+            if image_error:
+                return _reject(image_error)
 
         material.code = new_code
         material.name = new_name
@@ -774,25 +826,13 @@ def register_material_routes(app):
         material.status = new_status
         material.purpose = new_purpose or None
         material.max_stock = parse_float_value(request.form.get('max_stock'), 0)
-        if inventory_alert_enabled():
-            # BUG-2026-09-18-002：同新增——安全库存不得小于最低库存。
-            min_stock_val = parse_float_value(request.form.get('min_stock'), 0)
-            reorder_point_val = parse_float_value(request.form.get('reorder_point'), 0)
-            reorder_point_val, threshold_err = _resolve_alert_thresholds(min_stock_val, reorder_point_val)
-            if threshold_err:
-                return api_error(threshold_err)
+        if alert_enabled:
             material.min_stock = min_stock_val
             material.reorder_point = reorder_point_val
             material.alert_days = parse_int_value(request.form.get('alert_days'), 30, minimum=1, maximum=3650)
         material.expiry_date = parse_date_value(expiry_date)
-        # BUG-2026-08-04-007: 编辑物料价格上限必须与新增一致（MAX_REASONABLE_PRICE），
-        # 原来用 MAX_TRANSACTION_PRICE（1 万亿）可绕过新增时的 99999999.99 上限。
-        material.price = parse_bounded_number(request.form.get('price'), 0, maximum=MAX_REASONABLE_PRICE)
-        if material.price is None:
-            db.session.rollback()
-            return api_error(f'参考价格必须是 0 至 {MAX_REASONABLE_PRICE:,.2f} 的有限数字')
-        material.remark = (request.form.get('remark') or '').strip() or None
-        material.image = image_path
+        material.price = parsed_price
+        material.remark = new_remark or None
 
         # 级联更新所有关联单据
         cascade_info = []
@@ -847,10 +887,25 @@ def register_material_routes(app):
             # 7. BOM子项明细（BOMItem 无冗余字段）
             _append_related_count(BOMItem, 'BOM子项')
 
+        # 统一多图：新图片写入 material_image 并同步主图，纳入同一事务原子提交
+        if new_image_path:
+            from app import MaterialImage
+            db.session.add(MaterialImage(material_id=id, image=new_image_path, sort_order=current_img_count))
+            db.session.flush()
+            sync_material_primary_image(material)
+
         try:
             db.session.commit()
         except Exception as e:
             db.session.rollback()
+            if new_image_path:
+                try:
+                    root = (Path(current_app.static_folder) / 'uploads/material_images').resolve()
+                    target = (Path(current_app.static_folder) / new_image_path).resolve()
+                    if target.parent == root:
+                        target.unlink(missing_ok=True)
+                except OSError:
+                    pass
             current_app.logger.error(f'物料更新失败: {e}')
             return jsonify({'status': 'error', 'msg': '物料更新失败'}), 500
         # BUG-2026-08-16-012：物料编辑写结构化变更审计（old_data + new_data，含单价变化）
@@ -867,14 +922,6 @@ def register_material_routes(app):
                 'max_stock': material.max_stock or 0, 'remark': material.remark or '',
             },
         )
-        # 统一多图：编辑物料时上传的新图片追加到 material_image 表（与手机端同目录/同表），
-        # 并同步 Material.image 为该图作为 Web 列表主图。
-        if new_image_path:
-            from app import MaterialImage
-            current_count = MaterialImage.query.filter_by(material_id=id).count()
-            db.session.add(MaterialImage(material_id=id, image=new_image_path, sort_order=current_count))
-            sync_material_primary_image(material)
-            db.session.commit()
 
         # BUG-2026-11-12-001：编辑改的是 code/name/spec/brand 文本，行数与
         # 最大 id 不变，options_api 的表指纹探测感知不到这一类写入；这里在
@@ -1370,7 +1417,7 @@ def register_material_routes(app):
     @login_required
     def fix_empty_fields():
         """使用已有基础资料修复空分类/单位，缺少必要资料时整批拒绝。"""
-        from app import Material, MaterialCategory, Unit
+        from app import Material, MaterialCategory, Unit, log_audit, log_operation
         count = 0
         try:
             materials = Material.query.filter(
@@ -1405,6 +1452,17 @@ def register_material_routes(app):
                     m.category_id = default_cat.id if default_cat else None
                 count += 1
             db.session.commit()
+            if count > 0:
+                log_audit(
+                    'fix_empty_fields', 'material', 0,
+                    target_name=f'批量修复物料空字段 {count} 条',
+                    new_data={
+                        'count': count,
+                        'unit_id': default_unit.id if default_unit else None,
+                        'category_id': default_cat.id if default_cat else None,
+                    },
+                )
+                log_operation('修复物料空字段', f'修复 {count} 条物料的空分类/单位', 'material', 0)
             return jsonify({'status': 'success', 'msg': f'已修复 {count} 条物料的空字段'})
         except Exception:
             db.session.rollback()
@@ -1562,12 +1620,13 @@ def register_material_routes(app):
         if total_rows > max_rows:
             flash(f'当前筛选结果 {total_rows} 条，超过系统参数设置的导出上限 {max_rows} 条，请缩小筛选范围后再导出。', 'warning')
             return redirect(url_for('material_list', search=search, stock_filter=stock_filter, category_id=category_id, status=status_filter, sort=sort_by, order=sort_order))
+        from utils import _sanitize_excel_cell
         for m in query.all():
             row = [m.code, m.name, m.brand or '', m.spec or '', m.storage_location or '', m.unit.name if m.unit else '', m.category.name if m.category else '', m.supplier.name if m.supplier else '', m.stock or 0, m.price or 0]
             if inventory_alert_enabled():
                 safety_stock = max(m.reorder_point or 0, m.min_stock or 0)
                 row.extend([m.min_stock or 0, safety_stock])
-            ws.append(row)
+            ws.append([_sanitize_excel_cell(v) for v in row])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -1578,16 +1637,20 @@ def register_material_routes(app):
     @require_role('warehouse')
     @login_required
     def import_material():
+        from zipfile import BadZipFile
         from app import (
             Material,
             MaterialCategory,
             MAX_REASONABLE_PRICE,
+            MAX_REASONABLE_STOCK,
             Supplier,
             Unit,
             api_error,
             find_similar_materials,
             import_max_rows,
             inventory_alert_enabled,
+            log_audit,
+            log_operation,
             material_name_spec_exists,
             sanitize_text_input,
             validate_excel_extension,
@@ -1614,7 +1677,15 @@ def register_material_routes(app):
             return redirect(url_for('material_list'))
         try:
             from openpyxl import load_workbook
-            wb = load_workbook(file)
+            from openpyxl.utils.exceptions import InvalidFileException
+            try:
+                wb = load_workbook(file)
+            except (BadZipFile, InvalidFileException):
+                msg = '文件不是有效的 .xlsx 表格；旧版 .xls 请用 Excel 另存为 .xlsx 后重新导入'
+                if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+                    return api_error(msg)
+                flash(msg, 'danger')
+                return redirect(url_for('material_list'))
             ws = wb.active
             header_row = [str(cell).strip() if cell else '' for cell in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
             aliases = {
@@ -1736,17 +1807,40 @@ def register_material_routes(app):
                 min_stock_val = 0
                 safety_stock_val = 0
                 if inventory_alert_enabled():
-                    try:
-                        min_stock_val = float(row[col_map['min_stock']]) if 'min_stock' in col_map and len(row) > col_map['min_stock'] and row[col_map['min_stock']] else 0
-                    except (ValueError, TypeError):
-                        min_stock_val = 0
-                    try:
-                        safety_stock_val = float(row[col_map['safety_stock']]) if 'safety_stock' in col_map and len(row) > col_map['safety_stock'] and row[col_map['safety_stock']] else min_stock_val
-                    except (ValueError, TypeError):
+                    raw_min = row[col_map['min_stock']] if 'min_stock' in col_map and len(row) > col_map['min_stock'] else None
+                    if raw_min is not None and str(raw_min).strip() != '':
+                        try:
+                            _min_check = float(raw_min)
+                        except (ValueError, TypeError):
+                            _min_check = math.nan
+                        if not math.isfinite(_min_check) or _min_check < 0 or _min_check > MAX_REASONABLE_STOCK:
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：最低库存必须是 0 至 {MAX_REASONABLE_STOCK:,.2f} 的有限数字')
+                            continue
+                        min_stock_val = _min_check
+                    raw_safety = row[col_map['safety_stock']] if 'safety_stock' in col_map and len(row) > col_map['safety_stock'] else None
+                    if raw_safety is not None and str(raw_safety).strip() != '':
+                        try:
+                            _safety_check = float(raw_safety)
+                        except (ValueError, TypeError):
+                            _safety_check = math.nan
+                        if not math.isfinite(_safety_check) or _safety_check < 0 or _safety_check > MAX_REASONABLE_STOCK:
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：安全库存必须是 0 至 {MAX_REASONABLE_STOCK:,.2f} 的有限数字')
+                            continue
+                        safety_stock_val = _safety_check
+                    else:
                         safety_stock_val = min_stock_val
                     if safety_stock_val < min_stock_val:
                         safety_stock_val = min_stock_val
-                unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
+                raw_unit_name = str(row[col_map['unit']]).strip() if 'unit' in col_map and len(row) > col_map['unit'] and row[col_map['unit']] else ''
+                raw_cat_name = str(row[col_map['category']]).strip() if 'category' in col_map and len(row) > col_map['category'] and row[col_map['category']] else ''
+                raw_sup_name = str(row[col_map['supplier']]).strip() if 'supplier' in col_map and len(row) > col_map['supplier'] and row[col_map['supplier']] else ''
+
+                unit_name = sanitize_text_input(raw_unit_name, max_len=50)
+                cat_name = sanitize_text_input(raw_cat_name, max_len=50)
+                sup_name = sanitize_text_input(raw_sup_name, max_len=100)
+
                 unit = None
                 if unit_name:
                     by_code = header_row[col_map['unit']].endswith(('编码', '代码'))
@@ -1758,12 +1852,6 @@ def register_material_routes(app):
                             unit = Unit.query.filter(db.func.lower(Unit.name) == db.func.lower(unit_name)).first()
                     if not unit:
                         unit = Unit.query.filter(db.func.lower(Unit.code) == db.func.lower(unit_name)).first()
-                if unit_name and not unit:
-                    unit = Unit(code=unit_name, name=unit_name)
-                    db.session.add(unit)
-                    db.session.flush()
-                    warnings.append(f'自动创建单位：{unit_name}')
-                cat_name = str(row[col_map['category']]).strip() if 'category' in col_map and len(row) > col_map['category'] and row[col_map['category']] else ''
                 category = None
                 if cat_name:
                     by_code = header_row[col_map['category']].endswith(('编码', '代码'))
@@ -1775,12 +1863,6 @@ def register_material_routes(app):
                             category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.name) == db.func.lower(cat_name)).first()
                     if not category:
                         category = MaterialCategory.query.filter(db.func.lower(MaterialCategory.code) == db.func.lower(cat_name)).first()
-                if cat_name and not category:
-                    category = MaterialCategory(code=cat_name, name=cat_name)
-                    db.session.add(category)
-                    db.session.flush()
-                    warnings.append(f'自动创建分类：{cat_name}')
-                sup_name = str(row[col_map['supplier']]).strip() if 'supplier' in col_map and len(row) > col_map['supplier'] and row[col_map['supplier']] else ''
                 supplier = None
                 if sup_name:
                     by_code = header_row[col_map['supplier']].endswith(('编码', '代码'))
@@ -1792,6 +1874,31 @@ def register_material_routes(app):
                             supplier = Supplier.query.filter(db.func.lower(Supplier.name) == db.func.lower(sup_name)).first()
                     if not supplier:
                         supplier = Supplier.query.filter(db.func.lower(Supplier.code) == db.func.lower(sup_name)).first()
+
+                # 先校验所有待自动创建基础资料的列宽上限，再 flush，防止本行被跳过时留下孤儿基础资料
+                if unit_name and not unit and (len(raw_unit_name) > 20 or len(unit_name) > 20):
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：单位名称不能超过20个字符')
+                    continue
+                if cat_name and not category and (len(raw_cat_name) > 50 or len(cat_name) > 50):
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：分类名称不能超过50个字符')
+                    continue
+                if sup_name and not supplier and (len(raw_sup_name) > 50 or len(sup_name) > 50):
+                    skip += 1
+                    skip_details.append(f'第{row_idx}行：供应商名称/编码不能超过50个字符')
+                    continue
+
+                if unit_name and not unit:
+                    unit = Unit(code=unit_name, name=unit_name)
+                    db.session.add(unit)
+                    db.session.flush()
+                    warnings.append(f'自动创建单位：{unit_name}')
+                if cat_name and not category:
+                    category = MaterialCategory(code=cat_name, name=cat_name)
+                    db.session.add(category)
+                    db.session.flush()
+                    warnings.append(f'自动创建分类：{cat_name}')
                 if sup_name and not supplier:
                     supplier = Supplier(code=sup_name, name=sup_name)
                     db.session.add(supplier)
@@ -1821,6 +1928,17 @@ def register_material_routes(app):
                     return api_error(f'导入失败，请稍后重试或联系管理员')
                 flash(f'导入失败，请稍后重试或联系管理员', 'danger')
                 return redirect(url_for('material_list'))
+            if count > 0:
+                log_audit(
+                    'import_material', 'material', 0,
+                    target_name=f'批量导入物料 {count} 条',
+                    new_data={
+                        'count': count,
+                        'skip': skip,
+                        'filename': sanitize_text_input(file.filename or '', max_len=100),
+                    },
+                )
+                log_operation('导入物料', f'批量导入物料成功 {count} 条，跳过 {skip} 条', 'material', 0)
             msg = f'物料导入成功，共导入 {count} 条'
             if skip:
                 msg += f'，跳过 {skip} 条'

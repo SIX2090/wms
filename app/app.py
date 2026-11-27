@@ -9725,6 +9725,14 @@ def material_merge_preview(target_id, source_id, allow_identity_difference=False
         ).scalar() or 0
         if n:
             tables[name] = n
+    bom_tbl = db.metadata.tables.get('bom')
+    if bom_tbl is not None and 'product_code' in bom_tbl.c and source.code:
+        bom_n = db.session.execute(
+            sa_select(sa_func.count()).select_from(bom_tbl).where(
+                bom_tbl.c.product_code == source.code)
+        ).scalar() or 0
+        if bom_n:
+            tables['bom'] = bom_n
     return {
         'target': {'id': target.id, 'code': target.code, 'name': target.name,
                    'spec': target.spec or '', 'brand': target.brand or '',
@@ -9761,6 +9769,7 @@ def merge_material_duplicates(target_id, source_id, keep_alias=True, identity_co
     # 注意：生产布局下 app 不是包，只能 `from services.xxx import`
     # （BUG-2026-09-06-003；`from app.services.xxx import` 会 ModuleNotFoundError）
     from services.warehouse_stock_service import verify_material_three_ledgers
+    from utils import sync_material_primary_image
 
     target, source = _material_merge_check_pair(target_id, source_id, identity_confirmed)
     # 防止同张盘点单或待审调整单内主/副物料并存导致合并后账面失真或调整校验死锁
@@ -9803,16 +9812,60 @@ def merge_material_duplicates(target_id, source_id, keep_alias=True, identity_co
     ok_before_target, _ = verify_material_three_ledgers(target.id)
     ok_before_source, _ = verify_material_three_ledgers(source.id)
 
-    # 2) 明细 / 流水表：改指
+    prev_target_image = target.image
+    prev_source_image = source.image
+
+    # 2) 明细 / 流水表：改指（同步冗余字段，防止合并后采购申请/BOM仍指向已删旧编码）
     for name in MATERIAL_MERGE_REF_TABLES:
         tbl = db.metadata.tables.get(name)
         if tbl is None or 'material_id' not in tbl.c:
             continue
+        update_values = {'material_id': target.id}
+        if name == 'purchase_request_item':
+            if 'material_code' in tbl.c:
+                update_values['material_code'] = target.code
+            if 'material_name' in tbl.c:
+                update_values['material_name'] = target.name
+            if 'spec' in tbl.c:
+                update_values['spec'] = target.spec
         res = db.session.execute(
-            tbl.update().where(tbl.c.material_id == source.id).values(
-                material_id=target.id))
+            tbl.update().where(tbl.c.material_id == source.id).values(**update_values))
         if res.rowcount:
             stats['tables'][name] = res.rowcount
+
+    # 2b) BOM 产品编码/名称同步（与 edit_material 级联口径一致）
+    bom_tbl = db.metadata.tables.get('bom')
+    if bom_tbl is not None and 'product_code' in bom_tbl.c and source.code:
+        bom_vals = {'product_code': target.code}
+        if 'product_name' in bom_tbl.c:
+            bom_vals['product_name'] = target.name
+        bom_res = db.session.execute(
+            bom_tbl.update().where(bom_tbl.c.product_code == source.code).values(**bom_vals))
+        if bom_res.rowcount:
+            stats['tables']['bom'] = bom_res.rowcount
+
+    # 2c) 合并物料图片去重、重排并同步主图（Material.image），兼容无 material_image 记录的历史单图
+    merged_images = (
+        MaterialImage.query.filter_by(material_id=target.id)
+        .order_by(MaterialImage.sort_order.asc(), MaterialImage.id.asc())
+        .all()
+    )
+    seen_img_paths = set()
+    kept_images = []
+    for img_row in merged_images:
+        norm_path = (img_row.image or '').strip()
+        if norm_path and norm_path in seen_img_paths:
+            db.session.delete(img_row)
+            continue
+        if norm_path:
+            seen_img_paths.add(norm_path)
+        kept_images.append(img_row)
+    for idx, img_row in enumerate(kept_images):
+        img_row.sort_order = idx
+    db.session.flush()
+    sync_material_primary_image(target)
+    if not target.image:
+        target.image = prev_target_image or prev_source_image
 
     # 3) 库位账：同 (仓库 + 库位) 合并数量，否则改指
     li = db.metadata.tables.get('location_inventory')

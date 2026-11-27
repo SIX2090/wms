@@ -70,7 +70,7 @@
                 });
                 node('mergeDifferences').textContent = differences.length ? '差异提示：' + differences.join('、') + '不同，请人工判断是否同一种物料。' : '档案属性一致，仍需人工判断并确认。';
                 var labels = {adjustment_order_item: '调整单明细', after_sale_out_order_item: '售后出库明细',
-                    ai_document_item: 'AI草稿明细', bom_item: 'BOM明细', in_order_item: '入库明细',
+                    ai_document_item: 'AI草稿明细', bom: 'BOM清单', bom_item: 'BOM明细', in_order_item: '入库明细',
                     inventory_check_item: '盘点明细', inventory_check_scan_item: '扫码盘点明细', material_image: '物料图片',
                     opening_stock: '期初库存', out_order_item: '出库明细', production_requisition_item: '领料明细',
                     purchase_order_item: '采购订单明细', purchase_request_item: '采购申请明细', sales_order_item: '销售订单明细',

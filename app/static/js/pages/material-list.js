@@ -199,7 +199,7 @@ function updateToolbarButtons() {
     remotePrintButton.disabled = !hasSelection || remotePrintButton.dataset?.runtimePaused === '1';
     document.getElementById('toolbarFindImageBtn').disabled = !isSingleSelection;
     document.getElementById('toolbarDeleteBtn').disabled = !materialPageData.canDelete || !hasSelection || materialDeleteBusy;
-    document.getElementById('toolbarMergeBtn').disabled = count < 1 || count > 2;
+    document.getElementById('toolbarMergeBtn').disabled = !materialPageData.canDelete || count < 1 || count > 2;
     var selectionBar = document.getElementById('materialSelectionBar');
     if (selectionBar) selectionBar.hidden = !hasSelection;
     var selectionCount = document.getElementById('materialSelectionCount');
@@ -379,9 +379,17 @@ function toggleMaterialStatus(id, status) {
 
 // MATERIAL-MERGE-HUMAN-001：行按钮固定被合并方；工具栏支持选1或2条，再人工核对方向。
 function mergeMaterialInto(id, sourceCode) {
+    if (typeof materialPageData !== 'undefined' && !materialPageData.canDelete) {
+        showToast('仅 admin 账号可以合并物料档案', 'warning');
+        return;
+    }
     WMS.MaterialMerge.open({id: Number(id), code: sourceCode});
 }
 function toolbarMerge() {
+    if (typeof materialPageData !== 'undefined' && !materialPageData.canDelete) {
+        showToast('仅 admin 账号可以合并物料档案', 'warning');
+        return;
+    }
     var selected = Array.from(document.querySelectorAll('#materialTable .check-item:checked')).map(function (node) {
         return {id: Number(node.value), code: node.closest('tr').querySelector('[data-column-key="code"]').textContent.trim()};
     });
@@ -829,8 +837,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         addForm.addEventListener('submit', function(e) {
             e.preventDefault();
+            if (this._submitting) return;
             if (!commitQuickSelects(this)) return;
-            var formData = new FormData(this);
+            var formEl = this;
+            var submitBtn = formEl.querySelector ? formEl.querySelector('button[type="submit"]') : null;
+            formEl._submitting = true;
+            if (submitBtn) submitBtn.disabled = true;
+            var formData = new FormData(formEl);
             WMS.api.postRaw(materialPageData.urls.add, formData)
             .then(function(res) {
                 if (res.status === 'success') {
@@ -844,10 +857,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     } catch(e) {}
                     showToast(res.msg || '物料保存成功，正在刷新列表…', 'success', 1800);
                     setTimeout(function(){ location.reload(); }, 500);
+                } else {
+                    formEl._submitting = false;
+                    if (submitBtn) submitBtn.disabled = false;
+                    showToast(res.msg || '保存失败', 'danger', 3600);
                 }
-                else showToast(res.msg || '保存失败', 'danger', 3600);
             })
-            .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
+            .catch(function(err){
+                formEl._submitting = false;
+                if (submitBtn) submitBtn.disabled = false;
+                showToast('保存失败：' + err.message, 'danger', 3600);
+            });
         });
     }
 
@@ -925,12 +945,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     grid.innerHTML = '<div class="text-muted small">暂无图片</div>';
                     return;
                 }
+                function escapeAttr(val) {
+                    return String(val == null ? '' : val)
+                        .replace(/&/g, '&amp;')
+                        .replace(/\x22/g, '&quot;')
+                        .replace(/\x27/g, '&#39;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                }
                 var html = '';
                 images.forEach(function(img) {
+                    var src = escapeAttr(img.url || img.image || '');
+                    var imgId = escapeAttr(img.id);
                     html += '<div class="material-image-card">'
-                        + '<img src="' + (img.url || img.image) + '" alt="物料图片">'
+                        + '<img src="' + src + '" alt="物料图片">'
                         + '<div class="image-meta">'
-                        + '<button type="button" class="btn btn-sm btn-outline-danger" data-material-action="deleteEditMaterialImage" data-material-id="' + img.id + '">删除</button>'
+                        + '<button type="button" class="btn btn-sm btn-outline-danger" data-material-action="deleteEditMaterialImage" data-material-id="' + imgId + '">删除</button>'
                         + '</div>'
                         + '</div>';
                 });
@@ -968,15 +998,22 @@ document.addEventListener('DOMContentLoaded', function() {
         var file = input.files[0];
         var formData = new FormData();
         formData.append('image', file);
+        var uploadToken = (input._uploadToken || 0) + 1;
+        input._uploadToken = uploadToken;
+        input._uploading = true;
         showToast('正在上传图片...', 'info', 1500);
         WMS.api.post('/mobile/api/material_archive/' + editId + '/images', formData)
             .then(function() {
+                if (input._uploadToken === uploadToken) input._uploading = false;
                 if (!context.isCurrent()) return;
                 showToast('图片已上传', 'success', 2000);
                 input.value = '';
                 loadEditMaterialImages(editId);
             })
-            .catch(function(err){ if (context.isCurrent()) { showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; } });
+            .catch(function(err){
+                if (input._uploadToken === uploadToken) input._uploading = false;
+                if (context.isCurrent()) { showToast((err && (err.msg || err.message)) || '上传失败', 'danger', 3600); input.value = ''; }
+            });
     };
 
     window.copyMaterial = function(id) {
@@ -1089,7 +1126,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     img.alt = candidate.title || '候选图片';
                     img.referrerPolicy = 'no-referrer';
                     img.onerror = function() {
-                        this.src = candidate.image_url;
+                        this.onerror = null;
+                        if (candidate.image_url && this.src !== candidate.image_url) {
+                            this.src = candidate.image_url;
+                        }
                     };
                     var meta = document.createElement('div');
                     meta.className = 'image-meta';
@@ -1147,14 +1187,20 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 修复空分类/单位
     window.fixEmptyFields = function() {
+        if (window.fixEmptyFields._busy) return;
         const category_id = document.getElementById('repairCategory').value;
         const unit_id = document.getElementById('repairUnit').value;
-        WMS.api.postRaw(materialPageData.urls.fix, {category_id, unit_id})
+        window.fixEmptyFields._busy = true;
+        return WMS.api.postRaw(materialPageData.urls.fix, {category_id, unit_id})
         .then(function(res) {
+            window.fixEmptyFields._busy = false;
             showToast(res.msg || '修复完成', res.status === 'success' ? 'success' : 'danger');
             if (res.status === 'success') location.reload();
         })
-        .catch(function(err){ showToast('修复失败: ' + err.message, 'danger'); });
+        .catch(function(err){
+            window.fixEmptyFields._busy = false;
+            showToast('修复失败: ' + err.message, 'danger');
+        });
     };
 
     // 删除全部物料入口已禁用，后端也会拒绝请求。
@@ -1177,15 +1223,29 @@ document.addEventListener('DOMContentLoaded', function() {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
             if (isWmsMasterEditPending()) return;
-            if (!commitQuickSelects(this)) return;
-            var formData = new FormData(this);
+            var formEl = this;
+            if (formEl._submitting) return;
+            var editImgInput = document.getElementById('edit_image_upload');
+            if (editImgInput && editImgInput._uploading) {
+                showToast('图片正在上传，请稍候再保存', 'warning', 2400);
+                return;
+            }
+            if (!commitQuickSelects(formEl)) return;
+            var formData = new FormData(formEl);
+            // #edit_image_upload 已通过 uploadEditMaterialImage 即时上传，提交表单时不再重复附带 image 文件
+            if (typeof formData.delete === 'function') {
+                formData.delete('image');
+            }
             var id = document.getElementById('edit_id').value;
             var originalCode = document.getElementById('edit_code').getAttribute('data-original');
             var currentCode = document.getElementById('edit_code').value.trim();
             var originalName = document.getElementById('edit_name').getAttribute('data-original');
             var currentName = document.getElementById('edit_name').value.trim();
+            var submitBtn = formEl.querySelector ? formEl.querySelector('button[type="submit"]') : null;
 
             function doSubmit() {
+                formEl._submitting = true;
+                if (submitBtn) submitBtn.disabled = true;
                 // 立即关闭确认对话框的 overlay
                 var confirmOverlay = document.getElementById('cbConfirmOverlay');
                 if (confirmOverlay) {
@@ -1221,10 +1281,16 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
                         }, 300);
                     } else {
+                        formEl._submitting = false;
+                        if (submitBtn) submitBtn.disabled = false;
                         showToast(res.msg || '保存失败', 'danger', 3600);
                     }
                 })
-                .catch(function(err){ showToast('保存失败：' + err.message, 'danger', 3600); });
+                .catch(function(err){
+                    formEl._submitting = false;
+                    if (submitBtn) submitBtn.disabled = false;
+                    showToast('保存失败：' + err.message, 'danger', 3600);
+                });
             }
 
             // 直接提交，不再弹出确认对话框

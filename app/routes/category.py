@@ -231,8 +231,9 @@ def register_category_routes(app):
         matching_ids = {category.id for category in query.all()}
         tree_query, _ = _apply_master_order(MaterialCategory.query, MaterialCategory, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
         rows = build_category_tree_rows(tree_query.all(), preserve_order=True)
+        from utils import _sanitize_excel_cell
         for c in (row['category'] for row in rows if row['category'].id in matching_ids):
-            ws.append([c.code, c.name, c.parent.code if c.parent else ''])
+            ws.append([_sanitize_excel_cell(v) for v in [c.code, c.name, c.parent.code if c.parent else '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

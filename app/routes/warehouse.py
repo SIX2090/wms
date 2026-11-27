@@ -333,9 +333,10 @@ def register_warehouse_routes(app):
         ws.title = '仓库数据'
         ws.append(['仓库编码', '仓库名称', '仓库类型', '仓库位置', '状态', '备注'])
         query, _, _, _ = _warehouse_query_from_args()
+        from utils import _sanitize_excel_cell
         for warehouse in query.all():
             status_label = '启用' if warehouse.status == 'active' else ('停用' if warehouse.status == 'inactive' else (warehouse.status or ''))
-            ws.append([warehouse.code, warehouse.name, warehouse.type or '', warehouse.location or '', status_label, warehouse.remark or ''])
+            ws.append([_sanitize_excel_cell(v) for v in [warehouse.code, warehouse.name, warehouse.type or '', warehouse.location or '', status_label, warehouse.remark or '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

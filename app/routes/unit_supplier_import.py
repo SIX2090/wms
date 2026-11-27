@@ -59,8 +59,9 @@ def register_unit_supplier_import_routes(app):
         search, status_filter, sort_by, sort_order = _get_master_list_filters('code')
         query = _apply_simple_search(Unit.query, Unit, search, ['code', 'name'])
         query, _ = _apply_master_order(query, Unit, sort_by, sort_order, {'id', 'code', 'name', 'created_at'}, 'code')
+        from utils import _sanitize_excel_cell
         for u in query.all():
-            ws.append([u.code, u.name])
+            ws.append([_sanitize_excel_cell(v) for v in [u.code, u.name]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
@@ -154,8 +155,9 @@ def register_unit_supplier_import_routes(app):
             Supplier.query, Supplier, ['code', 'name', 'contact', 'phone', 'address'],
             business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, _ = _apply_master_order(query, Supplier, sort_by, sort_order, {'id', 'code', 'name', 'contact', 'phone', 'created_at'}, 'code')
+        from utils import _sanitize_excel_cell
         for s in query.all():
-            ws.append([s.code, s.name, s.contact or '', s.phone or '', s.address or ''])
+            ws.append([_sanitize_excel_cell(v) for v in [s.code, s.name, s.contact or '', s.phone or '', s.address or '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

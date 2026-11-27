@@ -268,8 +268,9 @@ def register_customer_routes(app):
             Customer.query, Customer, ['code', 'name', 'contact', 'phone', 'address'],
             business_expr=db.or_(*_biz_parts) if _biz_parts else None)
         query, _ = _apply_master_order(query, Customer, sort_by, sort_order, {'id', 'code', 'name', 'contact', 'phone', 'created_at'}, 'code')
+        from utils import _sanitize_excel_cell
         for customer in query.all():
-            ws.append([customer.code, customer.name, customer.contact or '', customer.phone or '', customer.address or ''])
+            ws.append([_sanitize_excel_cell(v) for v in [customer.code, customer.name, customer.contact or '', customer.phone or '', customer.address or '']])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)

@@ -282,15 +282,16 @@ def register_contract_routes(app):
             ))
         if status in ('active', 'inactive'):
             query = query.filter(Contract.status == status)
+        from utils import _sanitize_excel_cell
         for contract in query.order_by(Contract.created_at.desc()).all():
             status_label = '启用' if contract.status == 'active' else ('停用' if contract.status == 'inactive' else (contract.status or ''))
-            ws.append([
+            ws.append([_sanitize_excel_cell(v) for v in [
                 contract.contract_no,
                 contract.project_name,
                 status_label,
                 contract.remark or '',
                 contract.created_at.strftime('%Y-%m-%d %H:%M') if contract.created_at else ''
-            ])
+            ]])
         output = io.BytesIO()
         wb.save(output)
         output.seek(0)
