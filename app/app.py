@@ -29564,7 +29564,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     if start_date and end_date and start_date > end_date:
         raise ReportFilterError('结束日期不能早于开始日期')
     status = (request.args.get('status') or '').strip()
-    if report_type in ('in_detail', 'out_detail'):
+    if report_type in ('in_detail', 'out_detail', 'summary'):
         if status not in ('', 'all', 'pending', 'completed'):
             raise ReportFilterError('单据状态无效，请重新选择状态')
         status = '' if status == 'all' else (status or 'completed')

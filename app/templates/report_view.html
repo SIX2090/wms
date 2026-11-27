@@ -217,7 +217,7 @@
             <div class="col-md-3">
                 <label for="status" class="form-label">状态</label>
                 <select id="status" name="status" class="form-select">
-                    {% if report_type in ('in_detail', 'out_detail') %}
+                    {% if report_type in ('in_detail', 'out_detail', 'summary') %}
                     <option value="completed" selected>已完成</option>
                     <option value="pending">待处理</option>
                     <option value="all">全部（含草稿）</option>
@@ -279,6 +279,7 @@
 {% endif %}
 {% if report_type in ('ledger', 'material_movement', 'warehouse_monthly') %}
 <div class="small text-muted mb-3" id="balanceRoundingFootnote">口径说明：期初+本期入库−本期出库 与期末可能存在 ≤0.01 的舍入尾差，属显示口径，非账务错误。</div>
+<div class="small text-muted mb-3" id="openingScopeComparisonNotice">期初建账口径对照：在所选期间内录入的期初建账（opening）流水，在「物料收发存」与「仓库月报」中计入本期/期间入库（正数）或出库（负数）；在「库存台账」中单列“期初数量”且不重复计入本期入库/出库，三者期末结存一致。</div>
 {% endif %}
 {% if null_warehouse_txn_count|default(0) > 0 %}
 <div class="alert alert-warning py-2 px-3 mb-3 small" id="nullWarehouseTxnNotice" role="note">
