@@ -661,6 +661,7 @@ def register_out_order_routes(app):
     @login_required
     def out_order_add_page():
         from datetime import date, datetime
+        from flask_login import current_user
         from app import (Customer, Material, OutOrder, OutOrderItem, Unit,
                          generate_order_no, get_active_warehouses,
                          get_default_warehouse, get_warehouse_stock_quantities,
@@ -669,12 +670,16 @@ def register_out_order_routes(app):
                          serialize_customer, serialize_material_with_stock, serialize_unit,
                          validate_inventory_warehouse)
         from sqlalchemy.orm import joinedload
+        order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
+        order_id = request.args.get('order_id', type=int)
+        production_draft_only = current_user.role == 'production'
+        if production_draft_only and (order_type or order_id is not None):
+            abort(403, '生产账号只能新增普通领料草稿')
         materials = Material.query.options(joinedload(Material.unit)).all()
-        if not request.args.get('order_id', type=int):
+        if not order_id:
             materials = [m for m in materials if m.status != 'inactive']
         units = Unit.query.all()
         customers = Customer.query.order_by(Customer.code.asc(), Customer.id.asc()).all()
-        order_id = request.args.get('order_id', type=int)
         order = None
         if order_id:
             order = OutOrder.query.options(
@@ -684,7 +689,6 @@ def register_out_order_routes(app):
                 abort(409, '只有反提交后的草稿领料单可以编辑')
             if _active_outbound_allocations(order).first():
                 return redirect(url_for('out_order_detail', id=order.id))
-        order_type = 'other_out' if request.path == '/other_out_order/add' else (request.args.get('type') or '').strip().lower()
         is_sale_order = order.business_type == '销售出库' if order else order_type in ('sale', 'sales')
         is_other_out = order.business_type == '其他出库' if order else order_type in ('other', 'other_out')
         # P1-7 采购退货出库：type=purchase_return 进入；形态与销售出库一致（客户归属 + 客户搜索框），
@@ -717,6 +721,7 @@ def register_out_order_routes(app):
                              is_sale_order=is_sale_order,
                              is_other_out=is_other_out,
                              is_purchase_return=is_purchase_return,
+                             production_draft_only=production_draft_only,
                              purchase_return_requires_order=purchase_return_requires_order(),
                              sales_outbound_requires_order=sales_outbound_requires_order(),
                              default_business_type=entry_type,
@@ -761,7 +766,7 @@ def register_out_order_routes(app):
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
     @app.route('/out_order/add', methods=['POST'])
-    @require_role('warehouse')
+    @require_role('warehouse', 'production')
     @login_required
     @web_document_idempotent
     def add_out_order():
@@ -781,6 +786,10 @@ def register_out_order_routes(app):
             payload = request.get_json(silent=True)
             data = payload if isinstance(payload, dict) else request.form
             order_id = data.get('order_id')
+            business_type = (data.get('business_type') or '').strip()
+            if current_user.role == 'production' and (
+                    order_id not in (None, '', 'None', 'null') or business_type != '领料单'):
+                return api_error('生产账号只能新增普通领料草稿', 403)
             if order_id in ('', 'None', 'null'):
                 order_id = None
             elif order_id:
@@ -795,7 +804,6 @@ def register_out_order_routes(app):
                 return api_error('日期格式不正确，请重新选择日期')
             if is_future_date(order_date):
                 return jsonify({'status': 'error', 'msg': '出库日期不能晚于今天'}), 400
-            business_type = (data.get('business_type') or '').strip()
             if business_type == '生产出库':
                 business_type = '领料单'
             if business_type not in ('领料单', '销售出库', '其他出库', '采购退货出库'):

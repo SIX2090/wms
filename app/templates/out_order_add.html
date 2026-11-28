@@ -456,7 +456,11 @@ textarea.form-control {
     </div>
     {% else %}
     <div class="d-flex gap-2 flex-wrap">
-        {% if not is_sale_order and not is_purchase_return %}
+        {% if production_draft_only %}
+        <button type="button" class="btn btn-primary" data-wms-save onclick="submitForm()">
+            <i class="bi bi-save"></i> 保存草稿
+        </button>
+        {% elif not is_sale_order and not is_purchase_return %}
         <button type="button" class="btn btn-primary" data-wms-save-complete="requisition" data-wms-save-complete-label="保存" onclick="submitForm(false, true)">
             <i class="bi bi-check-circle"></i> 保存
         </button>
@@ -505,7 +509,9 @@ textarea.form-control {
                     <div class="mb-2">
                         <label class="form-label">业务类型</label>
                         <select class="form-select" name="business_type">
-                            {% if is_other_out %}
+                            {% if production_draft_only %}
+                            <option value="领料单" selected>领料单</option>
+                            {% elif is_other_out %}
                             <option value="其他出库" selected>其他出库</option>
                             {% elif is_purchase_return %}
                             <option value="采购退货出库" selected>采购退货出库</option>

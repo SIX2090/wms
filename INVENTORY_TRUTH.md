@@ -1,5 +1,7 @@
 # 库存真相（INVENTORY_TRUTH.md）
 
+> 2026-11-28：修正启动回填函数的行号，逐处校验文中源码引用。
+>
 > 2026-11-28：随 BUG-2026-11-28-002 同步 `app/app.py` `backfill_stock_txn_warehouse_id` 行号引用至 31223，库存规则不变。
 >
 > 2026-11-28：随 BUG-2026-11-28-001 同步 `app/app.py` `backfill_stock_txn_warehouse_id` 行号引用至 31193，库存规则不变。
@@ -333,7 +335,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:31223`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:31341`）幂等回填历史行。
 - **兼容读取**：优先使用 `warehouse_id`。对外键为空的流水，旧文本同时按仓库名、编码和库位名核对，只有全部匹配都指向同一仓库时才纳入该仓。兼容读取和回填共用这条判据。空位置仍按可核实的来源单据解析。
 - **每日巡检**：对仓库外键为空、位置有旧文本且有明确来源单据仓库的流水，按物料、单据和旧位置汇总净额。位置无法唯一匹配，或匹配仓库与当前来源单据仓不同，月报显示待核对的组数，并列出示例单号、旧位置和仓库 ID。结果供人工核对。
 

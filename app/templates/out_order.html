@@ -46,6 +46,8 @@
                 <input type="file" id="outOrderImportFile" aria-label="导入出库单Excel文件" name="file" accept=".xlsx,.xls" data-document-list-change="import">
             </form>
         </div>
+        {% elif current_user.role == 'production' and filters.business_type not in ['其他出库', '销售出库', '采购退货出库'] %}
+        <a href="/out_order/add" class="btn btn-primary btn-sm"><i class="bi bi-plus-lg"></i> 新增领料单</a>
         {% endif %}
     </div>
 </div>

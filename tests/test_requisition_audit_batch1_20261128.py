@@ -331,6 +331,53 @@ def _client_as(w, user_id: int):
     return c
 
 
+def test_production_can_create_only_ordinary_requisition_drafts():
+    from tests.document_revision_client import document_post
+
+    w, env = _setup_env()
+    prod_c = _client_as(w, env["users"]["production"])
+    wh_c = _client_as(w, env["users"]["warehouse"])
+    ajax = {"X-Requested-With": "XMLHttpRequest"}
+    payload = {
+        "date": date.today().isoformat(), "business_type": "领料单",
+        "warehouse_id": env["wh_a"],
+        "items": [{"code": "M001", "quantity": 2, "price": 10}],
+    }
+
+    listing = prod_c.get(f"/out_order?warehouse_id={env['wh_a']}")
+    assert listing.status_code == 200
+    assert 'href="/out_order/add"' in listing.get_data(as_text=True)
+    page = prod_c.get("/out_order/add")
+    assert page.status_code == 200
+    html = page.get_data(as_text=True)
+    assert "保存草稿" in html
+    assert 'data-wms-save-complete="requisition"' not in html
+    assert 'data-wms-save-complete="requisition"' in wh_c.get("/out_order/add").get_data(as_text=True)
+
+    for url in ("/other_out_order/add", "/out_order/add?type=sale", "/out_order/add?type=purchase_return"):
+        assert prod_c.get(url).status_code == 403
+    for business_type in ("其他出库", "销售出库", "采购退货出库"):
+        response = prod_c.post("/out_order/add", json={**payload, "business_type": business_type}, headers=ajax)
+        assert response.status_code == 403
+
+    saved = prod_c.post("/out_order/add", json=payload, headers=ajax)
+    assert saved.status_code == 200 and saved.get_json()["status"] == "success"
+    order_id = saved.get_json()["id"]
+    assert prod_c.get(f"/out_order/add?order_id={order_id}").status_code == 403
+    edit_payload = {**payload, "order_id": order_id}
+    assert prod_c.post("/out_order/add", json=edit_payload, headers=ajax).get_json()["code"] == "DOCUMENT_REVISION_REQUIRED"
+    assert document_post(prod_c, "/out_order/add", json=edit_payload, headers=ajax).status_code == 403
+    assert prod_c.post(f"/out_order/{order_id}/complete", json={}, headers=ajax).status_code == 403
+
+    with w.app.app_context():
+        assert w.OutOrder.query.count() == 1
+        order = w.db.session.get(w.OutOrder, order_id)
+        assert order.status == "pending"
+        assert order.operator_id == env["users"]["production"]
+        assert order.business_type == "领料单"
+        assert w.db.session.get(w.Material, env["m1"]).stock == 0
+
+
 @pytest.mark.skipif(not _IS_LINUX_ISOLATED, reason="Full Flask integration runs on isolated Linux CI")
 def test_b1_integration_rbac_list_print_and_ai_anomaly():
     w, env = _setup_env()

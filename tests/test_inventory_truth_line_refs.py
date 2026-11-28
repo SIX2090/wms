@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -78,7 +79,19 @@ def test_doc_cites_current_line(needle, rel, anchor):
     """INVENTORY_TRUTH.md 里写的行号必须等于符号当前实际行号。"""
     actual = _locate(rel, needle, anchor)
     doc = (ROOT / "INVENTORY_TRUTH.md").read_text(encoding="utf-8")
-    assert f"{rel}:{actual}" in doc, (
+    assert re.search(rf"{re.escape(rel)}:{actual}\b", doc), (
         f"INVENTORY_TRUTH.md 里没有 {rel}:{actual}——代码行数漂移了，"
         f"请把文档中的引用更新为当前实际行号。"
     )
+
+
+def test_doc_has_no_stale_line_references():
+    """校验清单涉及文件的每处行号引用，包括同一符号在其他章节的引用。"""
+    expected = {
+        f"{rel}:{_locate(rel, needle, anchor)}"
+        for needle, rel, anchor in REFS
+    }
+    paths = "|".join(re.escape(rel) for rel in sorted({rel for _, rel, _ in REFS}))
+    doc = (ROOT / "INVENTORY_TRUTH.md").read_text(encoding="utf-8")
+    unexpected = set(re.findall(rf"(?:{paths}):\d+\b", doc)) - expected
+    assert not unexpected, f"INVENTORY_TRUTH.md 有过期或未纳入清单的引用：{sorted(unexpected)}"
