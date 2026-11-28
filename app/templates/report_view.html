@@ -326,7 +326,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4" id="reportAmountCard"{% if report_type in ('in_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not price_dimension_enabled %} hidden{% endif %}>
+    <div class="col-md-4" id="reportAmountCard"{% if report_type in ('in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not price_dimension_enabled %} hidden{% endif %}>
         <div class="card border-0 shadow-sm summary-card">
             <div class="card-body">
                 <div class="summary-label">{{ summary_labels.amount }}</div>
@@ -1069,13 +1069,14 @@ async function loadData() {
         if (!response.ok || result.status !== 'success') {
             throw new Error(result.msg || '报表查询失败');
         }
-        if (reportType === 'in_detail') {
+        if (reportType === 'in_detail' || reportType === 'out_detail') {
             const lastPage = result.total_pages || 1;
             if (currentPage > lastPage) {
                 currentPage = lastPage;
                 return loadData();
             }
-            document.getElementById('reportAmountCard').hidden = !Object.hasOwn(result.summary || {}, 'amount');
+            const amountCard = document.getElementById('reportAmountCard');
+            if (amountCard) amountCard.hidden = !Object.hasOwn(result.summary || {}, 'amount');
         } else if (['purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary'].includes(reportType)) {
             const amountCard = document.getElementById('reportAmountCard');
             if (amountCard) amountCard.hidden = !Object.hasOwn(result.summary_labels || {}, 'amount');

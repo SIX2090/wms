@@ -8,6 +8,7 @@ from werkzeug.exceptions import HTTPException
 
 from routes.doc_print_excel import _DOC_ROUTE_MODELS
 from routes.purchase_order import purchase_order_read_required
+from utils import require_role
 
 _DOCUMENTS={code:(prefix,model,f'doc_print_excel_{code}')
             for code,(prefix,model) in _DOC_ROUTE_MODELS.items()}
@@ -112,5 +113,7 @@ def register_document_print_routes(app):
             view = login_required(_make_document_print_view(app, code, preview, download))
             if code == 'purchase_order':
                 view = purchase_order_read_required(view)
+            elif code in ('in_order', 'out_order'):
+                view = require_role('warehouse', 'finance', 'purchase', 'production', 'sales')(view)
             app.add_url_rule(f'/{prefix}/<int:id>/{suffix}',endpoint=f'document_{code}_{suffix}',
                              view_func=view,methods=['GET'])

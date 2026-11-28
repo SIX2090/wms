@@ -11441,8 +11441,8 @@ def _ai_analyze_out_order_anomalies(order_id):
                 'severity': 'warning',
             })
 
-        # 4. 单价与标准价偏差超过20%
-        if std_price > 0 and abs(item_price - std_price) / std_price > 0.2:
+        # 4. 单价与标准价偏差超过20%（仅开启价格维度时检查）
+        if price_dimension_enabled() and std_price > 0 and abs(item_price - std_price) / std_price > 0.2:
             deviation = (item_price - std_price) / std_price * 100
             anomalies.append({
                 'material_code': m.code,
@@ -28780,6 +28780,7 @@ def _check_out_order_anomalies(order):
 
 
 @app.route('/api/ai/out_order/<int:id>/anomaly_analysis')
+@require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
 @login_required
 def api_ai_out_order_anomaly_analysis(id):
     """出库单异常AI分析接口"""
@@ -29703,7 +29704,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     inbound_detail = report_type == 'in_detail'
     include_prices = (
         report_type not in (
-            'in_detail', 'inventory_turnover',
+            'in_detail', 'out_detail', 'inventory_turnover',
             'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary',
         ) or price_dimension_enabled()
     )
@@ -32341,9 +32342,15 @@ def _sql_paged_in_detail_report(filters):
 def _sql_paged_out_detail_report(filters):
     """出库明细 SQL 分页 builder：返回 (columns, rows, summary, total)。"""
     columns = _out_detail_columns()
+    include_prices = filters.get('include_prices', True)
     # AGENTS.md 报表仓库必填，无仓库不返回数据
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
-        return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
+        empty_summary = {'count': 0, 'quantity': 0, 'amount': 0}
+        if not include_prices:
+            from services.report_print_preview import visible_report_data
+            columns, _ = visible_report_data(columns, [], include_prices=False)
+            empty_summary.pop('amount', None)
+        return columns, [], empty_summary, 0
     base = _filtered_out_detail_query(filters)
     if filters.get('_skip_summary') and filters.get('_known_total') is not None:
         total = int(filters['_known_total'])
@@ -32373,6 +32380,10 @@ def _sql_paged_out_detail_report(filters):
         row = _out_detail_row(item)
         if row is not None:
             rows.append(row)
+    if not include_prices:
+        from services.report_print_preview import visible_report_data
+        columns, rows = visible_report_data(columns, rows, include_prices=False)
+        summary.pop('amount', None)
     return columns, rows, summary, total
 
 
@@ -33383,7 +33394,7 @@ def _build_report_payload(report_type, filters):
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
 
-    if report_type in ('in_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not filters.get('include_prices', True):
+    if report_type in ('in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not filters.get('include_prices', True):
         definition = dict(definition, **{key: {k: v for k, v in definition[key].items() if k != 'amount'}
                                         for key in ('summary_labels', 'summary_types')})
 

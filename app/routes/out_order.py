@@ -28,7 +28,7 @@ import json
 import math
 
 from collections import Counter
-from flask import abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import abort, has_app_context, jsonify, redirect, render_template, request, send_file, url_for
 from flask_login import login_required
 
 from db import db
@@ -148,7 +148,7 @@ def _out_order_party_label(business_type):
             '销售出库': '客户'}.get(business_type, '领料部门')
 
 
-def _build_out_order_excel(order, box_numbers=None):
+def _build_out_order_excel(order, box_numbers=None, show_price=None):
     """按用户指定样式生成领料单 Excel（无合计行）。
 
     列：物料编码|品牌|物料名称|规格|单位|数量|单价|金额|合同编号；
@@ -159,6 +159,13 @@ def _build_out_order_excel(order, box_numbers=None):
     from openpyxl.styles import Alignment, Border, Font, Side
     from openpyxl.utils import get_column_letter
     from utils import _sanitize_excel_cell
+
+    if show_price is None:
+        if has_app_context():
+            from app import price_dimension_enabled
+            show_price = price_dimension_enabled()
+        else:
+            show_price = True
 
     wb = Workbook()
     ws = wb.active
@@ -235,8 +242,12 @@ def _build_out_order_excel(order, box_numbers=None):
             ws.cell(row=row, column=col, value=_sanitize_excel_cell(value))
         ws.cell(row=row, column=5 + offset, value=_sanitize_excel_cell(unit))
         ws.cell(row=row, column=6 + offset, value=float(getattr(item, 'quantity', None) or 0)).number_format = '0.##'
-        ws.cell(row=row, column=7 + offset, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
-        ws.cell(row=row, column=8 + offset, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        if show_price:
+            ws.cell(row=row, column=7 + offset, value=float(getattr(item, 'price', None) or 0)).number_format = '0.00'
+            ws.cell(row=row, column=8 + offset, value=float(getattr(item, 'amount', None) or 0)).number_format = '0.00'
+        else:
+            ws.cell(row=row, column=7 + offset, value='')
+            ws.cell(row=row, column=8 + offset, value='')
         ws.cell(row=row, column=9 + offset, value=_sanitize_excel_cell(getattr(item, 'contract_no', None) or contract_no or ''))
         for col in range(1, last_column + 1):
             c = ws.cell(row=row, column=col)
@@ -280,8 +291,9 @@ def register_out_order_routes(app):
         """复制独立出库单；关联销售订单的后续发货从订单下推。"""
         from datetime import date
         from app import (OutOrder, OutOrderItem, api_error, generate_order_no,
-                         log_operation, recalculate_order_total,
-                         round_to_2_decimals)
+                         log_operation, purchase_return_requires_order,
+                         recalculate_order_total, round_to_2_decimals,
+                         validate_inventory_warehouse, validate_sales_warehouse)
         from flask_login import current_user
         from sqlalchemy.orm import joinedload
         source = OutOrder.query.options(
@@ -295,16 +307,26 @@ def register_out_order_routes(app):
             from app import sales_outbound_requires_order
             if _active_outbound_allocations(source).first() or sales_outbound_requires_order():
                 return api_error('销售出库单不能直接复制；请从原销售订单下推剩余发货数量，无来源发货请使用「其他出库」', 409)
+        elif _active_outbound_allocations(source).first():
+            return api_error('由入库单下推生成的出库单不能直接复制，请从来源入库单重新下推', 409)
+        if source.business_type == '采购退货出库':
+            if (source.source_in_order_id or any(row.source_in_order_item_id for row in source.items)
+                    or purchase_return_requires_order()):
+                return api_error('请从原采购入库单发起采购退货，不能直接复制退货出库单', 409)
         if not source.items:
             return api_error('原出库单没有明细，不能复制')
 
         business_type = source.business_type or '领料单'
-        if business_type == '其他出库':
-            prefix = 'OO'
-        elif business_type == '销售出库':
-            prefix = 'SO'
+        if business_type == '销售出库':
+            wh_obj, wh_err = validate_sales_warehouse(source.warehouse or '')
         else:
-            prefix = 'OUT'
+            wh_obj, wh_err = validate_inventory_warehouse(source.warehouse or '')
+        if wh_err or not wh_obj:
+            return api_error(wh_err or '原出库单仓库无效或已停用，不能复制')
+        if any(item.material and item.material.status == 'inactive' for item in source.items):
+            return api_error('原出库单包含已停用物料，不能复制')
+
+        prefix = {'其他出库': 'OO', '销售出库': 'SO', '采购退货出库': 'PR'}.get(business_type, 'OUT')
 
         try:
             remark_parts = [f'由出库单 {source.order_no} 复制生成']
@@ -316,7 +338,7 @@ def register_out_order_routes(app):
                 department_id=source.department_id,
                 customer=source.customer,
                 business_type=business_type,
-                warehouse=source.warehouse or '',
+                warehouse=wh_obj.name,
                 location=getattr(source, 'location', '') or '',
                 purpose=source.purpose,
                 picker=source.picker,
@@ -337,7 +359,7 @@ def register_out_order_routes(app):
                 quantity = round_to_2_decimals(item.quantity or 0)
                 if quantity <= 0:
                     continue
-                price = round_to_2_decimals(item.price or 0)
+                price = round_to_2_decimals(max(0.0, float(item.price or 0)))
                 db.session.add(OutOrderItem(
                     out_order_id=new_order.id,
                     material_id=item.material_id,
@@ -369,6 +391,7 @@ def register_out_order_routes(app):
 
     @app.route('/out_order')
     @app.route('/other_out_order')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def out_order_list():
         from app import (Material, OutOrder, OutOrderItem,
@@ -776,6 +799,8 @@ def register_out_order_routes(app):
             picker = (data.get('picker') or '').strip()
             warehouse = (data.get('warehouse') or '').strip()
             location = (data.get('location') or '').strip()
+            has_purpose = 'purpose' in data
+            purpose = (data.get('purpose') or '').strip()
             remark = (data.get('remark') or '').strip()
             contract_id = data.get('contract_id')
             contract_no = (data.get('contract_no') or '').strip()
@@ -921,6 +946,17 @@ def register_out_order_routes(app):
             order.picker = picker or None
             order.warehouse = warehouse
             order.location = location
+            linked_sales_outbound = (
+                business_type == '销售出库'
+                and (
+                    bool(order.source_sales_order_id)
+                    or (order.purpose or '').strip() == '选单生成销售出库'
+                    or (order.purpose or '').strip().startswith('来源销售订单 ')
+                    or any(item.source_sales_order_item_id for item in order.items)
+                )
+            )
+            if has_purpose and not linked_sales_outbound:
+                order.purpose = purpose or None
             order.remark = remark
             order.contract_id = int(contract_id) if contract_id else None
             order.contract_no = contract_no or None
@@ -1250,8 +1286,8 @@ def register_out_order_routes(app):
     @login_required
     def update_out_order_item():
         from app import (_acquire_order_write_lock, InOrderItem, Material, OutOrder, OutOrderItem, api_error,
-                         parse_float_value, recalculate_order_total,
-                         round_to_2_decimals, validate_purchase_return_quantity)
+                         recalculate_order_total, round_to_2_decimals,
+                         sales_outbound_remaining_check, validate_purchase_return_quantity)
         item_id = request.form.get('id', type=int)
         if not item_id:
             return api_error('缺少明细ID')
@@ -1281,9 +1317,23 @@ def register_out_order_routes(app):
             material = Material.query.filter_by(code=material_code).first()
             if not material:
                 return fail(f'物料 {material_code} 不存在')
+            if material.status == 'inactive':
+                return fail(f'物料 {material_code} 已停用，不能修改为停用物料')
+            if (item.source_sales_order_item_id or item.source_in_order_item_id) and material.id != item.material_id:
+                return fail('已关联来源单据的明细不能更换物料，请使用整单编辑页维护')
             item.material_id = material.id
 
-        quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
+        raw_quantity = request.form.get('quantity')
+        if raw_quantity in (None, ''):
+            quantity = round_to_2_decimals(item.quantity or 0)
+        else:
+            try:
+                parsed_quantity = float(raw_quantity)
+            except (TypeError, ValueError):
+                return fail('数量必须是数字')
+            if not math.isfinite(parsed_quantity) or parsed_quantity <= 0:
+                return fail('数量必须大于0')
+            quantity = round_to_2_decimals(parsed_quantity)
         if quantity <= 0:
             return fail('数量必须大于0')
 
@@ -1325,6 +1375,12 @@ def register_out_order_routes(app):
             item.amount = round_money_product(quantity, price)
             if 'remark' in request.form:
                 item.remark = (request.form.get('remark') or '').strip() or None
+            if order.business_type == '销售出库':
+                db.session.flush()
+                db.session.expire(order, ['items'])
+                remaining_ok, remaining_msg = sales_outbound_remaining_check(order)
+                if not remaining_ok:
+                    return fail(remaining_msg)
             recalculate_order_total(order)
             db.session.commit()
             return jsonify({'status': 'success', 'msg': '保存成功'})
@@ -2064,8 +2120,7 @@ def register_out_order_routes(app):
         if export_bt:
             query = query.filter(OutOrder.business_type == export_bt)
         else:
-            query = query.filter(db.or_(OutOrder.business_type == '领料单',
-                                        OutOrder.business_type.is_(None)))
+            query = query.filter(OutOrder.requisition_filter())
         warehouse, warehouse_error = resolve_request_warehouse(request.args)
         if warehouse_error:
             from app import api_error
@@ -2160,14 +2215,18 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def batch_add_out_order_items(id):
-        """Atomically append pasted rows to an ordinary outbound draft."""
+        """Atomically append pasted rows or uploaded detail Excel rows to an ordinary outbound draft."""
         import math
+        import zipfile
+        from openpyxl.utils.exceptions import InvalidFileException
         from pydantic import BaseModel, Field, ValidationError, field_validator
         from app import (Material, OutOrder, OutOrderItem, _acquire_order_write_lock,
-                         api_error, get_default_warehouse, location_management_enabled,
-                         log_operation, recalculate_order_total,
-                         resolve_item_contract, round_to_2_decimals,
-                         validate_inventory_warehouse)
+                         _get_excel_cell, _read_import_sheet,
+                         api_error, get_default_warehouse, import_max_rows,
+                         location_management_enabled, log_operation,
+                         recalculate_order_total, resolve_item_contract,
+                         round_to_2_decimals, validate_inventory_warehouse)
+        from utils import validate_excel_extension, validate_excel_size
 
         class BatchPasteRequest(BaseModel):
             content: str = Field(min_length=1, max_length=100000, strict=True)
@@ -2184,11 +2243,54 @@ def register_out_order_routes(app):
             quantity: float = Field(gt=0, allow_inf_nan=False)
             price: float = Field(ge=0, allow_inf_nan=False)
 
-        try:
-            payload = BatchPasteRequest.model_validate(request.get_json(silent=True))
-        except ValidationError:
-            return jsonify({'status': 'error', 'msg':
-                            '请提交JSON物料文本：1至500行，总长度不超过100000字符'}), 400
+        upload_file = request.files.get('file')
+        parsed = []
+        if upload_file:
+            ext_ok, ext_msg = validate_excel_extension(upload_file.filename)
+            if not ext_ok:
+                return jsonify({'status': 'error', 'msg': ext_msg}), 400
+            size_ok, size_msg = validate_excel_size(upload_file)
+            if not size_ok:
+                return jsonify({'status': 'error', 'msg': size_msg}), 400
+            try:
+                sheet, columns, _ = _read_import_sheet(upload_file, {
+                    'code': ['物料编码', '材料编码'],
+                    'quantity': ['数量'],
+                    'price': ['单价', '价格'],
+                    'remark': ['备注'],
+                })
+            except (zipfile.BadZipFile, InvalidFileException):
+                return jsonify({'status': 'error', 'msg': '文件格式无效或为旧版 .xls，请另存为标准 .xlsx 文件后重新导入'}), 400
+            if not {'code', 'quantity'}.issubset(columns):
+                return jsonify({'status': 'error', 'msg': '明细文件必须包含物料编码和数量列'}), 400
+            row_limit = min(500, import_max_rows())
+            if (sheet.max_row or 1) - 1 > row_limit:
+                return jsonify({'status': 'error', 'msg': f'明细文件最多导入 {row_limit} 行，请拆分后重新导入'}), 400
+            for excel_row_no, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), start=2):
+                if not any(value is not None and str(value).strip() != '' for value in row):
+                    continue
+                raw_code = str(_get_excel_cell(row, columns, 'code') or '').strip()
+                raw_qty = _get_excel_cell(row, columns, 'quantity')
+                raw_price_cell = _get_excel_cell(row, columns, 'price')
+                raw_remark = str(_get_excel_cell(row, columns, 'remark') or '').strip()
+                if not raw_code or raw_qty is None or str(raw_qty).strip() == '':
+                    return jsonify({'status': 'error', 'msg': f'第{excel_row_no}行缺少物料编码或数量'}), 400
+                if len(raw_remark) > 500:
+                    return jsonify({'status': 'error', 'msg': f'第{excel_row_no}行备注不能超过500个字符'}), 400
+                parts = [raw_code, str(raw_qty).strip()]
+                if raw_price_cell is not None and str(raw_price_cell).strip() != '':
+                    parts.append(str(raw_price_cell).strip())
+                parsed.append((excel_row_no, parts, raw_remark or None))
+            if not parsed:
+                return jsonify({'status': 'error', 'msg': '明细文件为空，请填写至少一行物料'}), 400
+            if len(parsed) > 500:
+                return jsonify({'status': 'error', 'msg': '单次最多导入500行物料'}), 400
+        else:
+            try:
+                payload = BatchPasteRequest.model_validate(request.get_json(silent=True))
+            except ValidationError:
+                return jsonify({'status': 'error', 'msg':
+                                '请提交JSON物料文本：1至500行，总长度不超过100000字符'}), 400
 
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -2218,19 +2320,19 @@ def register_out_order_routes(app):
             if location_management_enabled() and not (order.location or '').strip():
                 raise ValueError('库位管理已启用，请先编辑单据选择库位')
 
-            parsed = []
-            for line_no, line in enumerate(payload.content.splitlines(), 1):
-                if not line.strip():
-                    continue
-                parts = [part.strip() for part in line.split('\t' if '\t' in line else ',')]
-                if len(parts) not in (2, 3) or not parts[0]:
-                    raise ValueError(f'第{line_no}行格式不正确：请使用编码,数量,单价（可选）')
-                parsed.append((line_no, parts))
+            if not upload_file:
+                for line_no, line in enumerate(payload.content.splitlines(), 1):
+                    if not line.strip():
+                        continue
+                    parts = [part.strip() for part in line.split('\t' if '\t' in line else ',')]
+                    if len(parts) not in (2, 3) or not parts[0]:
+                        raise ValueError(f'第{line_no}行格式不正确：请使用编码,数量,单价（可选）')
+                    parsed.append((line_no, parts, None))
             materials = {material.code: material for material in Material.query.filter(
-                Material.code.in_({parts[0] for _, parts in parsed})).all()}
+                Material.code.in_({parts[0] for _, parts, _ in parsed})).all()}
             prepared = []
             contract_id, contract_no, project_name = resolve_item_contract(order)
-            for line_no, parts in parsed:
+            for line_no, parts, row_remark in parsed:
                 material = materials.get(parts[0])
                 if material is None:
                     raise ValueError(f'第{line_no}行物料不存在：{parts[0]}')
@@ -2254,7 +2356,8 @@ def register_out_order_routes(app):
                 prepared.append(dict(
                     material_id=material.id, quantity=quantity,
                     price=price, amount=amount, contract_id=contract_id,
-                    contract_no=contract_no, project_name=project_name))
+                    contract_no=contract_no, project_name=project_name,
+                    remark=row_remark))
             # A batch can overflow the existing total precision even when every
             # individual line fits. Include old lines before touching the session.
             total = sum((item.amount or 0) for item in order.items) + sum(row['amount'] for row in prepared)
@@ -2284,4 +2387,4 @@ def register_out_order_routes(app):
         except Exception:
             app.logger.exception('出库粘贴已保存，操作日志写入失败，order_id=%s', id)
         return jsonify({'status': 'success', 'msg': f'成功添加 {len(prepared)} 行明细',
-                        'added': len(prepared)})
+                        'added': len(prepared), 'count': len(prepared)})

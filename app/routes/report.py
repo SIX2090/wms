@@ -570,8 +570,7 @@ def register_report_routes(app):
                 query = query.filter(model.business_type == business_type)
             elif document_type == 'out_order':
                 # 与领料明细列表默认范围相同；裸统计仍包含各类已完成出库。
-                query = query.filter(db.or_(OutOrder.business_type == '领料单',
-                                            OutOrder.business_type.is_(None)))
+                query = query.filter(OutOrder.requisition_filter())
             query = _apply_header_or_item_contract_filters(
                 query, model, item_model, fk, contract_no_filter=contract_no,
                 project_name_filter=project_name, item_level=True)

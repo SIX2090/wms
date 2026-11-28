@@ -96,6 +96,7 @@ def register_batch_import_routes(app):
             log_audit,
             log_operation,
             recalculate_order_total,
+            resolve_item_contract,
             sanitize_text_input,
             validate_inventory_warehouse,
             reuse_material_by_name_spec,
@@ -156,6 +157,10 @@ def register_batch_import_routes(app):
                     col_map['warehouse'] = idx
                 elif h == '库位' or '库位' in h:
                     col_map['location'] = idx
+                elif '合同编号' in h or '合同单号' in h:
+                    col_map['contract_no'] = idx
+                elif '工程名称' in h:
+                    col_map['project_name'] = idx
                 elif '物料编码' in h or '编码' in h:
                     col_map['material_code'] = idx
                 elif '物料名称' in h or '名称' in h:
@@ -172,8 +177,6 @@ def register_batch_import_routes(app):
                     col_map['amount'] = idx
                 elif '客供' in h:
                     col_map['customer_supplied'] = idx
-                elif '合同编号' in h or '合同单号' in h:
-                    col_map['contract_no'] = idx
                 elif '备注' in h:
                     col_map['remark'] = idx
             if 'order_no' not in col_map:
@@ -242,10 +245,18 @@ def register_batch_import_routes(app):
                         skip_details.append(f'第{row_idx}行：库位管理已开启，请填写库位')
                         continue
                     dept_name = get_val('department')
-                    department = Department.query.filter_by(name=dept_name).first() if dept_name else None
-                    if not department and dept_name:
-                        department = Department.query.filter_by(code=dept_name).first()
+                    department = None
+                    if dept_name:
+                        department = Department.query.filter(
+                            Department.status.in_(('active', '启用')),
+                            db.or_(Department.name == dept_name, Department.code == dept_name),
+                        ).first()
+                        if not department:
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：领料部门 {dept_name} 不存在或已停用')
+                            continue
                     date_str = get_val('date')
+                    raw_date = row[col_map['date']] if 'date' in col_map and col_map['date'] < len(row) else None
                     date_val = None
                     if date_str:
                         try:
@@ -258,14 +269,18 @@ def register_batch_import_routes(app):
                                     date_val = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S').date()
                                 except ValueError:
                                     pass
-                    if date_val is None and 'date' in col_map:
-                        raw_date = row[col_map['date']] if col_map['date'] < len(row) else None
-                        if raw_date is not None:
-                            if hasattr(raw_date, 'date'):
-                                date_val = raw_date.date()
-                            elif hasattr(raw_date, 'year'):
-                                date_val = raw_date
-                    if date_val is not None and is_future_date(date_val):
+                    if date_val is None and raw_date is not None:
+                        if hasattr(raw_date, 'date'):
+                            date_val = raw_date.date()
+                        elif hasattr(raw_date, 'year'):
+                            date_val = raw_date
+                    if date_val is None:
+                        if date_str or raw_date is not None:
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：出库日期格式不正确')
+                            continue
+                        date_val = datetime.now().date()
+                    if is_future_date(date_val):
                         skip += 1
                         skip_details.append(f'第{row_idx}行：出库日期不能晚于今天')
                         continue
@@ -275,9 +290,11 @@ def register_batch_import_routes(app):
                         purpose='领料单' if get_val('purpose') == '生产出库' else get_val('purpose'),
                         business_type='领料单',
                         warehouse=warehouse.name,
-                        location=location or warehouse.name,
+                        location=location,
                         department_id=department.id if department else None,
                         picker=get_val('picker') or None,
+                        contract_no=get_val('contract_no') or None,
+                        project_name=get_val('project_name') or None,
                         remark=get_val('remark'),
                         operator_id=current_user.id
                     )
@@ -336,6 +353,10 @@ def register_batch_import_routes(app):
                         material = reuse_material_by_name_spec(
                             material_code, material_name, material_spec,
                             warnings=warnings)
+                        if material and getattr(material, 'status', None) == 'inactive':
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：物料 {material.code} 已停用，不能导入出库明细')
+                            continue
                     if not material:
                         material = Material(
                             code=material_code,
@@ -357,12 +378,20 @@ def register_batch_import_routes(app):
                         material.unit_id = unit.id
                     if amt == 0:
                         amt = round_money_product(qty, prc)
+                    _c_id, _c_no, _p_name = resolve_item_contract(
+                        current_order,
+                        user_contract_no=get_val('contract_no'),
+                        user_project_name=get_val('project_name'),
+                    )
                     item = OutOrderItem(
                         out_order_id=current_order.id,
                         material_id=material.id if material else None,
                         quantity=qty,
                         price=prc,
                         amount=amt,
+                        contract_id=_c_id,
+                        contract_no=_c_no,
+                        project_name=_p_name,
                         remark=(get_val('remark') or '').strip() or None
                     )
                     current_items.append(item)
@@ -385,9 +414,12 @@ def register_batch_import_routes(app):
             if count > 0:
                 log_operation('批量导入领料单', f'导入领料单 {count} 张（跳过 {skip} 行）', 'out_order', None)
                 log_audit('batch_import_out_order', 'out_order', 0, new_data={'imported_orders': count, 'skipped_rows': skip})
-            msg = f'领料单导入成功，共导入 {count} 张单据'
-            if skip:
-                msg += f'，跳过 {skip} 条'
+            if count > 0:
+                msg = f'领料单导入成功，共导入 {count} 张单据'
+                if skip:
+                    msg += f'，跳过 {skip} 条'
+            else:
+                msg = f'未导入任何领料单，跳过 {skip} 条' if skip else '未导入任何领料单'
             if skip_details:
                 warnings.append(f'跳过详情：{"; ".join(skip_details[:20])}')
             if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -395,7 +427,7 @@ def register_batch_import_routes(app):
                 if warnings:
                     resp['warnings'] = '；'.join(warnings)
                 return jsonify(resp)
-            flash(msg, 'success')
+            flash(msg, 'success' if count > 0 else 'warning')
             for w in warnings:
                 flash(w, 'warning')
         except Exception as e:
@@ -724,6 +756,10 @@ def register_batch_import_routes(app):
                         material = reuse_material_by_name_spec(
                             material_code, material_name, material_spec,
                             warnings=warnings)
+                        if material and getattr(material, 'status', None) == 'inactive':
+                            skip += 1
+                            skip_details.append(f'第{row_idx}行：物料 {material.code} 已停用，不能导入入库明细')
+                            continue
                     if not material:
                         material = Material(
                             code=material_code,

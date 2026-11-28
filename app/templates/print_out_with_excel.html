@@ -115,8 +115,8 @@
                     <td>{{ item.material.spec if item.material else '' }}</td>
                     <td>{{ item.material.unit.name if item.material and item.material.unit else '' }}</td>
                     <td>{{ '%.2f'|format(item.quantity or 0) }}</td>
-                    <td>{{ '%.2f'|format(item.price or 0) }}</td>
-                    <td>{{ '%.2f'|format(item.amount or 0) }}</td>
+                    <td>{% if price_dimension_enabled %}{{ '%.2f'|format(item.price or 0) }}{% endif %}</td>
+                    <td>{% if price_dimension_enabled %}{{ '%.2f'|format(item.amount or 0) }}{% endif %}</td>
                     <td>{{ item.contract_no or order.contract_no or '' }}</td>
                 </tr>
                 {% else %}

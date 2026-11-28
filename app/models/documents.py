@@ -219,8 +219,11 @@ class OutOrder(db.Model):
 
     @classmethod
     def requisition_filter(cls):
-        """旧领料单未登记业务类型。"""
-        return db.or_(cls.business_type == '领料单', cls.business_type.is_(None))
+        """普通领料口径（含历史未填、空字符串及扫码/别名单据）。"""
+        return db.or_(
+            cls.business_type.is_(None),
+            cls.business_type.in_(('领料单', '', 'requisition', '生产出库', 'Android扫码出库')),
+        )
 
     __tablename__ = 'out_order'
     __table_args__ = (

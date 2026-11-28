@@ -46,8 +46,10 @@ class ExcelImportExport {
     init() {
         // 创建导入导出按钮
         this.createButtons();
-        // 创建导入模态框
-        this.createImportModal();
+        // 创建导入模态框（仅配置了 importUrl 时启用导入能力）
+        if (this.options.importUrl) {
+            this.createImportModal();
+        }
     }
 
     createButtons() {
@@ -99,12 +101,14 @@ class ExcelImportExport {
             btnGroup.appendChild(exportBtn);
         }
 
-        // 导入按钮（单据明细追加导入）
-        const importBtn = document.createElement('button');
-        importBtn.className = 'btn-order btn-order-primary btn-order-sm';
-        importBtn.innerHTML = '<i class="bi bi-upload"></i> 导入明细';
-        importBtn.onclick = () => this.showImportModal();
-        btnGroup.appendChild(importBtn);
+        // 导入按钮（仅单据支持明细追加导入时显示）
+        if (this.options.importUrl) {
+            const importBtn = document.createElement('button');
+            importBtn.className = 'btn-order btn-order-primary btn-order-sm';
+            importBtn.innerHTML = '<i class="bi bi-upload"></i> 导入明细';
+            importBtn.onclick = () => this.showImportModal();
+            btnGroup.appendChild(importBtn);
+        }
 
         // 下载模板按钮
         if (this.options.templateUrl) {

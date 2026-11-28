@@ -583,10 +583,19 @@ textarea.form-control {
                     </div>
                 </div>
                 {% endif %}
+                {% if not is_sale_order %}
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label">用途</label>
+                        <input type="text" class="form-control" name="purpose" maxlength="200"
+                               value="{{ prefill.purpose if prefill and prefill.purpose else '' }}" placeholder="请输入用途（选填）">
+                    </div>
+                </div>
+                {% endif %}
                 <div class="col-md-12">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
-                        <textarea class="form-control" name="remark" rows="2"></textarea>
+                        <textarea class="form-control" name="remark" rows="2">{{ prefill.remark if prefill and prefill.remark else '' }}</textarea>
                     </div>
                 </div>
             </div>
@@ -1321,6 +1330,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         }
     }
 
+    const purposeInput = document.querySelector('[name="purpose"]');
     const data = {
         order_id: document.querySelector('[name="order_id"]').value,
         order_no: document.querySelector('[name="order_no"]').value,
@@ -1331,6 +1341,7 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         picker: document.querySelector('[name="picker"]')?.value || '',
         warehouse_id: document.querySelector('[name="warehouse_id"]').value,
         location: locationValue,
+        ...(purposeInput ? { purpose: purposeInput.value.trim() } : {}),
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };

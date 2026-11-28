@@ -21,6 +21,7 @@
         .footer-area { margin-top: 30px; display: flex; justify-content: space-between; }
         .footer-area div { min-width: 150px; }
         tfoot td { font-weight: bold; }
+        .price-col-hidden { display: none !important; }
         @media print {
             .no-print { display: none !important; }
             body { padding: 0; }
@@ -50,7 +51,7 @@
         <div class="info-item"><span class="info-label">{{ '经办人' if order.business_type == '销售出库' else '领料人' }}：</span>{{ order.picker or '-' }}</div>
     </div>
     <div class="info-row">
-        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.business_type or order.purpose or '-' }}</div>
+        <div class="info-item"><span class="info-label">用　　途：</span>{{ order.purpose or '-' }}</div>
         <div class="info-item"><span class="info-label">仓　　库：</span>{{ order.warehouse or '-' }}</div>
     </div>
     <div class="info-row">
@@ -68,8 +69,8 @@
                 <th>规格</th>
                 <th>单位</th>
                 <th>数量</th>
-                <th>单价</th>
-                <th>金额</th>
+                <th{% if not price_dimension_enabled %} class="price-col-hidden"{% endif %}>单价</th>
+                <th{% if not price_dimension_enabled %} class="price-col-hidden"{% endif %}>金额</th>
                 <th>备注</th>
             </tr>
         </thead>
@@ -78,13 +79,13 @@
             <tr>
                 <td>{{ loop.index }}</td>
                 {% if box_numbers %}<td>{{ box_numbers.get(item.id, '') or '-' }}</td>{% endif %}
-                <td>{{ item.material.code }}</td>
-                <td class="text-left">{{ item.material.name }}</td>
-                <td>{{ item.material.spec or '-' }}</td>
-                <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                <td>{{ item.material.code if item.material else '-' }}</td>
+                <td class="text-left">{{ item.material.name if item.material else '-' }}</td>
+                <td>{{ (item.material.spec or '-') if item.material else '-' }}</td>
+                <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                 <td>{{ (item.quantity)|quantity }}</td>
-                <td class="text-right">{{ "%.2f"|format(item.price) }}</td>
-                <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
+                <td class="text-right{% if not price_dimension_enabled %} price-col-hidden{% endif %}">{% if price_dimension_enabled %}{{ "%.2f"|format(item.price or 0) }}{% endif %}</td>
+                <td class="text-right{% if not price_dimension_enabled %} price-col-hidden{% endif %}">{% if price_dimension_enabled %}{{ "%.2f"|format(item.amount or 0) }}{% endif %}</td>
                 <td class="text-left">{{ item.remark or '' }}</td>
             </tr>
             {% else %}
@@ -99,9 +100,17 @@
         </tbody>
         <tfoot>
             <tr>
+                {% if price_dimension_enabled %}
                 <td colspan="{{ 8 if box_numbers else 7 }}" style="text-align: right;">合　计：</td>
-                <td class="text-right">{{ "%.2f"|format(order.total_amount) }}</td>
+                <td class="text-right">{{ "%.2f"|format(order.total_amount or 0) }}</td>
                 <td></td>
+                {% else %}
+                <td colspan="{{ 6 if box_numbers else 5 }}" style="text-align: right;">数量合计：</td>
+                <td>{{ (order.items|sum(attribute='quantity', start=0))|quantity }}</td>
+                <td class="price-col-hidden"></td>
+                <td class="price-col-hidden"></td>
+                <td></td>
+                {% endif %}
             </tr>
         </tfoot>
     </table>
