@@ -20,6 +20,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parents[1]
 APP_JS = ROOT / "app" / "static" / "js" / "app.js"
 CUSTOM_CSS = ROOT / "app" / "static" / "css" / "custom.css"
@@ -138,7 +140,7 @@ def test_p1_ui_2_3_4_5_css_layout_and_sticky_totals():
     """P1-UI-2/3/4/5: CSS zebra/flatpickr fixes, 6 initial rows, sticky totals, collapsible hints, row dedupe."""
     css = CUSTOM_CSS.read_text(encoding="utf-8")
     base = BASE_HTML.read_text(encoding="utf-8")
-    in_add = IN_ADD_HTML.read_text(encoding="utf-8")
+    in_add = page_source(IN_ADD_HTML)
     out_add = OUT_ADD_HTML.read_text(encoding="utf-8")
 
     # P1-UI-3: readonly grid cells transparent, not white
@@ -168,7 +170,7 @@ def test_p1_ui_2_3_4_5_css_layout_and_sticky_totals():
 
 def test_p1_ui_6_7_auto_draft_supplier_reset_and_csv_export_node_vm():
     """P1-UI-6/7 & P1-BIZ-6: auto-draft binds #addForm, clears stale supplier_id, sanitizes CSV export."""
-    html = IN_ADD_HTML.read_text(encoding="utf-8")
+    html = page_source(IN_ADD_HTML)
     assert "#inOrderForm" not in html, "Broken #inOrderForm selector must be completely removed"
     assert "window.clearDraft = clearDraft;" in html
     assert "hiddenInput.value = '';" in html

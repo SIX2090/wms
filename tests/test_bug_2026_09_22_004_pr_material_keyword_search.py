@@ -42,7 +42,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TPL = ROOT / "app" / "templates" / "purchase_request_add.html"
-IN_ORDER_TPL = ROOT / "app" / "templates" / "in_order_add.html"
+IN_ORDER_TPL = ROOT / "app" / "static/js/pages" / "in-order-add.js"
 
 
 def _src() -> str:

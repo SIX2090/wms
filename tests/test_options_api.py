@@ -51,7 +51,6 @@ _HAS_PINYIN = options_api._HAS_PINYIN
 
 # ---------------- 装配契约（静态，模块加载时读取一次） ----------------
 APP_PY = (APP_DIR / "app.py").read_text(encoding="utf-8")
-BASE_HTML = (APP_DIR / "templates" / "base.html").read_text(encoding="utf-8")
 TPL_DIR = APP_DIR / "templates"
 
 
@@ -251,10 +250,12 @@ def test_register_options_routes():
     assert "/api/options/<entity>" in rules
 
 
-def test_quick_select_js_included_in_base_html():
-    assert "js/quick-select.js" in BASE_HTML, (
-        "base.html 必须全局引入 quick-select.js，否则新页面拿不到组件"
-    )
+def test_quick_select_js_loads_on_declared_pages():
+    from tests.test_shell_navigation_asset import render_shell
+
+    asset = '/static/js/quick-select.js'
+    assert asset not in render_shell()
+    assert render_shell(uses_quick_select=True).count(asset) == 1
 
 
 def test_templates_carry_data_ks_attributes():

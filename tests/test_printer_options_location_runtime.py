@@ -21,7 +21,7 @@ def test_known_printers_use_unwrapped_api_data(mode):
 @pytest.mark.parametrize(('location', 'location_enabled'), [('', False), ('   ', True), ('A-01', True), ('  项目仓-货架2  ', True)])
 @pytest.mark.parametrize('business', ['采购入库', '产品入库'])
 def test_inbound_save_retains_validated_location(location, location_enabled, business):
-    source = (ROOT / 'app/templates/in_order_add.html').read_text(encoding='utf-8')
+    source = (ROOT / 'app/static/js/pages/in-order-add.js').read_text(encoding='utf-8')
     start = source.index('function submitForm(')
     end = source.index("\ndocument.addEventListener('click'", start + 1)
     script = r'''

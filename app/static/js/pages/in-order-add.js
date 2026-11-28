@@ -1,0 +1,2018 @@
+const receiptPage = JSON.parse(document.getElementById('in-order-add-data').textContent);
+const {
+    materials, units, suppliers, supplierRequired, partyField, partyLabel,
+    isOtherIn, returnAddUrl, sourcePurchaseOrderId
+} = receiptPage;
+if (receiptPage.receiptContracts !== null) {
+    WMS.purchaseReceiptContracts = receiptPage.receiptContracts;
+}
+let activeDropdown = null;
+let activeIndex = -1;
+const purchaseOrderSelectableMap = new Map();
+let purchaseOrderSearchSeq = 0;
+let inOrderSubmitting = false;
+
+function formatStock(value) {
+    const stock = parseFloat(value);
+    return Number.isFinite(stock) ? stock.toFixed(2) : '0.00';
+}
+
+// 数量显示/回填：整数不补小数位（1 显示 "1"，而非 "1.00"）；小数最多 2 位并去末尾 0
+// （0.5 → "0.5"，1.50 → "1.5"）。与单价/金额（恒保留 2 位）刻意区分——数量允许
+// 0.5 这类小数，但不强行补齐。先 toFixed(2) 收敛二进制浮点误差（如 0.1+0.2），再 parseFloat 去尾零。
+function formatQtyTrim(value) {
+    const num = parseFloat(value);
+    if (!Number.isFinite(num)) return '';
+    return String(parseFloat(num.toFixed(2)));
+}
+
+function findMaterialByCode(code) {
+    const normalized = String(code || '').trim().toLowerCase();
+    if (!normalized) return null;
+    return materials.find(m => String(m.code || '').toLowerCase() === normalized) || null;
+}
+
+function getMaterialUnit(material) {
+    if (!material || !material.unit) return '';
+    return typeof material.unit === 'object' ? (material.unit.name || '') : material.unit;
+}
+
+
+
+function escapeAttr(value) {
+    return escapeHtml(value).replace(/`/g, '&#96;');
+}
+
+function fillMaterialFields(row, material, options = {}) {
+    row.querySelector('.material-code').value = material.code;
+    row.querySelector('.material-brand').value = material.brand || '';
+    row.querySelector('.material-name').value = material.name;
+    row.querySelector('.material-spec').value = material.spec || '';
+    row.querySelector('.material-unit').value = getMaterialUnit(material);
+    row.querySelector('.material-stock').value = formatStock(material.stock);
+
+    const priceInput = row.querySelector('.material-price');
+    if (priceInput && (options.forcePrice || priceInput.value === '')) {
+        const price = parseFloat(material.price);
+        priceInput.value = Number.isFinite(price) ? price.toFixed(2) : '0.00';
+    }
+    fillPurposeFromMaterial(material);
+}
+
+function fillPurposeFromMaterial(material) {
+    const purposeInput = document.querySelector('[name="purpose"]');
+    if (!purposeInput || purposeInput.value.trim() || !material || !material.purpose) return;
+    purposeInput.value = material.purpose;
+}
+
+function clearMaterialFields(row) {
+    row.querySelector('.material-brand').value = '';
+    row.querySelector('.material-name').value = '';
+    row.querySelector('.material-spec').value = '';
+    row.querySelector('.material-unit').value = '';
+    row.querySelector('.material-stock').value = '';
+    const boxInput = row.querySelector('.material-box-no');
+    if (boxInput) boxInput.value = '';
+    // P0 批次/有效期捕获：换物料时批次/有效期属于上一物料的行级事实，
+    // 必须一并清空，避免把 A 物料的批次带到 B 物料行上（脏数据）。
+    const batchInput = row.querySelector('.material-batch-no');
+    if (batchInput) batchInput.value = '';
+    const expiryInput = row.querySelector('.material-expiry');
+    if (expiryInput) expiryInput.value = '';
+    if (typeof refreshWmsEntryCellHints === 'function') refreshWmsEntryCellHints(row);
+}
+
+function handleMaterialCodeInput(row) {
+    const material = findMaterialByCode(row.querySelector('.material-code').value);
+    if (material) {
+        fillMaterialFields(row, material);
+        calcAmount(row);
+    } else {
+        if (!row.querySelector('.material-box-no')) clearMaterialFields(row);
+    }
+    showDropdown(row);
+}
+
+function populateMaterialRow(row, rowIndex) {
+    row.innerHTML = `
+        <td data-column-key="row_no" class="row-num">${rowIndex}</td>
+        <td data-column-key="material_code">
+            <div class="material-input">
+                <input type="text" class="form-control material-code" placeholder="">
+                <div class="material-dropdown" style="display:none;"></div>
+            </div>
+        </td>
+        ${receiptPage.isProductIn ? '<td data-column-key="box_no"><input type="text" class="form-control material-box-no" maxlength="100" autocomplete="off"></td>' : ''}
+        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
+        <td data-column-key="material_name"><input type="text" class="form-control material-name" ${receiptPage.isProductIn ? '' : 'readonly'} maxlength="100"></td>
+        <td data-column-key="spec"><input type="text" class="form-control material-spec" ${receiptPage.isProductIn ? '' : 'readonly'} maxlength="100"></td>
+        <td data-column-key="unit"><input type="text" class="form-control material-unit" ${receiptPage.isProductIn ? '' : 'readonly'} maxlength="20"></td>
+        <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
+        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
+        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
+        <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
+        <td data-column-key="batch_no"><input type="text" class="form-control material-batch-no" maxlength="50" autocomplete="off" placeholder="批次"></td>
+        <td data-column-key="expiry_date"><input type="date" class="form-control material-expiry" title="有效期（到日）"></td>
+        ${isOtherIn ? '<td data-column-key="is_customer_supplied" class="text-center"><input type="checkbox" class="form-check-input line-customer-supplied" title="该行物料所有权属于客户"></td>' : ''}
+        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50" autocomplete="off" placeholder=""></td>
+        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200" autocomplete="off" placeholder=""></td>
+        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
+        <td data-column-key="actions" class="action-col">
+            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
+            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
+        </td>
+    `;
+
+    row.querySelector('.material-code').addEventListener('input', function() {
+        handleMaterialCodeInput(row);
+        if (this.value.trim() && !row.nextElementSibling) {
+            addNewRow();
+        }
+    });
+    row.querySelector('.material-code').addEventListener('keydown', function(event) {
+        handleKeydown(event, row);
+    });
+    row.querySelector('.material-qty').addEventListener('input', function() {
+        calcAmount(row);
+    });
+    row.querySelector('.material-qty').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            row.querySelector('.material-price').focus();
+            row.querySelector('.material-price').select();
+        }
+    });
+    row.querySelector('.material-price').addEventListener('input', function() {
+        calcAmount(row);
+    });
+    row.querySelector('.material-price').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            let nextRow = row.nextElementSibling;
+            if (!nextRow) {
+                addNewRow();
+                nextRow = document.querySelector('#materialTableBody tr:last-child');
+            }
+            nextRow.querySelector('.material-code').focus();
+            nextRow.querySelector('.material-code').select();
+        }
+    });
+    row.querySelector('.material-price').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this, '单价');
+        // 失去焦点时格式化
+        if (this.value) {
+            this.value = parseFloat(this.value).toFixed(2);
+            calcAmount(row);
+        }
+    });
+    return row;
+}
+
+function addNewRow() {
+    const tbody = document.getElementById('materialTableBody');
+    if (!tbody) return null;
+    const row = tbody.insertRow();
+    populateMaterialRow(row, tbody.rows.length);
+    row.querySelector('.material-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
+        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
+        if (this.value) {
+            this.value = formatQtyTrim(this.value);
+            calcAmount(row);
+        }
+    });
+    if (window.inOrderColumnController) {
+        window.inOrderColumnController.applyOrder();
+    }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindRow(row);
+    }
+    return row;
+}
+
+// 物料联想：服务端搜索 + 本地缓存兜底。
+// 背景：原实现把全部物料（/material/api/all 分页拉全，单页 2000）一次性塞进
+// 内存再前端 filter。物料上万时首屏加载慢、内存占用高，且新建物料后必须靠
+// 手动「刷新物料」或输入未命中时自动补刷新才能看到新档案。
+// 现改为优先请求 /api/material/search（服务端按 编码/名称/规格/品牌 模糊匹配，
+// 返回上限 100 条并给出 total），本地缓存仅作为网络异常时的降级展示。
+const MATERIAL_SEARCH_LIMIT_HINT = 100;
+// 与服务端 in_order_add_page 的 MATERIAL_INITIAL_CACHE_LIMIT 对应：初始缓存条数。
+const MATERIAL_INITIAL_CACHE_SIZE = 300;
+const materialSearchState = { seq: 0, timer: null };
+
+function cancelMaterialSearch() {
+    ++materialSearchState.seq;
+    if (materialSearchState.timer) clearTimeout(materialSearchState.timer);
+    materialSearchState.timer = null;
+}
+
+
+function filterLocalMaterials(keyword, showAll) {
+    const kw = String(keyword || '').toLowerCase().trim();
+    const splitSides = value => value.split(/[*x×＊ｘ]/).map(side => side.trim());
+    const sides = splitSides(kw);
+    const dimensions = (sides.length === 2 || sides.length === 3) &&
+        sides.every(side => /^[0-9]+(?:\.[0-9]+)?$/.test(side));
+    const forward = sides.join('*');
+    const reverse = sides.length === 3 ? sides.slice().reverse().join('*') : forward;
+    const groups = [[], [], [], []];
+    for (const m of materials) {
+        const code = m.code.toLowerCase();
+        const spec = (m.spec || '').trim().toLowerCase();
+        const normalized = dimensions ? splitSides(spec).join('*') : '';
+        if (dimensions && code === kw) groups[0].push(m);
+        else if (dimensions && normalized === forward) groups[1].push(m);
+        else if (dimensions && normalized === reverse) groups[2].push(m);
+        else if (showAll || code.includes(kw) || m.name.toLowerCase().includes(kw) ||
+                 (m.brand && m.brand.toLowerCase().includes(kw)) || spec.includes(kw)) {
+            groups[3].push(m);
+        }
+    }
+    return groups.flat();
+}
+
+function renderMaterialDropdown(row, filtered, notice) {
+    const dropdown = row.querySelector('.material-dropdown');
+    if (!filtered.length) {
+        dropdown.style.display = 'none';
+        return;
+    }
+    const noticeHtml = notice
+        ? '<div class="material-dropdown-item" style="color:#999;font-size:12px;cursor:default;">' + escapeHtml(notice) + '</div>'
+        : '';
+    dropdown.innerHTML = noticeHtml + filtered.map(m => `
+        <div class="material-dropdown-item" data-code="${escapeAttr(m.code)}">
+            <span class="dropdown-code">${escapeHtml(m.code)}</span> - <span class="dropdown-name">${escapeHtml(m.name)}</span>
+            <span class="dropdown-spec">${escapeHtml(m.brand || '')}</span>
+            <span class="dropdown-spec">${escapeHtml(m.spec || '')}</span>
+            <span class="dropdown-unit">${escapeHtml(getMaterialUnit(m))}</span>
+            <span class="stock">库存 ${formatStock(m.stock)}</span>
+        </div>
+    `).join('');
+
+    dropdown.querySelectorAll('.material-dropdown-item[data-code]').forEach(item => {
+        item.addEventListener('click', function() {
+            selectMaterial(row, this.dataset.code);
+        });
+    });
+
+    dropdown.style.display = 'block';
+    activeDropdown = dropdown;
+    activeIndex = Array.from(document.querySelectorAll('#materialTableBody tr')).indexOf(row);
+
+    const input = row.querySelector('.material-code');
+    WMS.positionDropdown(input, dropdown);
+}
+
+function showDropdown(row, showAll = false) {
+    const input = row.querySelector('.material-code');
+    const dropdown = row.querySelector('.material-dropdown');
+    const keyword = input.value.trim();
+    // Invalidate on input/row change, before the new debounce timer fires.
+    cancelMaterialSearch();
+    const seq = materialSearchState.seq;
+    if (activeDropdown) activeDropdown.style.display = 'none';
+    dropdown.style.display = 'none';
+    activeDropdown = dropdown;
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    const current = () => warehouseContext === WMS.materialCache.warehouseFromForm() && seq === materialSearchState.seq && row.isConnected !== false &&
+        input.value.trim() === keyword;
+
+    if (!keyword && !showAll) {
+        renderMaterialDropdown(row, filterLocalMaterials('', false));
+        return;
+    }
+    const missing = !findMaterialByCode(keyword);
+    // Bounded suggestions only: total and the existing notice explain truncation.
+    materialSearchState.timer = setTimeout(function() {
+        materialSearchState.timer = null;
+        if (!current()) return;
+        const url = '/api/material/search?kw=' + encodeURIComponent(keyword) + '&limit=' + MATERIAL_SEARCH_LIMIT_HINT + '&warehouse=' + encodeURIComponent(WMS.materialCache.warehouseFromForm());
+        WMS.api.getRaw(url).then(function(res) {
+            if (!current()) return;
+            if (!res || res.status !== 'success' || !Array.isArray(res.data) ||
+                res.data.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
+                throw new Error('物料搜索结果格式不正确');
+            }
+            res.data.forEach(function(m) {
+                const existing = findMaterialByCode(m.code);
+                if (existing) Object.assign(existing, m);
+                else materials.push(m);
+            });
+            // Reuse this result for exact-code entry, including items outside the initial cache.
+            const hit = missing && res.data.find(m => m.code.toLowerCase() === keyword.toLowerCase());
+            if (hit) {
+                fillMaterialFields(row, hit);
+                calcAmount(row);
+            }
+            const notice = res.total > res.data.length
+                ? '共 ' + res.total + ' 条匹配，仅显示前 ' + res.data.length + ' 条，请细化关键词' : '';
+            if (document.activeElement === input) renderMaterialDropdown(row, res.data, notice);
+        }).catch(function() {
+            if (current() && document.activeElement === input) renderMaterialDropdown(row, filterLocalMaterials(keyword, showAll));
+        });
+    }, 220);
+}
+
+function selectMaterial(row, code) {
+    cancelMaterialSearch();
+    const seq = materialSearchState.seq;
+    const input = row.querySelector('.material-code');
+    const expected = input.value;
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    const current = () => warehouseContext === WMS.materialCache.warehouseFromForm() && seq === materialSearchState.seq && row.isConnected !== false && input.value === expected;
+    const finish = function(material) {
+        fillMaterialFields(row, material);
+        row.querySelector('.material-dropdown').style.display = 'none';
+        activeDropdown = null;
+        calcAmount(row);
+        row.querySelector('.material-qty').focus();
+        row.querySelector('.material-qty').select();
+    };
+    const material = materials.find(m => m.code === code);
+    if (material) { finish(material); return; }
+    // The selected candidate provides a canonical code: resolve exactly, not the first fuzzy hit.
+    return WMS.api.get('/material/api/by_codes?code=' + encodeURIComponent(code) + '&warehouse=' + encodeURIComponent(warehouseContext)).then(function(list) {
+        if (!current()) return;
+        if (!Array.isArray(list)) throw new Error('物料查询结果格式不正确');
+        const hit = list.find(m => m && m.code === code && typeof m.name === 'string');
+        if (hit) { materials.push(hit); finish(hit); }
+        else { row.querySelector('.material-dropdown').style.display = 'none'; activeDropdown = null; }
+    }).catch(function() {
+        if (!current()) return;
+        row.querySelector('.material-dropdown').style.display = 'none';
+        activeDropdown = null;
+    });
+}
+
+function handleKeydown(event, row) {
+    if (event.isComposing || event.keyCode === 229) return;
+    const dropdown = row.querySelector('.material-dropdown');
+    const isCodeInput = event.target.classList.contains('material-code');
+    const dropdownOpen = dropdown && dropdown.style.display !== 'none';
+
+    // ↑ / ↓：在下拉打开时移动高亮
+    if (isCodeInput && dropdownOpen && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        event.preventDefault();
+        const items = Array.from(dropdown.querySelectorAll('.material-dropdown-item[data-code]'));
+        if (!items.length) return;
+        let idx = items.findIndex(el => el.classList.contains('active'));
+        if (idx < 0) idx = event.key === 'ArrowDown' ? -1 : items.length;
+        const nextIdx = event.key === 'ArrowDown'
+            ? Math.min(idx + 1, items.length - 1)
+            : Math.max(idx - 1, 0);
+        items.forEach(el => el.classList.remove('active'));
+        items[nextIdx].classList.add('active');
+        items[nextIdx].scrollIntoView({ block: 'nearest' });
+        return;
+    }
+
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        // 优先选中当前 active 项；没有 active 就退回到第一项
+        const activeItem = dropdownOpen
+            ? (dropdown.querySelector('.material-dropdown-item.active[data-code]') || dropdown.querySelector('.material-dropdown-item[data-code]'))
+            : null;
+        if (activeItem && isCodeInput) {
+            selectMaterial(row, activeItem.dataset.code);
+            return;
+        }
+        cancelMaterialSearch();
+        focusNextEditable(event.target);
+        return;
+    }
+    if (event.key === 'Escape') {
+        cancelMaterialSearch();
+        if (dropdown) dropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+}
+
+function focusNextEditable(current) {
+    const fields = Array.from(document.querySelectorAll('#addForm input:not([type="hidden"]):not([readonly]), #addForm select, #addForm textarea'));
+    const index = fields.indexOf(current);
+    const next = fields[index + 1];
+    if (next) {
+        next.focus();
+        if (next.select) next.select();
+        return;
+    }
+    addNewRow();
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    const last = rows[rows.length - 1];
+    if (last) last.querySelector('.material-code').focus();
+}
+
+function calcAmount(row) {
+    if (typeof refreshWmsEntryCellHints === 'function') refreshWmsEntryCellHints(row);
+    const qty = parseFloat(row.querySelector('.material-qty').value) || 0;
+    const price = parseFloat(row.querySelector('.material-price').value) || 0;
+    const amount = window.WMSMoney.product(qty, price);
+    row.querySelector('.material-amount').value = amount.toFixed(2);
+    calcTotal();
+}
+
+function calcTotal() {
+    if (typeof WMS !== 'undefined' && WMS.refreshQuantityTotals) WMS.refreshQuantityTotals('materialTable');
+    let total = 0;
+    let activeLines = 0;
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
+    document.querySelectorAll('#materialTableBody tr').forEach(row => {
+        total += parseFloat(row.querySelector('.material-amount')?.value) || 0;
+        const hasCode = !!(row.querySelector('.material-code')?.value || '').trim();
+        const hasName = isProductIn && !!(row.querySelector('.material-name')?.value || '').trim();
+        if (hasCode || hasName) activeLines++;
+    });
+    const formatted = '¥' + total.toFixed(2);
+    const totalEl = document.getElementById('totalAmount');
+    if (totalEl) totalEl.textContent = formatted;
+    const stickyAmt = document.getElementById('stickyTotalAmount');
+    if (stickyAmt) stickyAmt.textContent = formatted;
+    const stickyCnt = document.getElementById('stickyLineCount');
+    if (stickyCnt) stickyCnt.textContent = String(activeLines);
+}
+
+function deleteRow(btn) {
+    btn.closest('tr').remove();
+    renumberRows();
+    calcTotal();
+}
+
+let currentMaterialRow = null;
+function rememberMaterialRow(event) {
+    const row = event.target.closest && event.target.closest('#materialTableBody tr');
+    if (row) currentMaterialRow = row;
+}
+document.addEventListener('focusin', rememberMaterialRow);
+document.addEventListener('pointerdown', rememberMaterialRow);
+
+function copyValuesToRow(source, target) {
+    if (!source || !target) return;
+    target.dataset.sourcePurchaseOrderItemId = source.dataset.sourcePurchaseOrderItemId || '';
+    target.dataset.sourcePurchaseOrderNo = source.dataset.sourcePurchaseOrderNo || '';
+    ['material-code', 'material-brand', 'material-name', 'material-spec', 'material-unit',
+     'material-stock', 'material-qty', 'material-price', 'material-batch-no', 'material-expiry',
+     'material-box-no', 'line-contract-no', 'line-project-name', 'material-remark'].forEach(cls => {
+        const input = source.querySelector('.' + cls);
+        const output = target.querySelector('.' + cls);
+        if (input && output) output.value = input.value;
+    });
+    const sourceCustomerSupplied = source.querySelector('.line-customer-supplied');
+    const targetCustomerSupplied = target.querySelector('.line-customer-supplied');
+    if (sourceCustomerSupplied && targetCustomerSupplied) targetCustomerSupplied.checked = sourceCustomerSupplied.checked;
+    calcAmount(target);
+}
+
+function copyPreviousRow() {
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
+    const tbody = document.getElementById('materialTableBody');
+    const target = currentMaterialRow;
+    if (!target || !tbody.contains(target)) {
+        showToast('请先点击要填写的明细行', 'warning');
+        return;
+    }
+    const source = target.previousElementSibling;
+    if (!source || !(source.querySelector('.material-code').value.trim() || (isProductIn && source.querySelector('.material-name').value.trim()))) {
+        showToast('上一行没有物料，无法复制', 'warning');
+        return;
+    }
+    copyValuesToRow(source, target);
+    target.querySelector('.material-qty').focus();
+    target.querySelector('.material-qty').select();
+}
+
+function copyRowAfter(row) {
+    if (!row) {
+        copyPreviousRow();
+        return;
+    }
+    const nextRow = row.nextElementSibling;
+    const target = nextRow ? insertRowBefore(nextRow) : addNewRow();
+    copyValuesToRow(row, target);
+    target.querySelector('.material-qty').focus();
+    target.querySelector('.material-qty').select();
+}
+
+function addRowAfterCurrent() {
+    const row = findEmptyRow() || addNewRow();
+    row.querySelector('.material-code')?.focus();
+}
+
+function insertRowBefore(btn) {
+    const tbody = document.getElementById('materialTableBody');
+    const currentRow = btn.closest('tr');
+    const newRow = tbody.insertRow(currentRow.rowIndex - 1);
+    populateMaterialRow(newRow, currentRow.rowIndex);
+    newRow.querySelector('.material-qty').addEventListener('blur', function() {
+        WMS.normalizeDecimalInput(this);
+        // 失去焦点时格式化：整数不补小数位（1 → "1"），小数最多 2 位去尾零
+        if (this.value) {
+            this.value = formatQtyTrim(this.value);
+            calcAmount(newRow);
+        }
+    });
+    renumberRows();
+    if (window.inOrderColumnController) {
+        window.inOrderColumnController.applyOrder();
+    }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindRow(newRow);
+    }
+    newRow.querySelector('.material-code').focus();
+    return newRow;
+}
+
+function renumberRows() {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    rows.forEach((row, index) => {
+        const numCell = row.querySelector('.row-num');
+        if (numCell) {
+            numCell.textContent = index + 1;
+        }
+    });
+}
+
+// 其他入库工具栏动作分发
+function handleOtherOrderToolbar(action, ev) {
+    if (action === 'new') {
+        location.href = '/other_in_order/add';
+        return;
+    }
+    if (action === 'save') {
+        submitForm(false, false);
+        return;
+    }
+    if (action === 'save-and-complete') {
+        submitForm(false, true);
+        return;
+    }
+    if (action === 'delete') {
+        const orderId = document.querySelector('[name="order_id"]')?.value;
+        if (!orderId) {
+            showToast('当前为新增单据，没有可删除内容', 'info');
+            return;
+        }
+        if (typeof deleteOrderFromPage === 'function') {
+            deleteOrderFromPage();
+            return;
+        }
+        if (confirm('确定删除当前单据吗？')) {
+            WMS.api.post('/in_order/' + orderId + '/delete', {})
+                .then(function() { location.href = receiptPage.returnListUrl; })
+                .catch(function(err) { showToast('删除失败：' + ((err && err.msg) || '未知错误'), 'danger'); });
+        }
+        return;
+    }
+    if (action === 'print') {
+        window.print();
+        return;
+    }
+    if (action === 'import') {
+        showPasteModal();
+        return;
+    }
+    if (action === 'export') {
+        exportDetailRows();
+        return;
+    }
+    if (action === 'import-export-template') {
+        showImportTemplateHint();
+        return;
+    }
+    if (action === 'smart-share') {
+        // BUG-2026-09-15-002：原提示引导用户去列表页找分享入口，但列表页并无该按钮。
+        // 真实能力：①单据详情页全局操作栏「智能分享」生成图片；
+        // ②系统管理 → 微信分享（/wechat_share）配置定时自动推送。
+        showToast('单据保存后可在单据详情页使用「智能分享」生成图片；定时自动分享请到 系统管理 → 微信分享 配置', 'info');
+        return;
+    }
+}
+window.handleOtherOrderToolbar = handleOtherOrderToolbar;
+
+// 导出当前明细行为 CSV（参考期初库存单的导出实现）
+function exportDetailRows() {
+    const businessType = (document.querySelector?.('[name="business_type"]')?.value || '采购入库').trim();
+    const isProductIn = businessType === '产品入库';
+    const otherReceipt = businessType === '其他入库';
+    const sanitizeCsvCell = function(val) {
+        const s = String(val === null || val === undefined ? '' : val);
+        if (s && /^[=+\-@\t\r]/.test(s) && !/^[+-]?\d+(?:\.\d+)?$/.test(s)) {
+            return "'" + s;
+        }
+        return s;
+    };
+    const headers = ['物料编码','品牌','物料名称','规格','单位','数量','单价','金额','合同编号','工程名称','备注'];
+    if (isProductIn) headers.splice(1, 0, '箱体编号');
+    if (otherReceipt) headers.push('客供');
+    const lines = [headers.join(',')];
+    document.querySelectorAll('#materialTableBody tr').forEach(function(row) {
+        const code = row.querySelector('.material-code')?.value || '';
+        if (!code && !(isProductIn && row.querySelector('.material-name')?.value.trim())) return;
+        const values = [
+            code,
+            row.querySelector('.material-brand')?.value || '',
+            row.querySelector('.material-name')?.value || '',
+            row.querySelector('.material-spec')?.value || '',
+            row.querySelector('.material-unit')?.value || '',
+            row.querySelector('.material-qty')?.value || '',
+            row.querySelector('.material-price')?.value || '',
+            row.querySelector('.material-amount')?.value || '',
+            row.querySelector('.line-contract-no')?.value || '',
+            row.querySelector('.line-project-name')?.value || '',
+            row.querySelector('.material-remark')?.value || ''
+        ];
+        if (isProductIn) values.splice(1, 0, row.querySelector('.material-box-no')?.value || '');
+        if (otherReceipt) values.push(row.querySelector('.line-customer-supplied')?.checked ? '是' : '否');
+        lines.push(values.map(function(v) { return '"' + sanitizeCsvCell(v).replace(/"/g, '""') + '"'; }).join(','));
+    });
+    if (lines.length === 1) {
+        showToast('当前没有可导出的物料明细', 'info');
+        return;
+    }
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = businessType + '单明细.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+}
+
+function showImportTemplateHint() {
+    showToast('粘贴导入支持：物料编码、数量、单价、' + (receiptPage.batchManagementEnabled ? '批次号、' : '') + '有效期（从 Excel / WPS 复制后粘贴）', 'info', 3600);
+}
+
+function clearInOrderValidation() {
+    const panel = document.getElementById('inOrderValidationPanel');
+    const list = document.getElementById('inOrderValidationList');
+    if (panel) panel.classList.remove('show');
+    if (list) list.innerHTML = '';
+    document.querySelectorAll('#materialTableBody tr').forEach(row => row.classList.remove('wms-row-error'));
+    document.querySelectorAll('#materialTableBody .wms-cell-error').forEach(input => input.classList.remove('wms-cell-error'));
+}
+
+function focusValidationTarget(rowIndex, selector) {
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'));
+    const row = rows[rowIndex];
+    if (!row) return;
+    row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    row.classList.add('row-active');
+    const target = selector ? row.querySelector(selector) : row.querySelector('input,select,textarea');
+    setTimeout(() => {
+        if (target) {
+            target.focus();
+            if (target.select) target.select();
+        }
+        setTimeout(() => row.classList.remove('row-active'), 1600);
+    }, 250);
+}
+
+function showInOrderValidation(errors) {
+    const panel = document.getElementById('inOrderValidationPanel');
+    const list = document.getElementById('inOrderValidationList');
+    if (!panel || !list) {
+        showToast(errors.map(error => error.message).join('\n'), 'danger');
+        return;
+    }
+    list.innerHTML = errors.map((error, index) => {
+        const rowIndex = error.rowIndex === undefined ? '' : String(error.rowIndex);
+        const selector = error.selector || '';
+        return '<li><a href="javascript:void(0)" data-error-index="' + index + '" data-row-index="' + escapeAttr(rowIndex) + '" data-selector="' + escapeAttr(selector) + '">' + escapeHtml(error.message) + '</a></li>';
+    }).join('');
+    list.querySelectorAll('a[data-row-index]').forEach(link => {
+        link.addEventListener('click', function() {
+            const idx = parseInt(this.dataset.rowIndex, 10);
+            if (Number.isInteger(idx)) focusValidationTarget(idx, this.dataset.selector);
+        });
+    });
+    panel.classList.add('show');
+    panel.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
+function markRowError(row, selector) {
+    if (!row) return;
+    row.classList.add('wms-row-error');
+    if (selector) {
+        const input = row.querySelector(selector);
+        if (input) input.classList.add('wms-cell-error');
+    }
+}
+
+function submitForm(saveAndNew = false, completeAfterSave = false) {
+    if (inOrderSubmitting) return;
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'));
+    clearInOrderValidation();
+
+    const date = document.querySelector('[name="date"]').value;
+    const supplierId = document.querySelector('[name="' + partyField + '"]').value;
+    // BUG-2026-09-27-001：下拉 name="warehouse_id" 的 value 是仓库 ID（P1-6 契约），
+    // 变量承载的是 ID，提交时必须放进 warehouse_id 字段。
+    const warehouseId = document.querySelector('[name="warehouse_id"]').value;
+    const locationInput = document.querySelector('[name="location"]');
+    const location = locationInput ? locationInput.value.trim() : '';
+    const errors = [];
+    const items = [];
+    let largeQtyCount = 0;
+    let validLineCount = 0;
+
+    if (!date) errors.push({ message: '日期不能为空，请填写单据日期。' });
+    // F3.17：销售退货入库必须选择退货客户（与后端 in_order.py 同口径拦截）
+    const businessType = document.querySelector('[name="business_type"]').value;
+    const isProductIn = businessType === '产品入库';
+    if (businessType === '销售退货入库' && !supplierId) {
+        errors.push({ message: '销售退货入库单必须选择退货客户。' });
+    } else if (supplierRequired && !supplierId) {
+        errors.push({ message: partyLabel + '不能为空，请选择' + partyLabel + '。' });
+    }
+    // BUG-2026-08-02-001 修复：仓库是入库单必填字段，与库位管理是否启用无关。
+    if (!warehouseId) errors.push({ message: '仓库不能为空，请选择仓库。' });
+    // 库位管理启用时库位为必填（AGENTS.md 规则二）
+    if (locationInput && !location) errors.push({ message: '库位不能为空，请输入库位。' });
+
+    rows.forEach((row, rowIndex) => {
+        const code = row.querySelector('.material-code').value.trim();
+        const productName = (row.querySelector('.material-name')?.value || '').trim();
+        const hasProductData = isProductIn && ['.material-name', '.material-spec', '.material-unit', '.material-box-no', '.material-qty']
+            .some(selector => row.querySelector(selector)?.value.trim());
+        if (code || hasProductData) {
+            WMS.normalizeDecimalInput(row.querySelector('.material-qty'));
+            WMS.normalizeDecimalInput(row.querySelector('.material-price'), '单价');
+        }
+        const qty = parseFloat(row.querySelector('.material-qty').value);
+        const price = isProductIn && !row.querySelector('.material-price').value ? 0 : parseFloat(row.querySelector('.material-price').value);
+        if (!code && !hasProductData) {
+            if (receiptRowHasDetails(row)) {
+                errors.push({rowIndex, selector: '.material-code', message: '第 ' + (rowIndex + 1) + ' 行已填写明细，请选择物料或清空该行。'});
+                markRowError(row, '.material-code');
+            }
+            return;
+        }
+        validLineCount += 1;
+
+        if (isProductIn && !code && !productName) {
+            errors.push({rowIndex, selector: '.material-name', message: '第 ' + (rowIndex + 1) + ' 行请填写物料名称。'});
+            markRowError(row, '.material-name');
+        }
+        if (!isProductIn && !findMaterialByCode(code)) {
+            errors.push({ rowIndex, selector: '.material-code', message: '第 ' + (rowIndex + 1) + ' 行物料编码不存在：' + code });
+            markRowError(row, '.material-code');
+        }
+        if (!Number.isFinite(qty) || qty <= 0) {
+            errors.push({ rowIndex, selector: '.material-qty', message: '第 ' + (rowIndex + 1) + ' 行数量必须大于 0。' });
+            markRowError(row, '.material-qty');
+        }
+        if (!Number.isFinite(price) || price < 0) {
+            errors.push({ rowIndex, selector: '.material-price', message: '第 ' + (rowIndex + 1) + ' 行单价不能小于 0。' });
+            markRowError(row, '.material-price');
+        }
+        if (qty > 10000) largeQtyCount += 1;
+
+        // F3.17：批次号/有效期前端校验与后端 _parse_item_batch_no /
+        // _parse_item_expiry_date 同口径（粘贴导入/草稿回填可绕过
+        // maxlength 与 date 控件约束，提交前必须兜底）。
+        const batchNoVal = document.documentElement?.dataset?.batchManagement === 'on'
+            ? (row.querySelector('.material-batch-no')?.value || '').trim() : '';
+        if (batchNoVal.length > 50) {
+            errors.push({ rowIndex, selector: '.material-batch-no', message: '第 ' + (rowIndex + 1) + ' 行批次号不能超过 50 个字符。' });
+            markRowError(row, '.material-batch-no');
+        }
+        const expiryVal = (row.querySelector('.material-expiry')?.value || '').trim();
+        if (expiryVal && !/^\d{4}-\d{2}-\d{2}$/.test(expiryVal)) {
+            errors.push({ rowIndex, selector: '.material-expiry', message: '第 ' + (rowIndex + 1) + ' 行有效期格式不正确，应为 YYYY-MM-DD。' });
+            markRowError(row, '.material-expiry');
+        }
+
+        const item = { code, box_no: (row.querySelector('.material-box-no')?.value || '').trim(), quantity: qty, price: Number.isFinite(price) ? price : 0, batch_no: batchNoVal, expiry_date: (row.querySelector('.material-expiry')?.value || '').trim(), is_customer_supplied: !!row.querySelector('.line-customer-supplied')?.checked, contract_no: (row.querySelector('.line-contract-no')?.value || '').trim(), project_name: (row.querySelector('.line-project-name')?.value || '').trim(), remark: (row.querySelector('.material-remark')?.value || '').trim() };
+        if (isProductIn && row.querySelector('.material-name')) {
+            item.name = productName;
+            item.spec = (row.querySelector('.material-spec')?.value || '').trim();
+            item.unit = (row.querySelector('.material-unit')?.value || '').trim();
+        }
+        if (row.dataset.lineId || document.querySelector('[name="order_id"]')?.value) {
+            item.line_id = row.dataset.lineId || null;
+        }
+        const sourceItemId = row.dataset.sourcePurchaseOrderItemId;
+        if (sourceItemId) item.source_purchase_order_item_id = sourceItemId;
+        items.push(item);
+    });
+
+    if (businessType === '其他入库' && !supplierId && items.some(item => item.is_customer_supplied)) {
+        errors.push({ message: '含客供料的其他入库单必须选择客户。' });
+    }
+    if (validLineCount === 0) errors.push({ message: '请至少填写一条物料明细。' });
+    if (errors.length) {
+        showInOrderValidation(errors);
+        return;
+    }
+
+    if (largeQtyCount > 0 && !confirm('有 ' + largeQtyCount + ' 行物料数量超过 10000，是否确认提交？')) {
+        return;
+    }
+
+    const data = {
+        order_id: document.querySelector('[name="order_id"]').value,
+        order_no: document.querySelector('[name="order_no"]').value,
+        date: date,
+        business_type: document.querySelector('[name="business_type"]').value,
+        purpose: document.querySelector('[name="purpose"]').value.trim(),
+        [partyField]: supplierId,
+        warehouse_id: warehouseId,
+        location: location,
+        auto_push_requisition: !!document.querySelector('[name="auto_push_requisition"]')?.checked,
+        remark: document.querySelector('[name="remark"]').value,
+        items: items
+    };
+    const productCustomer = document.querySelector('#productCustomer');
+    if (businessType === '产品入库' && productCustomer) {
+        data.customer_id = productCustomer.value;
+        data.contract_no = document.querySelector('[name="contract_no"]').value.trim();
+        data.project_name = document.querySelector('[name="project_name"]').value.trim();
+    }
+
+    inOrderSubmitting = true;
+    const submitButtons = Array.from(document.querySelectorAll('button[onclick*="submitForm"], [data-wms-save-complete-proxy]'));
+    const disabledStates = submitButtons.map(button => button.disabled);
+    submitButtons.forEach(button => { button.disabled = true; });
+    let savedOrderId = null;
+    return WMS.api.postRaw('/in_order/add', data)
+    .then(data => {
+        if (data.status !== 'success') {
+            showToast('保存失败：' + (data.msg || '未知错误'), 'danger');
+            return;
+        }
+
+        savedOrderId = data.id;
+        const orderIdInput = document.querySelector('[name="order_id"]');
+        const orderNoInput = document.querySelector('[name="order_no"]');
+        if (orderIdInput) orderIdInput.value = data.id;
+        if (orderNoInput && data.order_no) orderNoInput.value = data.order_no;
+
+        if (!completeAfterSave) {
+            showToast('草稿保存成功', 'success');
+            if (typeof clearDraft === 'function') clearDraft();
+            window.location.href = saveAndNew ? returnAddUrl : `/in_order/${data.id}`;
+            return;
+        }
+
+        return WMS.api.postRaw(`/in_order/${data.id}/complete`, {})
+            .then(completeRes => {
+                if (completeRes && completeRes.status === 'success') {
+                    showToast(completeRes.auto_requisition_id ? completeRes.msg : '完成入库成功，库存已更新', 'success');
+                    if (typeof clearDraft === 'function') clearDraft();
+                    window.location.href = businessType === '采购入库' ? '/in_order/add' :
+                        (saveAndNew ? returnAddUrl : `/in_order/${data.id}`);
+                } else {
+                    showDocumentCompletionIssue(`/in_order/${data.id}`, completeRes);
+                }
+            });
+    })
+    .catch(error => {
+        if (savedOrderId) {
+            showDocumentCompletionIssue(`/in_order/${savedOrderId}`, error);
+        } else {
+            showToast('保存失败：' + error.message, 'danger');
+        }
+    })
+    .finally(() => {
+        // 已取得单号后保持锁：成功导航，异常由用户打开结果面板中的详情链接核对。
+        if (!savedOrderId) {
+            inOrderSubmitting = false;
+            submitButtons.forEach((button, index) => { button.disabled = disabledStates[index]; });
+        }
+    });
+}
+
+document.addEventListener('click', function(e) {
+    if (!e.target.closest('.material-input')) {
+        cancelMaterialSearch();
+        if (activeDropdown) activeDropdown.style.display = 'none';
+        activeDropdown = null;
+    }
+});
+
+document.addEventListener('DOMContentLoaded', function() {
+    WMS.materialCache.bindWarehouse(materials);
+    if (receiptPage.businessType === '采购入库') {
+        WMS.bindQuantityColumnPaste('materialTableBody', '.material-qty', () => !inOrderSubmitting);
+    }
+    const editItems = receiptPage.editItems;
+    editItems.forEach((item) => {
+        addNewRow();
+        const row = document.querySelector('#materialTableBody tr:last-child');
+        row.querySelector('.material-code').value = item.material_code;
+        const supplied = row.querySelector('.line-customer-supplied');
+        if (supplied) supplied.checked = !!item.is_customer_supplied;
+        row.dataset.lineId = item.line_id || '';
+        if (item.source_purchase_order_item_id) {
+            row.dataset.sourcePurchaseOrderItemId = item.source_purchase_order_item_id;
+        }
+        handleMaterialCodeInput(row);
+        row.querySelector('.material-qty').value = formatQtyTrim(item.quantity);
+        row.querySelector('.material-price').value = item.price;
+        // BUG-2026-09-21-003：编辑草稿必须回填批次号/有效期，否则再保存时静默清空
+        if (row.querySelector('.material-box-no')) row.querySelector('.material-box-no').value = item.box_no || '';
+        row.querySelector('.material-batch-no').value = item.batch_no || '';
+        row.querySelector('.material-expiry').value = item.expiry_date || '';
+        row.querySelector('.line-contract-no').value = item.contract_no;
+        row.querySelector('.line-project-name').value = item.project_name;
+        row.querySelector('.material-remark').value = item.remark;
+        calcAmount(row);
+    });
+    if (!editItems.length && !document.querySelector('#materialTableBody tr')) {
+        for (let i = 0; i < 6; i++) addNewRow();
+    }
+    if (window.WMS && window.WMS.ContractAutocomplete) {
+        window.WMS.ContractAutocomplete.bindAll();
+    }
+    registerDetailRowActions({
+        tableSelector: '#materialTable',
+        rowSelector: '#materialTableBody tr',
+        add: function() { addRowAfterCurrent(); },
+        insert: function(row) { insertRowBefore(row); },
+        copy: function(row) { copyRowAfter(row); },
+        remove: function(row) { deleteRow(row); }
+    });
+
+    // ==================== 供应商搜索 ====================
+    const searchInput = document.getElementById('supplierSearch');
+    const dropdown = document.getElementById('supplierDropdown');
+    const hiddenInput = document.getElementById('supplierIdHidden');
+    let activeIndex = -1;
+
+    if (searchInput && dropdown) {
+        function showDropdown(list) {
+            if (!list.length) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            dropdown.innerHTML = list.map((s, i) =>
+                '<div class="supplier-item" data-index="' + i + '" data-id="' + escapeAttr(s.id) + '" style="padding:8px 12px;cursor:pointer;border-bottom:1px solid #f0f0f0;font-size:13px;">' +
+                '<span style="font-weight:bold;">' + escapeHtml(s.name) + '</span>' +
+                (s.contact ? ' <span style="color:#999;">| ' + escapeHtml(s.contact) + '</span>' : '') +
+                (s.phone ? ' <span style="color:#999;">| ' + escapeHtml(s.phone) + '</span>' : '') +
+                '</div>'
+            ).join('');
+            dropdown.style.display = 'block';
+            WMS.positionDropdown(searchInput, dropdown, {maxHeight: 200});
+            activeIndex = -1;
+
+            dropdown.querySelectorAll('.supplier-item').forEach(function(item) {
+                item.addEventListener('click', function() {
+                    searchInput.value = this.querySelector('span:first-child').textContent;
+                    hiddenInput.value = this.dataset.id;
+                    dropdown.style.display = 'none';
+                });
+                item.addEventListener('mouseenter', function() {
+                    dropdown.querySelectorAll('.supplier-item').forEach(function(el) { el.style.backgroundColor = ''; });
+                    this.style.backgroundColor = '#e6f7ff';
+                    activeIndex = parseInt(this.dataset.index);
+                });
+            });
+        }
+
+        searchInput.addEventListener('input', function() {
+            // P1-UI-7：手改往来单位文本后立即清空旧隐藏 ID，避免提交时静默发往旧供应商/客户
+            hiddenInput.value = '';
+            const keyword = this.value.trim().toLowerCase();
+            if (!keyword) {
+                dropdown.style.display = 'none';
+                return;
+            }
+            const filtered = suppliers.filter(function(s) {
+                return (s.name || '').toLowerCase().indexOf(keyword) !== -1 ||
+                       (s.contact || '').toLowerCase().indexOf(keyword) !== -1 ||
+                       (s.phone || '').toLowerCase().indexOf(keyword) !== -1;
+            });
+            showDropdown(filtered);
+        });
+
+        searchInput.addEventListener('focus', function() {
+            if (this.value.trim()) {
+                this.dispatchEvent(new Event('input'));
+            } else {
+                showDropdown(suppliers);
+            }
+        });
+
+        searchInput.addEventListener('keydown', function(e) {
+            const items = dropdown.querySelectorAll('.supplier-item');
+            if (!items.length) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIndex = Math.min(activeIndex + 1, items.length - 1);
+                items.forEach(function(el, i) { el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : ''; });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIndex = Math.max(activeIndex - 1, 0);
+                items.forEach(function(el, i) { el.style.backgroundColor = i === activeIndex ? '#e6f7ff' : ''; });
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (activeIndex >= 0 && items[activeIndex]) {
+                    items[activeIndex].click();
+                }
+            } else if (e.key === 'Escape') {
+                dropdown.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.supplier-input')) {
+                dropdown.style.display = 'none';
+            }
+        });
+    }
+
+    // ==================== 明细表字段位置和列宽 ====================
+    if (typeof setupDynamicDetailColumnControls === 'function') {
+        window.inOrderColumnController = setupDynamicDetailColumnControls({
+            tableSelector: '#materialTable',
+            orderKey: 'in_order_col_order_v1',
+            widthKey: 'in_order_col_widths_v3',
+            lockedColumns: ['row_no', 'actions'],
+            minWidths: {
+                row_no: 42,
+                actions: 92,
+                material_code: 120,
+                brand: 90,
+                material_name: 140,
+                spec: 80,
+                unit: 60,
+                quantity: 80,
+                price: 80,
+                amount: 90,
+                stock: 90
+            }
+        });
+    }
+
+    if (!receiptPage.isProductIn && sourcePurchaseOrderId) {
+        setTimeout(function() {
+            showPurchaseOrderSelectModal();
+        }, 200);
+    }
+
+    // ==================== 监听基础资料更新广播 ====================
+    try {
+        if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('wms_material_update');
+            bc.onmessage = function(event) {
+                if (event.data && event.data.type === 'material_updated') {
+                    refreshMaterials({ silent: true });
+                }
+            };
+            const masterBc = new BroadcastChannel('wms_master_data_update');
+            masterBc.onmessage = function(event) {
+                const type = event.data && event.data.type;
+                if (type === 'unit_updated' || type === 'material_updated') {
+                    refreshMaterials({ silent: true });
+                }
+                // BUG-2026-08-25-001 修复：其他入库单往来单位是客户，须监听 customer_updated；
+                // supplier_updated 只在供应商模式（采购入库）下刷新，避免客户列表被供应商数据覆盖。
+                if (type === 'supplier_updated' && partyField !== 'customer_id') {
+                    refreshSuppliers({ silent: true });
+                }
+                if (type === 'customer_updated' && partyField === 'customer_id') {
+                    refreshSuppliers({ silent: true });
+                }
+                if (type === 'warehouse_updated') {
+                    refreshWarehouses({ silent: true });
+                }
+            };
+        }
+    } catch(e) {}
+});
+
+// ==================== 刷新物料列表 ====================
+function notifyMaterialRefresh(message, type, silent) {
+    if (silent) return;
+    if (window.showToast) {
+        window.showToast(message, type || 'success', 2500);
+    }
+}
+
+// P2：物料联想已改为服务端搜索，这里不再需要「全量物料」。
+// fetchMaterialsPage 只取一页（用于重建初始缓存 / 重置缓存）。
+function fetchMaterialsPage(page) {
+    return WMS.api.getRaw('/material/api/all?page=' + page + '&per_page=' + MATERIAL_INITIAL_CACHE_SIZE + '&warehouse=' + encodeURIComponent(WMS.materialCache.warehouseFromForm()))
+        .then(function(res) {
+            if (!res || res.status !== 'success' || !Array.isArray(res.materials) ||
+                res.materials.some(m => !m || typeof m.code !== 'string' || typeof m.name !== 'string')) {
+                throw new Error((res && res.msg) || '未知错误');
+            }
+            return res.materials;
+        });
+}
+
+let materialRefreshSeq = 0;
+function refreshMaterials(options) {
+    const seq = ++materialRefreshSeq;
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    const silent = !!(options && options.silent);
+    const btn = document.querySelector('button[onclick="refreshMaterials()"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新中...';
+    }
+    // P2：不再全量拉取——全量物料上万时这里会拖垮页面。
+    // 只重置初始缓存；未命中的物料由输入时的服务端搜索按需拉取。
+    // 已选中的行不受影响（其物料对象按编码合并保留）。
+    return fetchMaterialsPage(1)
+        .then(function(page) {
+            if (seq !== materialRefreshSeq || warehouseContext !== WMS.materialCache.warehouseFromForm()) return;
+            const keep = new Map();
+            materials.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
+            page.forEach(function(m){ if (m && m.code) keep.set(m.code, m); });
+            materials.length = 0;
+            keep.forEach(function(m){ materials.push(m); });
+            notifyMaterialRefresh('物料缓存已重置，共 ' + materials.length + ' 条（输入关键词将实时搜索全部物料）', 'success', silent);
+        })
+        .catch(function(err){ if (seq === materialRefreshSeq) notifyMaterialRefresh('刷新失败：' + err.message, 'danger', silent); })
+        .finally(function() {
+            if (seq !== materialRefreshSeq || warehouseContext !== WMS.materialCache.warehouseFromForm()) return;
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新物料';
+            }
+        });
+}
+
+function refreshSuppliers(options) {
+    const silent = !!(options && options.silent);
+    // BUG-2026-08-25-001 修复：客户模式（其他入库单）必须请求 /api/customers，
+    // 否则客户列表会被供应商数据覆盖，跨页新建客户后也刷新不到。
+    const url = partyField === 'customer_id' ? '/api/customers' : '/api/suppliers';
+    return WMS.listCache.refresh(suppliers, url)
+        .then(function(applied) {
+            if (applied) {
+                notifyMaterialRefresh(partyLabel + '列表已更新，共 ' + suppliers.length + ' 条', 'success', silent);
+            }
+            return applied;
+        })
+        .catch(function(err){ notifyMaterialRefresh(partyLabel + '刷新失败：' + err.message, 'danger', silent); return false; });
+}
+
+function refreshWarehouses(options) {
+    const silent = !!(options && options.silent);
+    const select = document.querySelector('[name="warehouse_id"]');
+    if (!select) return;
+    return WMS.selectOptions.refresh({
+        url: '/warehouse/api/list', itemsKey: 'warehouses',
+        targets: [{select: select, placeholder: '请选择仓库'}]
+    }).then(function(updated) {
+        if (updated) notifyMaterialRefresh('仓库列表已更新', 'success', silent);
+    }).catch(function(err) { notifyMaterialRefresh('仓库刷新失败：' + err.message, 'danger', silent); });
+}
+
+// ==================== Excel粘贴导入 ====================
+function showPasteModal() {
+    if (document.getElementById('pasteModal')) return;
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
+    if (isProductIn) { WMS.ProductReceiptGrid.showPasteModal(); return; }
+    const modal = document.createElement('div');
+    modal.id = 'pasteModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:24px;width:600px;max-width:90%;max-height:80vh;display:flex;flex-direction:column;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">Excel / WPS 粘贴导入</h5>
+            <p style="color:#666;font-size:13px;margin:0 0 8px 0;">在 Excel / WPS 中选中单元格区域复制，粘贴到下方即可（列顺序：<b>物料编码　数量　单价　${receiptPage.batchManagementEnabled ? '批次号　' : ''}有效期</b>，单价及后续列可留空）：</p>
+            <p style="color:#999;font-size:12px;margin:0 0 12px 0;">有效期兼容 2026-09-01、2026/9/1、2026.9.1、2026年9月1日，以及带时间的「2026/9/1 0:00」。</p>
+            <textarea id="pasteArea" style="flex:1;min-height:200px;border:1px solid #d9d9d9;border-radius:4px;padding:12px;font-size:13px;font-family:monospace;resize:vertical;"></textarea>
+            <div style="margin-top:16px;display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('pasteModal').remove()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="parsePastedData()">确认导入</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    // placeholder 里的列间必须是真实的制表符（HTML 属性中写 \t 不生效），
+    // 用 JS 赋值保证与 Excel/WPS 实际粘贴内容一致。
+    const pasteArea = document.getElementById('pasteArea');
+    pasteArea.placeholder = [
+        '从 Excel 复制后直接在此粘贴，例如：',
+        ['M001', '100', '5.50', 'B20260901', '2027/6/30'].join('\t'),
+        ['M002', '200', '3.00'].join('\t'),
+        ['M003', '50', '10.00', 'B20260903', '2026年12月31日'].join('\t'),
+    ].join('\n');
+    WmsFormAccessibility.openPasteDialog(modal);
+}
+
+async function parsePastedData() {
+    const pasteArea = document.getElementById('pasteArea');
+    const button = document.querySelector('#pasteModal button[onclick="parsePastedData()"]');
+    if (!pasteArea || button?.disabled) return;
+    const text = pasteArea.value.trim();
+    if (!text) { showToast('请输入数据', 'warning'); return; }
+    const warehouseContext = WMS.materialCache.warehouseFromForm();
+    if (!warehouseContext || WMS.materialCache.isRefreshing(materials)) {
+        showToast('请先选择仓库并等待库存刷新完成，再导入', 'warning'); return;
+    }
+    if (button) button.disabled = true;
+    pasteArea.readOnly = true;
+    const lines = text.split(/\r?\n/).filter(line => line.trim());
+    const failedLines = [];
+    const failList = [];
+    const parsed = [];
+    let successCount = 0;
+    const splitRow = line => (line.includes('\t') ? line.split('\t') : line.split(/\s{2,}/)).map(s => s.trim());
+    const normalizeExpiry = (raw) => {
+        let s = String(raw || '').trim();
+        if (!s) return '';
+        if (s.indexOf(' ') >= 0) s = s.split(/\s+/)[0];
+        s = s.replace(/年|月/g, '-').replace(/日/g, '');
+        const segs = s.split(/[-/.]/).filter(p => p !== '');
+        if (segs.length !== 3) return null;
+        const [y, m, d] = segs;
+        if (!/^\d{4}$/.test(y) || !/^\d{1,2}$/.test(m) || !/^\d{1,2}$/.test(d)) return null;
+        const iso = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+        const dt = new Date(iso + 'T00:00:00');
+        if (isNaN(dt.getTime())) return null;
+        // 反查防止 2026-02-31 这类被 Date 静默滚动的非法日期
+        if (dt.getFullYear() !== Number(y) || dt.getMonth() + 1 !== Number(m) || dt.getDate() !== Number(d)) return null;
+        return iso;
+    };
+    const reject = (line, idx, message) => {
+        failedLines.push(line);
+        failList.push('第' + (idx + 1) + '行：' + message);
+    };
+    try {
+        lines.forEach((line, idx) => {
+            const parts = splitRow(line);
+            if (parts.length < 2 || !parts[0]) { reject(line, idx, '请填写物料编码和数量'); return; }
+            const code = parts[0];
+            const qty = Number(parts[1]);
+            const price = parts.length >= 3 && parts[2] !== '' ? Number(parts[2]) : null;
+            const decimal = /^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/;
+            if (!decimal.test(parts[1]) || !Number.isFinite(qty) || qty <= 0) {
+                reject(line, idx, '数量必须大于0，最多两位小数'); return;
+            }
+            if (price !== null && (!decimal.test(parts[2]) || !Number.isFinite(price) || price < 0)) {
+                reject(line, idx, '单价必须不小于0，最多两位小数'); return;
+            }
+            const batchEnabled = document.documentElement?.dataset?.batchManagement !== 'off';
+            if (!batchEnabled && parts.length > 4) { reject(line, idx, '当前列为物料编码、数量、单价、有效期'); return; }
+            const batchNo = batchEnabled ? (parts[3] || '') : '';
+            const expiry = normalizeExpiry(parts[batchEnabled ? 4 : 3] || '');
+            if (batchNo.length > 50) { reject(line, idx, '批次号超过50字符'); return; }
+            if (expiry === null) { reject(line, idx, '有效期格式不正确'); return; }
+            parsed.push({line, idx, code, qty, price, batchNo, expiry});
+        });
+        const missing = [...new Set(parsed.map(entry => entry.code).filter(code => !materials.some(m => m.code === code)))];
+        for (let offset = 0; offset < missing.length; offset += 200) {
+            const params = new URLSearchParams();
+            missing.slice(offset, offset + 200).forEach(code => params.append('code', code));
+            params.set('warehouse', warehouseContext);
+            const found = await WMS.api.get('/material/api/by_codes?' + params.toString());
+            if (!pasteArea.isConnected) return;
+            if (warehouseContext !== WMS.materialCache.warehouseFromForm() || WMS.materialCache.isRefreshing(materials)) {
+                throw new Error('仓库已变化或库存正在刷新，请核对仓库后重新导入');
+            }
+            found.forEach(material => {
+                if (material && material.code && !materials.some(m => m.code === material.code)) materials.push(material);
+            });
+        }
+        // Cancel may remove the modal while the material lookup is in flight.
+        if (!pasteArea.isConnected) return;
+        parsed.forEach(entry => {
+            const material = materials.find(m => m.code === entry.code);
+            if (!material) { reject(entry.line, entry.idx, '物料不存在或已停用：' + entry.code); return; }
+            const row = findEmptyRow() || addNewRow();
+            fillMaterialFields(row, material, { forcePrice: true });
+            row.dataset.sourcePurchaseOrderItemId = '';
+            row.dataset.sourcePurchaseOrderNo = '';
+            const sourceInput = row.querySelector('.line-source-in-item-id');
+            if (sourceInput) sourceInput.value = '';
+            row.querySelector('.material-qty').value = formatQtyTrim(entry.qty);
+            const price = entry.price === null ? (Number(material.price) || 0) : entry.price;
+            row.querySelector('.material-price').value = price.toFixed(2);
+            row.querySelector('.material-batch-no').value = entry.batchNo;
+            row.querySelector('.material-expiry').value = entry.expiry;
+            calcAmount(row);
+            successCount++;
+        });
+        calcTotal();
+        if (failList.length) {
+            pasteArea.value = failedLines.join('\n');
+            let result = document.getElementById('pasteImportResult');
+            if (!result) {
+                result = document.createElement('div');
+                result.id = 'pasteImportResult';
+                result.style.cssText = 'white-space:pre-line;color:#b42318;max-height:150px;overflow:auto;margin-top:10px;';
+                pasteArea.parentNode.appendChild(result);
+            }
+            result.textContent = '已导入 ' + successCount + ' 行，以下 ' + failList.length + ' 行未导入，修正后可重试：\n' + failList.join('\n');
+            showToast('已导入 ' + successCount + ' 行，' + failList.length + ' 行待修正', 'warning');
+        } else {
+            document.getElementById('pasteModal').remove();
+            showToast('成功导入 ' + successCount + ' 条记录', 'success');
+        }
+    } catch (error) {
+        showToast('物料查询失败，未导入，请重试：' + error.message, 'danger');
+    } finally {
+        pasteArea.readOnly = false;
+        if (button) button.disabled = false;
+    }
+}
+
+function receiptRowHasDetails(row) {
+    if (row.querySelector('.line-customer-supplied')?.checked) return true;
+    return ['.material-name', '.material-spec', '.material-unit', '.material-qty', '.material-price',
+        '.material-box-no', '.material-batch-no', '.material-expiry', '.line-contract-no',
+        '.line-project-name', '.material-remark'].some(selector => {
+        const input = row.querySelector(selector);
+        return input && !input.readOnly && (input.value.trim() !== '' || input.validity?.badInput);
+    });
+}
+
+function findEmptyRow() {
+    const rows = document.querySelectorAll('#materialTableBody tr');
+    for (const row of rows) {
+        if (!row.querySelector('.material-code').value.trim() && !receiptRowHasDetails(row)) return row;
+    }
+    return null;
+}
+
+// ==================== Purchase order selection ====================
+function formatPurchaseQty(value) {
+    const qty = parseFloat(value);
+    return Number.isFinite(qty) ? qty.toFixed(2) : '0.00';
+}
+
+function getCurrentSupplierId() {
+    const supplierInput = document.querySelector('[name="supplier_id"]');
+    return supplierInput ? String(supplierInput.value || '').trim() : '';
+}
+
+function setHeaderSupplier(supplierId, supplierName) {
+    const hidden = document.getElementById('supplierIdHidden');
+    const search = document.getElementById('supplierSearch');
+    if (hidden && supplierId) hidden.value = supplierId;
+    if (search && supplierName) search.value = supplierName;
+}
+
+function applyPurchaseOrderSelectionToForm() {
+    const confirmBtn = document.querySelector('#purchaseOrderSelectModal button[onclick*="applyPurchaseOrderSelectionToForm"]');
+    if (confirmBtn?.disabled) return;
+    const checkedRows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody .po-select-row:checked'));
+    if (!checkedRows.length) {
+        showToast('请选择采购单明细', 'danger', 5000);
+        document.querySelector('#purchaseOrderSelectBody .po-select-row')?.focus();
+        return;
+    }
+
+    const supplierIds = new Set();
+    const selected = [];
+    for (const checkbox of checkedRows) {
+        const row = checkbox.closest('tr');
+        const qtyInput = row.querySelector('.po-select-qty');
+        const quantity = parseFloat(qtyInput.value);
+        const maxQty = parseFloat(qtyInput.getAttribute('max'));
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            showToast('本次入库数量必须大于 0', 'danger', 5000);
+            qtyInput.focus();
+            return;
+        }
+        if (Number.isFinite(maxQty) && quantity - maxQty > 0.000001) {
+            showToast('本次入库数量不能大于可再下推数量', 'danger', 5000);
+            qtyInput.focus();
+            return;
+        }
+        const source = purchaseOrderSelectableMap.get(String(checkbox.dataset.itemId)) || {};
+        supplierIds.add(String(source.supplier_id || ''));
+        selected.push({ source, quantity });
+    }
+    if (supplierIds.size > 1) {
+        showToast('采购入库单只能选择同一供应商的采购单明细', 'danger', 5000);
+        checkedRows[0]?.focus();
+        return;
+    }
+
+    function fillSelectedRows() {
+        const tbody = document.getElementById('materialTableBody');
+        Array.from(tbody.querySelectorAll('tr')).forEach(function(row) {
+            if (!row.querySelector('.material-code').value.trim()) row.remove();
+        });
+
+        selected.forEach(function(entry) {
+            const source = entry.source;
+            let row = findEmptyRow();
+            if (!row) {
+                addNewRow();
+                row = document.querySelector('#materialTableBody tr:last-child');
+            }
+            const material = findMaterialByCode(source.material_code);
+            if (material) {
+                fillMaterialFields(row, material, { forcePrice: true });
+            } else {
+                row.querySelector('.material-code').value = source.material_code || '';
+                row.querySelector('.material-brand').value = source.brand || '';
+                row.querySelector('.material-name').value = source.material_name || '';
+                row.querySelector('.material-spec').value = source.spec || '';
+                row.querySelector('.material-unit').value = source.unit || '';
+                row.querySelector('.material-stock').value = '0.00';
+            }
+            row.dataset.sourcePurchaseOrderItemId = source.purchase_order_item_id || '';
+            row.dataset.sourcePurchaseOrderNo = source.purchase_order_no || '';
+            row.querySelector('.material-qty').value = formatQtyTrim(entry.quantity);
+            row.querySelector('.material-price').value = formatPurchaseQty(source.price);
+            calcAmount(row);
+        });
+
+        const first = selected[0] && selected[0].source;
+        if (first) {
+            setHeaderSupplier(first.supplier_id, first.supplier_name);
+            const remarkInput = document.querySelector('[name="remark"]');
+            if (remarkInput && !remarkInput.value.trim()) {
+                const orderNos = Array.from(new Set(selected.map(item => item.source.purchase_order_no))).filter(Boolean);
+                remarkInput.value = '由采购单选单带入：' + orderNos.join('、');
+            }
+        }
+        renumberRows();
+        calcTotal();
+        document.getElementById('purchaseOrderSelectModal')?.remove();
+        if (window.showToast) {
+            window.showToast('已带入采购单明细，请核对后保存', 'success');
+        }
+    }
+
+    // P0-1：采购单所含物料可能位于初始 300 条预载缓存之外，带入前按当前仓库批量补拉
+    // 物料对象及真实仓库级库存并写入 materials 缓存，避免显示假 0.00 库存或保存时报「物料编码不存在」。
+    const hasMaterialCache = typeof materials !== 'undefined' && Array.isArray(materials);
+    const missingCodes = hasMaterialCache ? Array.from(new Set(
+        selected
+            .map(entry => String(entry.source.material_code || '').trim())
+            .filter(code => code && !findMaterialByCode(code))
+    )) : [];
+    if (!missingCodes.length) {
+        fillSelectedRows();
+        return;
+    }
+
+    const modalEl = document.getElementById('purchaseOrderSelectModal');
+    const warehouseContext = (typeof WMS !== 'undefined' && WMS.materialCache && typeof WMS.materialCache.warehouseFromForm === 'function')
+        ? WMS.materialCache.warehouseFromForm()
+        : '';
+    if (confirmBtn) confirmBtn.disabled = true;
+    const chunks = [];
+    for (let offset = 0; offset < missingCodes.length; offset += 200) {
+        chunks.push(missingCodes.slice(offset, offset + 200));
+    }
+    return chunks.reduce(function(chain, chunk) {
+        return chain.then(function() {
+            if (modalEl && !modalEl.isConnected) return;
+            const params = new URLSearchParams();
+            chunk.forEach(code => params.append('code', code));
+            if (warehouseContext) params.set('warehouse', warehouseContext);
+            return WMS.api.get('/material/api/by_codes?' + params.toString()).then(function(found) {
+                if (modalEl && !modalEl.isConnected) return;
+                if (Array.isArray(found)) {
+                    found.forEach(material => {
+                        if (material && material.code && !findMaterialByCode(material.code)) {
+                            materials.push(material);
+                        }
+                    });
+                }
+            });
+        });
+    }, Promise.resolve()).then(function() {
+        if (modalEl && !modalEl.isConnected) return;
+        const unresolved = missingCodes.filter(code => !findMaterialByCode(code));
+        if (unresolved.length) {
+            showToast('以下物料不存在或已停用，无法带入：' + unresolved.slice(0, 5).join('、'), 'danger', 5000);
+            return;
+        }
+        fillSelectedRows();
+    }).catch(function(error) {
+        showToast('获取物料及仓库库存失败，请重试：' + ((error && error.message) || '未知错误'), 'danger', 5000);
+    }).finally(function() {
+        if (confirmBtn && confirmBtn.isConnected) confirmBtn.disabled = false;
+    });
+}
+
+function showPurchaseOrderSelectModal() {
+    const existing = document.getElementById('purchaseOrderSelectModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'purchaseOrderSelectModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.45);z-index:19000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:#fff;border-radius:6px;width:1260px;max-width:98vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,0.18);">
+            <div style="padding:14px 16px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div>
+                    <h5 style="margin:0;font-size:16px;font-weight:600;color:#111827;">选采购单生成入库单</h5>
+                    <div style="margin-top:4px;font-size:12px;color:#6b7280;">仅列出还能建入库单的明细。草稿占用可点单号查看。</div>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('purchaseOrderSelectModal').remove()">关闭</button>
+            </div>
+            <div style="padding:12px 16px;border-bottom:1px solid #e5e7eb;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <input id="purchaseOrderSelectSearch" class="form-control" style="width:320px;" placeholder="采购单号 / 供应商 / 物料">
+                <button type="button" class="btn btn-outline-primary" onclick="loadPurchaseOrderSelectable()">查询</button>
+                <span id="purchaseOrderSelectHint" style="font-size:12px;color:#6b7280;"></span>
+            </div>
+            <div style="padding:0 16px;overflow:auto;flex:1;">
+                <table class="table table-sm table-hover" style="font-size:12px;margin:0;">
+                    <thead style="position:sticky;top:0;background:#fafafa;z-index:1;">
+                        <tr>
+                            <th style="width:38px;"><input type="checkbox" id="purchaseOrderSelectAll" onchange="togglePurchaseOrderSelection(this.checked)"></th>
+                            <th style="width:130px;">采购单号</th>
+                            <th style="width:150px;">供应商</th>
+                            <th style="width:110px;">预计到货</th>
+                            <th style="width:130px;">物料编码</th>
+                            <th>物料名称</th>
+                            <th style="width:90px;">规格</th>
+                            <th style="width:60px;">单位</th>
+                            <th style="width:90px;text-align:right;">采购数量</th>
+                            <th style="width:90px;text-align:right;">已入库</th>
+                            <th class="text-end">未入库</th>
+                            <th class="text-end">草稿占用</th>
+                            <th style="width:90px;text-align:right;">可再下推</th>
+                            <th style="width:110px;">本次入库</th>
+                            <th style="width:90px;text-align:right;">单价</th>
+                        </tr>
+                    </thead>
+                    <tbody id="purchaseOrderSelectBody">
+                        <tr><td colspan="15" class="text-center text-muted" style="padding:24px;">正在加载...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="padding:12px 16px;border-top:1px solid #e5e7eb;display:flex;justify-content:space-between;align-items:center;gap:12px;">
+                <div id="purchaseOrderSelectSummary" style="font-size:13px;color:#374151;">已选 0 行</div>
+                <div style="display:flex;gap:8px;">
+                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('purchaseOrderSelectModal').remove()">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="applyPurchaseOrderSelectionToForm()">带入当前单据</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const searchInput = document.getElementById('purchaseOrderSelectSearch');
+    searchInput.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            loadPurchaseOrderSelectable();
+        }
+    });
+    // 实时搜索:输入停止 300ms 后自动触发查询(比金蝶的"按查询按钮"顺)
+    let searchDebounceTimer = null;
+    searchInput.addEventListener('input', function() {
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(loadPurchaseOrderSelectable, 300);
+    });
+    loadPurchaseOrderSelectable();
+    setTimeout(() => searchInput.focus(), 100);
+}
+
+function loadPurchaseOrderSelectable() {
+    const body = document.getElementById('purchaseOrderSelectBody');
+    const hint = document.getElementById('purchaseOrderSelectHint');
+    if (!body) return;
+    const seq = ++purchaseOrderSearchSeq;
+
+    const params = new URLSearchParams();
+    const keyword = (document.getElementById('purchaseOrderSelectSearch')?.value || '').trim();
+    const supplierId = getCurrentSupplierId();
+    const sourceId = sourcePurchaseOrderId;
+    const isCurrent = () => seq === purchaseOrderSearchSeq && document.getElementById('purchaseOrderSelectBody') === body &&
+        (document.getElementById('purchaseOrderSelectSearch')?.value || '').trim() === keyword &&
+        getCurrentSupplierId() === supplierId && sourcePurchaseOrderId === sourceId;
+    if (sourcePurchaseOrderId) params.set('purchase_order_id', sourcePurchaseOrderId);
+    if (keyword) params.set('search', keyword);
+    if (supplierId) params.set('supplier_id', supplierId);
+    // 候选只展示前150张；关键词在服务端全量搜索后再分页。
+    params.set('limit', '150');
+    params.set('page', '1');
+
+    body.innerHTML = '<tr><td colspan="15" class="text-center text-muted" style="padding:24px;">正在加载...</td></tr>';
+    if (hint) {
+        hint.textContent = supplierId ? '已按当前供应商过滤' : '未选供应商时可跨供应商查询，但生成入库单只能选择同一供应商';
+    }
+
+    purchaseOrderSelectableMap.clear();
+    updatePurchaseOrderSelectionSummary();
+    return WMS.api.getRaw('/api/purchase_order/selectable?' + params.toString())
+        .then(data => {
+            if (!isCurrent()) return;
+            if (!data || data.status !== 'success') {
+                body.innerHTML = '<tr><td colspan="15" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml((data && data.msg) || '未知错误') + '</td></tr>';
+                updatePurchaseOrderSelectionSummary();
+                return;
+            }
+            if (!Array.isArray(data.items)) throw new Error('查询结果格式错误');
+            renderPurchaseOrderSelectableRows(data.items);
+            if (hint && data.total_pages > 1) {
+                hint.textContent += ' · 共 ' + data.total + ' 张候选，仅显示前150张，请输入单号、供应商或物料缩小范围';
+            }
+        })
+        .catch(error => {
+            if (!isCurrent()) return;
+            body.innerHTML = '<tr><td colspan="15" class="text-center text-danger" style="padding:24px;">加载失败：' + escapeHtml(error.message) + '</td></tr>';
+            updatePurchaseOrderSelectionSummary();
+        });
+}
+
+function renderPurchaseOrderSelectableRows(items) {
+    const body = document.getElementById('purchaseOrderSelectBody');
+    if (!body) return;
+    purchaseOrderSelectableMap.clear();
+    if (!items.length) {
+        body.innerHTML = '<tr><td colspan="15" class="text-center text-muted" style="padding:24px;">没有可入库的采购单明细</td></tr>';
+        updatePurchaseOrderSelectionSummary();
+        return;
+    }
+
+    body.innerHTML = items.map(item => {
+        purchaseOrderSelectableMap.set(String(item.purchase_order_item_id), item);
+        const ordered = formatPurchaseQty(item.quantity);
+        const received = formatPurchaseQty(item.completed_quantity);
+        const draftLinks = (item.drafts || []).map(draft =>
+            `<a class="d-block" href="${escapeAttr(draft.url)}" target="_blank" rel="noopener">${escapeHtml(draft.order_no)}</a>`
+        ).join('');
+        const remain = formatPurchaseQty(item.remaining_quantity);
+        const expectedDate = item.expected_date || '';
+        const overdueStyle = item.is_overdue ? 'color:#dc2626;font-weight:600;' : '';
+        // 采购单号做成可点击,点一下就整单勾选同单号所有行(比金蝶一行一行勾快得多)
+        const orderNoCell = `<a href="#" data-order-select="${escapeAttr(item.purchase_order_no)}" style="color:#1890ff;text-decoration:none;" title="点击勾选整张采购单">${escapeHtml(item.purchase_order_no)}</a>`;
+        return `
+            <tr data-order-no="${escapeHtml(item.purchase_order_no)}" data-supplier-id="${escapeHtml(String(item.supplier_id || ''))}">
+                <td><input type="checkbox" class="po-select-row" onchange="updatePurchaseOrderSelectionSummary()" data-item-id="${item.purchase_order_item_id}"></td>
+                <td>${orderNoCell}</td>
+                <td>${escapeHtml(item.supplier_name)}</td>
+                <td style="${overdueStyle}">${escapeHtml(expectedDate)}</td>
+                <td>${escapeHtml(item.material_code)}</td>
+                <td>${escapeHtml(item.material_name)}</td>
+                <td>${escapeHtml(item.spec)}</td>
+                <td>${escapeHtml(item.unit)}</td>
+                <td class="text-end">${ordered}</td>
+                <td class="text-end">${received}</td>
+                <td class="text-end">${formatPurchaseQty(item.unreceived_quantity)}</td>
+                <td class="text-end">${formatPurchaseQty(item.draft_quantity)}${draftLinks}</td>
+                <td class="text-end">${remain}</td>
+                <td><input type="number" class="form-control form-control-sm po-select-qty" min="0.01" step="0.01" max="${remain}" value="${remain}" oninput="updatePurchaseOrderSelectionSummary()"></td>
+                <td class="text-end">${formatPurchaseQty(item.price)}</td>
+            </tr>
+        `;
+    }).join('');
+    body.querySelectorAll('a[data-order-select]').forEach(link => {
+        link.addEventListener('click', function(event) {
+            event.preventDefault();
+            selectAllRowsOfOrder(this.dataset.orderSelect);
+        });
+    });
+    updatePurchaseOrderSelectionSummary();
+}
+
+// 按采购单号批量勾选 / 取消勾选(点单号链接触发)
+function selectAllRowsOfOrder(orderNo) {
+    const rows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody tr'))
+        .filter(row => row.dataset.orderNo === orderNo);
+    if (!rows.length) return;
+    // 如果这张单的所有行都已勾选,则取消勾选;否则全部勾上
+    const allChecked = Array.from(rows).every(r => r.querySelector('.po-select-row')?.checked);
+    rows.forEach(r => {
+        const cb = r.querySelector('.po-select-row');
+        if (cb) cb.checked = !allChecked;
+    });
+    updatePurchaseOrderSelectionSummary();
+}
+
+function togglePurchaseOrderSelection(checked) {
+    document.querySelectorAll('#purchaseOrderSelectBody .po-select-row').forEach(input => {
+        input.checked = checked;
+    });
+    updatePurchaseOrderSelectionSummary();
+}
+
+function updatePurchaseOrderSelectionSummary() {
+    const checkedRows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody .po-select-row:checked'));
+    let qty = 0;
+    let amount = 0;
+    const supplierSet = new Set();
+    const orderSet = new Set();
+    checkedRows.forEach(input => {
+        const row = input.closest('tr');
+        const qtyInput = row.querySelector('.po-select-qty');
+        const q = parseFloat(qtyInput?.value || '0') || 0;
+        const maxQty = parseFloat(qtyInput?.getAttribute('max') || '0') || 0;
+        const source = purchaseOrderSelectableMap.get(String(input.dataset.itemId)) || {};
+        const price = parseFloat(source.price || 0) || 0;
+        if (qtyInput) {
+            qtyInput.classList.toggle('is-invalid', q <= 0 || (maxQty > 0 && q - maxQty > 0.000001));
+        }
+        qty += q;
+        amount += q * price;
+        if (source.supplier_id !== undefined && source.supplier_id !== null) supplierSet.add(String(source.supplier_id));
+        if (source.purchase_order_no) orderSet.add(source.purchase_order_no);
+    });
+    const summary = document.getElementById('purchaseOrderSelectSummary');
+    if (summary) {
+        let txt = '已选 ' + checkedRows.length + ' 行 · ' + orderSet.size + ' 张采购单 · 本次入库 ' + formatPurchaseQty(qty) + ' · 金额约 ' + formatPurchaseQty(amount);
+        // 跨供应商预警,点"带入"时后端/前端还会拦,这里先给视觉提示
+        if (supplierSet.size > 1) {
+            txt += ' ⚠ 跨 ' + supplierSet.size + ' 家供应商,需拆单';
+            summary.style.color = '#dc2626';
+        } else {
+            summary.style.color = '#374151';
+        }
+        summary.textContent = txt;
+    }
+}
+
+function createInOrderFromPurchaseOrderSelection() {
+    const checkedRows = Array.from(document.querySelectorAll('#purchaseOrderSelectBody .po-select-row:checked'));
+    if (!checkedRows.length) {
+        showToast('请先选择采购单明细', 'danger', 5000);
+        document.querySelector('#purchaseOrderSelectBody .po-select-row')?.focus();
+        return;
+    }
+
+    const items = [];
+    for (const checkbox of checkedRows) {
+        const row = checkbox.closest('tr');
+        const qtyInput = row.querySelector('.po-select-qty');
+        const quantity = parseFloat(qtyInput.value);
+        const maxQty = parseFloat(qtyInput.getAttribute('max'));
+        if (!Number.isFinite(quantity) || quantity <= 0) {
+            showToast('本次入库数量必须大于 0', 'danger', 5000);
+            qtyInput.focus();
+            return;
+        }
+        if (Number.isFinite(maxQty) && quantity - maxQty > 0.000001) {
+            showToast('本次入库数量不能大于可再下推数量', 'danger', 5000);
+            qtyInput.focus();
+            return;
+        }
+        items.push({
+            purchase_order_item_id: checkbox.dataset.itemId,
+            quantity: quantity
+        });
+    }
+
+    const warehouseInput = document.querySelector('[name="warehouse_id"]');
+    const remarkInput = document.querySelector('[name="remark"]');
+    WMS.api.postRaw('/purchase_order/create_in_order_from_selection', {
+        warehouse_id: warehouseInput ? warehouseInput.value : '',
+        remark: remarkInput ? remarkInput.value : '',
+        items: items
+    })
+    .then(data => {
+        if (data.status === 'success') {
+            window.location.href = data.redirect_url || ('/in_order/' + data.id);
+        } else {
+            showToast('生成失败：' + (data.msg || '未知错误'), 'danger', 5000);
+        }
+    })
+    .catch(error => {
+        showToast('生成失败：' + error.message, 'danger', 5000);
+    });
+}
+
+// ==================== 扫码自动填充 ====================
+function setupScanAutoFill() {
+    document.addEventListener('keydown', function(e) {
+        if (e.defaultPrevented) return;
+        if (e.isComposing || e.keyCode === 229) return;
+        // 扫码枪通常以Enter结尾，且输入速度很快
+        if (e.key === 'Enter' && e.target.classList.contains('material-code')) {
+            const input = e.target;
+            const code = input.value.trim();
+            if (code.length >= 3) {
+                const material = materials.find(m => m.code === code);
+                if (material) {
+                    const row = input.closest('tr');
+                    fillMaterialFields(row, material, { forcePrice: true });
+                    calcAmount(row);
+                    calcTotal();
+
+                    // 自动跳到数量输入框
+                    setTimeout(() => row.querySelector('.material-qty').focus(), 50);
+                }
+            }
+        }
+    });
+}
+setupScanAutoFill();
+
+// Ctrl+D 向下填充已统一到 app.js 的 WmsFillDown 模块（与表头向下箭头按钮共用 fillDown），
+// 保证两个入口行为一致：跳过 material_code 空行、派发事件联动金额、提示文案相同。
+// 见 app/static/js/app.js 中 WmsFillDown IIFE 的 keydown 监听。
+
+// ==================== 批量修改功能 ====================
+// 批量修改：弹窗选择字段、填写值、预览影响行数，确认后再应用。
+// 原实现用串行 prompt：①输入非数字时 parseFloat 得 NaN，toFixed(2) 会把
+// "NaN" 静默写进所有已填行（且 NaN 还会污染金额与合计）；②无法预览会改多少行，
+// 误操作只能逐行撤销。这里改为弹窗 + 前端校验 + 影响行数预览。
+function batchUpdateField() {
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
+    const existing = document.getElementById('batchUpdateModal');
+    if (existing) existing.remove();
+
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'))
+        .filter(row => (row.querySelector('.material-code')?.value || '').trim() || (isProductIn && row.querySelector('.material-name')?.value.trim()));
+    if (rows.length === 0) {
+        showToast('请先录入至少一条物料明细', 'danger');
+        document.querySelector('#materialTableBody .material-code')?.focus?.();
+        return;
+    }
+
+    const warehouseSelect = document.querySelector('[name="warehouse_id"]');
+    const warehouseOptions = warehouseSelect
+        ? Array.from(warehouseSelect.options).filter(option => option.value)
+        : [];
+
+    const modal = document.createElement('div');
+    modal.id = 'batchUpdateModal';
+    modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:19000;display:flex;align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:8px;padding:24px;width:440px;max-width:90%;">
+            <h5 style="margin:0 0 16px 0;font-size:16px;font-weight:600;">批量修改</h5>
+            <div style="margin-bottom:14px;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">修改字段</label>
+                <select id="batchUpdateField" class="form-control">
+                    <option value="price">单价</option>
+                    <option value="quantity">数量</option>
+                    ${receiptPage.batchManagementEnabled ? '<option value="batch_no">批次号</option>' : ''}
+                    <option value="expiry_date">有效期</option>
+                    <option value="warehouse">仓库（整单）</option>
+                </select>
+            </div>
+            <div id="batchUpdateValueWrap" style="margin-bottom:14px;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">新值</label>
+                <input id="batchUpdateValue" type="text" class="form-control" autocomplete="off">
+                <div id="batchUpdateHint" style="font-size:12px;color:#999;margin-top:6px;"></div>
+            </div>
+            <div id="batchUpdateWarehouseWrap" style="margin-bottom:14px;display:none;">
+                <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">新仓库</label>
+                <select id="batchUpdateWarehouse" class="form-control"></select>
+                <div style="font-size:12px;color:#999;margin-top:6px;">仓库为整单属性，将修改单据表头。</div>
+            </div>
+            <div id="batchUpdatePreview" style="font-size:13px;color:#666;background:#f7f7f7;border-radius:4px;padding:10px;margin-bottom:16px;"></div>
+            <div style="display:flex;justify-content:flex-end;gap:8px;">
+                <button type="button" class="btn btn-secondary" onclick="document.getElementById('batchUpdateModal').remove()">取消</button>
+                <button type="button" class="btn btn-primary" onclick="applyBatchUpdate()">应用</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const fieldSelect = document.getElementById('batchUpdateField');
+    const valueWrap = document.getElementById('batchUpdateValueWrap');
+    const warehouseWrap = document.getElementById('batchUpdateWarehouseWrap');
+    const valueInput = document.getElementById('batchUpdateValue');
+    const hint = document.getElementById('batchUpdateHint');
+    const preview = document.getElementById('batchUpdatePreview');
+    const warehouseTarget = document.getElementById('batchUpdateWarehouse');
+
+    warehouseOptions.forEach(option => {
+        const opt = document.createElement('option');
+        opt.value = option.value;
+        opt.textContent = option.textContent;
+        warehouseTarget.appendChild(opt);
+    });
+
+    const refreshPreview = () => {
+        const field = fieldSelect.value;
+        if (field === 'warehouse') {
+            const name = warehouseTarget.selectedOptions[0]?.textContent || '';
+            preview.textContent = `将把单据表头仓库修改为「${name}」。`;
+            return;
+        }
+        const unit = field === 'price' ? '元' : (field === 'quantity' ? '' : '');
+        const label = { price: '单价', quantity: '数量', batch_no: '批次号', expiry_date: '有效期' }[field];
+        preview.textContent = `将修改 ${rows.length} 行已录入明细的${label}${valueInput.value ? `为「${valueInput.value}」` : ''}${unit ? '（' + unit + '）' : ''}。`;
+    };
+
+    fieldSelect.addEventListener('change', () => {
+        const field = fieldSelect.value;
+        const isWarehouse = field === 'warehouse';
+        valueWrap.style.display = isWarehouse ? 'none' : '';
+        warehouseWrap.style.display = isWarehouse ? '' : 'none';
+        if (field === 'price' || field === 'quantity') {
+            valueInput.type = 'number';
+            valueInput.step = '0.01';
+            valueInput.min = '0';
+            hint.textContent = field === 'price' ? '请输入不小于 0 的数字，最多两位小数。' : '请输入大于 0 的数字，最多两位小数。';
+        } else if (field === 'expiry_date') {
+            valueInput.type = 'date';
+            hint.textContent = '留空表示清空各行的有效期。';
+        } else {
+            valueInput.type = 'text';
+            hint.textContent = '留空表示清空各行的批次号。';
+        }
+        valueInput.value = '';
+        refreshPreview();
+    });
+    valueInput.addEventListener('input', refreshPreview);
+    warehouseTarget.addEventListener('change', refreshPreview);
+
+    // 初始化默认字段（单价）的输入类型与提示
+    fieldSelect.dispatchEvent(new Event('change'));
+    setTimeout(() => valueInput.focus(), 100);
+}
+
+function applyBatchUpdate() {
+    const isProductIn = document.querySelector?.('[name="business_type"]')?.value === '产品入库';
+    const fieldSelect = document.getElementById('batchUpdateField');
+    const valueInput = document.getElementById('batchUpdateValue');
+    const field = fieldSelect.value;
+    const raw = valueInput.value.trim();
+    const rows = Array.from(document.querySelectorAll('#materialTableBody tr'))
+        .filter(row => (row.querySelector('.material-code')?.value || '').trim() || (isProductIn && row.querySelector('.material-name')?.value.trim()));
+
+    // 仓库为整单属性，不逐行写入
+    if (field === 'warehouse') {
+        const warehouseTarget = document.getElementById('batchUpdateWarehouse');
+        if (!warehouseTarget.value) {
+            showToast('请选择仓库', 'danger');
+            warehouseTarget.focus();
+            return;
+        }
+        const warehouseSelect = document.querySelector('[name="warehouse_id"]');
+        if (warehouseSelect) {
+            warehouseSelect.value = warehouseTarget.value;
+            warehouseSelect.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        document.getElementById('batchUpdateModal').remove();
+        showToast('仓库已修改', 'success');
+        return;
+    }
+
+    let selector = '';
+    let apply;
+    if (field === 'price' || field === 'quantity') {
+        // 关键修复：非数字输入必须被拒绝，不能把 NaN 写进明细。
+        if (raw === '') {
+            showToast('请输入新值', 'danger');
+            valueInput.focus();
+            return;
+        }
+        const num = Number(raw);
+        if (!Number.isFinite(num)) {
+            showToast('请输入有效的数字', 'danger');
+            valueInput.focus();
+            return;
+        }
+        if (field === 'quantity' && num <= 0) {
+            showToast('数量必须大于 0', 'danger');
+            valueInput.focus();
+            return;
+        }
+        if (field === 'price' && num < 0) {
+            showToast('单价不能小于 0', 'danger');
+            valueInput.focus();
+            return;
+        }
+        if (!/^(?:\d+(?:\.\d{1,2})?|\.\d{1,2})$/.test(raw)) {
+            showToast('请输入最多两位小数的有效数字', 'danger');
+            valueInput.focus();
+            return;
+        }
+        const fixed = num.toFixed(2);
+        selector = field === 'price' ? '.material-price' : '.material-qty';
+        apply = (row) => { row.querySelector(selector).value = fixed; };
+    } else if (field === 'batch_no') {
+        const batchField = raw;
+        if (batchField.length > 50) {
+            showToast('批次号不能超过 50 个字符', 'danger');
+            valueInput.focus();
+            return;
+        }
+        if (batchField.startsWith('=') || batchField.startsWith('+') || batchField.startsWith('-') || batchField.startsWith('@')) {
+            showToast('批次号不能以 = + - @ 开头（避免被表格软件当公式执行）', 'danger');
+            valueInput.focus();
+            return;
+        }
+        selector = '.material-batch-no';
+        apply = (row) => {
+            const input = row.querySelector(selector);
+            if (input) input.value = batchField;
+        };
+    } else if (field === 'expiry_date') {
+        if (raw && !/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+            showToast('有效期格式不正确', 'danger');
+            valueInput.focus();
+            return;
+        }
+        selector = '.material-expiry';
+        apply = (row) => {
+            const input = row.querySelector(selector);
+            if (input) input.value = raw;
+        };
+    } else {
+        showToast('无效选择', 'danger');
+        document.getElementById('batchUpdateField').focus();
+        return;
+    }
+
+    let count = 0;
+    rows.forEach(row => {
+        apply(row);
+        calcAmount(row);
+        count++;
+    });
+    calcTotal();
+    document.getElementById('batchUpdateModal').remove();
+    showToast('已修改 ' + count + ' 行', 'success');
+}

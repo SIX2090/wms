@@ -31,7 +31,7 @@ OUT_ORDER_ROUTE = ROOT / "app" / "routes" / "out_order.py"
 MOBILE_ROUTE = ROOT / "app" / "routes" / "mobile.py"
 NATIVE_API_ROUTE = ROOT / "app" / "routes" / "native_api.py"
 COMPLETION_SVC = ROOT / "app" / "services" / "in_order_completion.py"
-IN_ORDER_ADD_HTML = ROOT / "app" / "templates" / "in_order_add.html"
+IN_ORDER_ADD_HTML = ROOT / "app" / "static/js/pages" / "in-order-add.js"
 
 
 # =============================================================================

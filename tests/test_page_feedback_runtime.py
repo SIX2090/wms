@@ -5,13 +5,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def function(page, name):
-    source = (ROOT / 'app/templates' / (page + '.html')).read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates' / (page + '.html'))
     start = source.index('function ' + name + '(')
     if source[max(0, start - 6):start] == 'async ':
         start -= 6

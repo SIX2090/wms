@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'app/templates/in_order_add.html'
+SOURCE = ROOT / 'app/static/js/pages/in-order-add.js'
 
 
 def function(source, name):

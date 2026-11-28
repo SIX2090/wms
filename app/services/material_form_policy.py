@@ -9,7 +9,6 @@ from flask import request
 SHARED_SCRIPT_HASHES = (
     'zgtP3dt2hmvziwrgZAqsiZepR5IAbff3t0o8DF2GA7M=',
     'quHh3qf2gZoeL2+r7K5FpAzJ0tfnJjE71ledX/cYLkw=',
-    'bm+mddv2eP9mMvk6dZglCFGss4agvY3dznCgSNXVNKo=',
 )
 
 MATERIAL_SCRIPT_ENDPOINTS = frozenset({

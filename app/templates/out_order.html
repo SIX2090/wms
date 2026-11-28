@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quick_select = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% import "_list_macros.html" as list_macros %}
 {% set business_label = {'销售出库': '销售出库单', '其他出库': '其他出库单', '采购退货出库': '采购退货出库单'}.get(filters.business_type, '领料单') %}

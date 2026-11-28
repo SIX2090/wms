@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quantity_summary = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}期初库存台账{% endblock %}
 {% block body_class %}wms-no-global-actionbar{% endblock %}

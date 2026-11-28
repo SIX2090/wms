@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set uses_quick_select = true %}
 {% from "_report_toolbar.html" import report_toolbar %}
 {% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% from '_list_macros.html' import sort_th, pager %}

@@ -43,7 +43,7 @@ OPENING_STOCK_IRRELEVANT = "期初库存已接入库存台账和仓库月报表"
 
 def _read(p: Path) -> str:
     assert p.exists(), f"模板缺失：{p}"
-    return page_source(p) if p == OPENING_STOCK else p.read_text(encoding="utf-8")
+    return page_source(p) if p in (OPENING_STOCK, IN_ORDER_ADD) else p.read_text(encoding="utf-8")
 
 
 class TestSmartShareHint:

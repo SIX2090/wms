@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
-import re
-import json
+from tests.frontend_page_source import in_order_add_data
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -87,9 +86,7 @@ class TestReproCopyMaterialInOrder:
 
             # 渲染采购入库单页面
             page = client.get("/in_order/add").get_data(as_text=True)
-            m = re.search(r'const materials = (\[.*?\]);', page, re.S)
-            assert m, "页面应包含 materials 变量"
-            materials = json.loads(m.group(1))
+            materials = in_order_add_data(page)['materials']
             codes = [x.get("code") for x in materials]
             assert suggested_code in codes, \
                 f"新物料 {suggested_code} 应出现在采购入库单渲染 materials 中，实际 {codes}"

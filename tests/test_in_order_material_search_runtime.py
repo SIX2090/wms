@@ -51,7 +51,7 @@ def test_purchase_request_error_results_are_not_applied(action, error):
 
 
 def run(action, error=None, page="in"):
-    source = (ROOT / ('app/templates/in_order_add.html' if page == 'in' else 'app/templates/purchase_request_add.html')).read_text(encoding='utf-8')
+    source = (ROOT / ('app/static/js/pages/in-order-add.js' if page == 'in' else 'app/templates/purchase_request_add.html')).read_text(encoding='utf-8')
     if page == 'in':
         core = source[source.index('function formatStock('):source.index('function handleKeydown(')]
         key = function(source, 'handleKeydown')
@@ -161,7 +161,7 @@ const escape=()=>{const event={key:'Escape',target:rows[0].fields['.material-cod
     binary = shutil.which('node')
     assert binary, 'Node.js required for frontend runtime verification'
     payload = dict(action=action, error=error, page=page, core=core, refresh=refresh, click=click,
-                   key=key, notify=function((ROOT / 'app/templates/in_order_add.html').read_text(encoding='utf-8'), 'notifyMaterialRefresh'), escape=function(app_js, 'escapeHtml'),
+                   key=key, notify=function((ROOT / 'app/static/js/pages/in-order-add.js').read_text(encoding='utf-8'), 'notifyMaterialRefresh'), escape=function(app_js, 'escapeHtml'),
                    api=(ROOT / 'app/static/js/api.js').read_text(encoding='utf-8'),
                    materialCache=(ROOT / 'app/static/js/material-cache.js').read_text(encoding='utf-8'))
     result = subprocess.run([binary, '--max-old-space-size=64', '-e', program], input=json.dumps(payload),

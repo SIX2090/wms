@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quick_select = true %}
+{% set uses_list_cache = true %}
 {% block title %}物料档案{% endblock %}
 {# 本页自带完整收敛工具栏（新增/导入导出/标签/预警/列设置/维护 + 勾选上下文批量栏），
    opt-out 全局工具栏注入，消除双工具栏并保证直达与内嵌入口一致。见 app.js insertGlobalActionBar。 #}

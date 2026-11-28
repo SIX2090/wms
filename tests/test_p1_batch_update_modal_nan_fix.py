@@ -26,6 +26,8 @@ import re
 import sys
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
@@ -79,7 +81,7 @@ def _make_client():
 
 def _batch_update_body(path: Path) -> str:
     """抽出页面里 batchUpdateField + applyBatchUpdate 的实现。"""
-    src = path.read_text(encoding="utf-8")
+    src = page_source(path)
     start = src.index("function batchUpdateField(")
     end = src.index("function applyBatchUpdate(")
     tail = src[end:]
@@ -99,7 +101,7 @@ def _batch_update_body(path: Path) -> str:
 def test_T1_no_nan_write_and_modal_flow_present():
     """两个页面都不再有 NaN 写入写法；都已改为弹窗 + 独立应用函数。"""
     for path in (IN_ADD, OUT_ADD):
-        src = path.read_text(encoding="utf-8")
+        src = page_source(path)
         assert "parseFloat(value).toFixed" not in src, \
             f"{path.name} 不应再有 parseFloat(value).toFixed 的 NaN 写入写法"
         body = _batch_update_body(path)

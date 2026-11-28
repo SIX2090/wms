@@ -6,7 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 APP = (ROOT / "app/app.py").read_text(encoding="utf-8")
 BASE = (ROOT / "app/templates/base.html").read_text(encoding="utf-8")
-IN_ADD = (ROOT / "app/templates/in_order_add.html").read_text(encoding="utf-8")
+IN_ADD = (ROOT / "app/static/js/pages/in-order-add.js").read_text(encoding="utf-8")
 OUT_ADD = (ROOT / "app/templates/out_order_add.html").read_text(encoding="utf-8")
 
 

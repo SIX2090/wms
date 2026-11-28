@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quantity_summary = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
 {% set can_edit_out = (current_user is not defined) or (current_user.role in ['admin', 'warehouse']) %}

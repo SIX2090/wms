@@ -19,7 +19,7 @@ def test_real_template_keeps_role_visibility_and_load_order(role, count):
     if count:
         assert html.index('js/api.js') < html.index('js/app.js') < html.index(ASSET)
         tag = next(tag for tag in re.findall(r'<script\b[^>]*>', html) if ASSET in tag)
-        assert 'async' not in tag and 'defer' not in tag
+        assert 'async' not in tag and 'defer' in tag
         assert html.index('id="aiAssistantForm"') < html.index(ASSET)
 
 

@@ -15,6 +15,8 @@ import re
 import sys
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parent.parent
 IN_ORDER_ADD = ROOT / "app" / "templates" / "in_order_add.html"
 APP_JS = ROOT / "app" / "static" / "js" / "app.js"
@@ -33,7 +35,7 @@ import app as app_module  # noqa: E402
 
 
 def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return page_source(path) if path == IN_ORDER_ADD else path.read_text(encoding="utf-8")
 
 
 def _fill_down_block(js: str) -> str:

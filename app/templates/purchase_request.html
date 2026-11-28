@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
 {% block title %}采购申请管理{% endblock %}
 {% block body_class %}{{ super() }}{% if current_user.role not in ['admin', 'purchase'] %} wms-no-global-actionbar{% endif %}{% endblock %}
 

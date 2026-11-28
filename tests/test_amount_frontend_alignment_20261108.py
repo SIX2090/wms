@@ -6,6 +6,8 @@ from decimal import Decimal, ROUND_HALF_UP, localcontext
 import json
 import math
 from pathlib import Path
+
+from tests.frontend_page_source import page_source
 import shutil
 import socket
 import sqlite3
@@ -251,9 +253,11 @@ console.log(JSON.stringify(JSON.parse(process.argv[2]).map(([a,b])=>sandbox.wind
         cases.append({'path': str(ROOT / 'app/templates/subcontract_detail.html'), 'name': 'calcInlineProductAmount',
                       'qty': ['.inline-product-qty'], 'price': ['.inline-product-price'], 'amount': ['.inline-product-amount']})
         for case in cases:
-            template = Path(case['path']).read_text(encoding='utf-8-sig')
+            template = page_source(Path(case['path']))
             self.assertIn('{% extends "base.html" %}', template)
             self.assertGreater(template.index('function ' + case['name'] + '(row) {'), template.index('{% block extra_js %}'))
+            if Path(case['path']).name == 'in_order_add.html':
+                case['path'] = str(ROOT / 'app/static/js/pages/in-order-add.js')
         node = shutil.which('node')
         self.assertIsNotNone(node)
         env = {key: os.environ[key] for key in ('SYSTEMROOT', 'WINDIR') if key in os.environ}

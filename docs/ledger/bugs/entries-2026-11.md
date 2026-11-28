@@ -3728,3 +3728,12 @@ N2完整CI纠正记录（2026-11-08）：首推89a56b49的WMS CI42434442535在�
 - 同类点已排查：核对全仓 `report_view.html`、`base.html`、`out_order.html`、`out_order_add.html`、`out_order.py` 及 `doc_print_excel.py` 全部测试消费者——包括 `test_menu_report_queries.py`、`test_filter_params_follow.py`、`test_remaining_report_ui.py`、`test_material_form_policy.py`（CSP 3 哈希）、`test_zero_price_frontend_20261109.py` & `test_entry_scan_event_consumption_runtime.py`（`fillMaterialFields` 守卫 `typeof applyHeaderContractToRow === 'function'`）、`test_out_order_complete_continue_runtime.py`、`test_requisition_one_action.py`、`test_document_material_keyboard.py`、`test_requisition_audit_batch1_20261128.py`、`test_requisition_audit_batch2_20261128.py`、`test_inventory_truth_line_refs.py` 及 `test_f4_4_ledger_split.py`；同步规划生产发布包 `overlay/app/templates/base.html` 更新。
 - 回归：新增 `tests/test_requisition_report_split_and_ux_20261128.py`（Part A 4 项纯 AST/Jinja/Node-VM 回归 + Part B 2 项完整隔离 Flask+SQLite 集成回归），本地 Part A 4/4 通过且文件备份 R8 回退验证必败，全部相邻非 DB 回归、CSP 哈希校验、`lint_wms_rules.py --full-a11` 及 `lint_no_raw_post_fetch.py --check` 全通过，完整 Flask 隔离套由目标 SHA 的官方 Linux CI 验收。
 - 生效确认：待切换生产不可变发布包（含同步更新 `overlay/app/templates/base.html`）后生效。
+
+### BUG-2026-11-28-005: 日期控件加载时序及 Web 公共资源优化
+
+- 根因：公共模板对所有页面加载日期库和多个页面组件，且日期库排在页面脚本之后。入库录入模板将约 100 KB 可复用的业务代码内联在每次响应中。
+- 修复：日期控件、快捷选择、列表缓存和数量汇总由使用它们的模板声明。先加载日期库，再执行页面脚本，随后初始化已渲染的日期框。公共导航、AI 助手和快捷选择脚本延后执行。入库业务脚本通过现有哈希版本缓存，合同档案仅由采购入库提供。
+- 同类点已排查：核对全站模板继承、动态日期及选择控件、共享脚本回调、CSP 哈希和 Jinja／Node 测试消费者。动态表格原生日期框沿用现有取值及回填方式。
+- 回归：离线渲染已覆盖普通壳层、日期资源和四种入库类型。普通登录壳层减少 4 个脚本和 1 个样式，共 96,849 字节静态原始体积。采购入库合成 HTML 减少 101,001 字节，首次加载增加 1 个净脚本请求，入库业务脚本可缓存。生产需重启 WMS 服务生效。
+- 验证：Windows 隔离回归 83 项通过，缺少隔离 Node 导致 1 项浏览器计时样本校验未完成；离线 Jinja 和 Node 回归覆盖合同尾号、歧义候选、入库保存及日期同步。旧模板对照可复现两条新增回归断言失败。规则检查通过，完整 HTTP 冒烟及目标 SHA 的 CI 待核验。
+- 生效确认：待生产发布后确认。

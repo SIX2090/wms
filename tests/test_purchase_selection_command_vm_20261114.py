@@ -95,7 +95,7 @@ class PurchaseSelectionCommandVMTests(unittest.TestCase):
     def scenario(self, specification):
         env = {key:os.environ[key] for key in ('PATH','SYSTEMROOT','WINDIR','TEMP','TMP') if key in os.environ}
         result = subprocess.run([self.node,'--require',str(self.guard),'-e',PROGRAM,
-            str(ROOT/'app/static/js/api.js'),str(ROOT/'app/templates/in_order_add.html'),json.dumps(specification)],
+            str(ROOT/'app/static/js/api.js'),str(ROOT/'app/static/js/pages/in-order-add.js'),json.dumps(specification)],
             capture_output=True,text=True,encoding='utf-8',timeout=20,env=env)
         self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 

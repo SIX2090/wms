@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quantity_summary = true %}
+{% set uses_list_cache = true %}
 {% set can_edit_after_sale_out = current_user.role in ['admin', 'warehouse'] %}
 {% block body_class %}{% if not can_edit_after_sale_out %}wms-no-global-actionbar{% endif %}{% endblock %}
 

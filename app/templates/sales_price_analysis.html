@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
 {% from "_report_toolbar.html" import report_toolbar %}
 {% block body_class %}{{ super() }} wms-no-global-actionbar{% endblock %}
 {% block title %}销售价格分析{% endblock %}

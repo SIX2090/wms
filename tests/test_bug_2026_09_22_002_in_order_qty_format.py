@@ -31,12 +31,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parent.parent
 TPL = ROOT / "app" / "templates" / "in_order_add.html"
 
 
 def _src() -> str:
-    return TPL.read_text(encoding="utf-8")
+    return page_source(TPL)
 
 
 def _listener_bodies(src: str, selector: str, event: str) -> list[str]:

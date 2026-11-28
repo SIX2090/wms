@@ -27,6 +27,8 @@ dropdown-spec / dropdown-unit），CSS 选择器同步，行内字段 class 恢�
 import re
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 import pytest
 from bs4 import BeautifulSoup
 
@@ -46,7 +48,7 @@ FIELD_CLASSES = ("code", "name", "spec", "unit")
 
 
 def _read(name):
-    return (TEMPLATES / name).read_text(encoding="utf-8")
+    return page_source(TEMPLATES / name)
 
 
 @pytest.mark.parametrize("tpl", AFFECTED)

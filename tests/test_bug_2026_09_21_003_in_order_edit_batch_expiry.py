@@ -25,9 +25,9 @@
       数据库中两字段保持不变（修复前此用例必红：载荷无两字段 → 重建后为 NULL）。
 """
 from __future__ import annotations
+from tests.frontend_page_source import in_order_add_data, page_source
 
 from tests.document_revision_client import document_post
-import json
 import os
 import re
 import sys
@@ -106,9 +106,7 @@ def _make_draft_with_batch():
 
 
 def _extract_edit_items(html: str):
-    m = re.search(r"const editItems = (\[.*?\]);", html, re.S)
-    assert m, "编辑页应内联 editItems（{{ edit_items | tojson }}）"
-    return json.loads(m.group(1))
+    return in_order_add_data(html)['editItems']
 
 
 def test_resolve_document_batch_no():
@@ -174,7 +172,7 @@ def test_T1_edit_items_payload_carries_batch_and_expiry():
 
 def test_T2_template_repopulation_fills_batch_and_expiry_inputs():
     """editItems 回填循环必须写 .material-batch-no / .material-expiry。"""
-    src = TPL.read_text(encoding="utf-8")
+    src = page_source(TPL)
     m = re.search(r"editItems\.forEach\(\(item\) => \{(.*?)\}\);", src, re.S)
     assert m, "未找到 editItems.forEach 回填循环"
     loop = m.group(1)
@@ -184,7 +182,7 @@ def test_T2_template_repopulation_fills_batch_and_expiry_inputs():
 
 def test_T3_localstorage_draft_collects_and_restores_batch_and_expiry():
     """自动草稿：collectFormData 必须收 batch_no/expiry_date，restoreDraft 必须恢。"""
-    src = TPL.read_text(encoding="utf-8")
+    src = page_source(TPL)
     collect = re.search(r"function collectFormData\(\) \{(.*?)\n    \}", src, re.S)
     assert collect, "未找到 collectFormData"
     assert "material-batch-no" in collect.group(1), "草稿收集漏了批次号"

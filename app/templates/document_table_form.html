@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_list_cache = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% set document_role_allowed = current_user.role in (['admin', 'production'] if doc_type in ['bom', 'requisition'] else ['admin', 'warehouse']) %}
 {% set readonly = readonly or not document_role_allowed %}

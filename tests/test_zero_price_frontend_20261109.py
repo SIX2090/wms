@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = {
     'opening': ('app/static/js/pages/opening-stock.js', 'selectMaterial'),
     'request': ('app/templates/purchase_request_add.html', 'fillRowData'),
-    'in_add': ('app/templates/in_order_add.html', 'fillMaterialFields'),
+    'in_add': ('app/static/js/pages/in-order-add.js', 'fillMaterialFields'),
     'out_add': ('app/templates/out_order_add.html', 'fillMaterialFields'),
     'in_detail': ('app/templates/in_order_detail.html', 'fillAddMaterialInfo'),
     'out_modal': ('app/templates/out_order_detail.html', 'fillAddMaterialInfo'),

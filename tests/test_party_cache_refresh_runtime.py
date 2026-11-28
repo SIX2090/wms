@@ -1,6 +1,8 @@
 """Exercise the actual array-cache consumers and HTTP client with delayed replies."""
 import json
 from pathlib import Path
+
+from tests.frontend_page_source import page_source
 from tests.material_page_source import material_page_source
 import re
 import shutil
@@ -25,7 +27,7 @@ CASES = [
 @pytest.mark.parametrize('action', ['success', 'empty', 'order', 'latest_error', 'stale_error',
                                       'http', 'business', 'shape', 'network', 'invalid_row', 'duplicate', 'silent'])
 def test_real_cache_consumer_keeps_latest_complete_valid_list(page, name, mode, url, action):
-    source = material_page_source() if page == 'material' else (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    source = material_page_source() if page == 'material' else page_source(ROOT / f'app/templates/{page}.html')
     asset = ROOT / 'app/static/js/list-cache.js'
     program = r"""
 const vm=require('node:vm'),assert=require('node:assert/strict'),p=JSON.parse(require('node:fs').readFileSync(0,'utf8'));
@@ -91,8 +93,9 @@ def test_each_quick_cache_refresh_is_independent(mode, url):
 @pytest.mark.parametrize('role', ['admin', 'warehouse', 'viewer'])
 def test_array_helper_loads_once_with_version_after_http_client(role):
     from tests.test_shell_navigation_asset import render_shell
-    html = render_shell(role)
     asset = '/static/js/list-cache.js?v=nav-test-v1'
+    assert asset not in render_shell(role)
+    html = render_shell(role, uses_list_cache=True)
     assert html.count(asset) == 1
     assert html.index('js/api.js') < html.index(asset)
     tag = next(t for t in re.findall(r'<script[^>]+>', html) if asset in t)

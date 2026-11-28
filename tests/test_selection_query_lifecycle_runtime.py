@@ -5,6 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,7 +18,7 @@ def function(source, name):
 
 def payload(page, mode):
     filename = {'sales':'sales_outbound_selection.html', 'purchase':'in_order_add.html', 'return':'out_order_add.html'}[page]
-    source = (ROOT/'app/templates'/filename).read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates' / filename)
     if page == 'sales':
         code = source[source.index('let selectable ='):source.index('function toggleAll')]
         code += '\n'+function(source, 'updateSummary')

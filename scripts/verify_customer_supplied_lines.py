@@ -109,7 +109,7 @@ def main() -> int:
                 failures.append('customer-supplied flag on purchase inbound was not rejected')
 
         source = (ROOT / 'app' / 'app.py').read_text(encoding='utf-8')
-        template = (ROOT / 'app' / 'templates' / 'in_order_add.html').read_text(encoding='utf-8')
+        template = (ROOT / 'app' / 'static/js/pages/in-order-add.js').read_text(encoding='utf-8')
         if 'ALTER TABLE in_order_item ADD COLUMN is_customer_supplied' not in source:
             failures.append('repeatable migration is missing')
         if 'line-customer-supplied' not in template or 'data-column-key="is_customer_supplied"' not in template:

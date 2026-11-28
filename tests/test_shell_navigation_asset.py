@@ -16,17 +16,18 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSET = 'js/pages/shell-navigation.js'
 
 
-def render_shell(role='viewer'):
+def render_shell(role='viewer', **assets):
     return Environment(autoescape=True, loader=FileSystemLoader(ROOT / 'app/templates')).from_string(
         (ROOT / 'app/templates/base.html').read_text(encoding='utf-8')
     ).render(current_user=SimpleNamespace(is_authenticated=True, role=role, username='fixture', id=1),
              csrf_token=lambda: 'fixture-token', config={'STATIC_VERSION': 'nav-test-v1'},
              request=SimpleNamespace(args={}),
-             url_for=lambda endpoint, **values: '/static/' + values['filename'] if endpoint == 'static' else '/' + endpoint)
+             url_for=lambda endpoint, **values: '/static/' + values['filename'] if endpoint == 'static' else '/' + endpoint,
+             **assets)
 
 
 @pytest.mark.parametrize('role', ['viewer', 'warehouse', 'admin'])
-def test_navigation_loads_once_in_its_original_execution_position(role):
+def test_navigation_loads_once_with_defer(role):
     class Scripts(HTMLParser):
         def __init__(self):
             super().__init__()
@@ -41,7 +42,7 @@ def test_navigation_loads_once_in_its_original_execution_position(role):
     parser.feed(html)
     matches = [attrs for attrs in parser.sources if attrs.get('src') == '/static/' + ASSET + '?v=nav-test-v1']
     assert len(matches) == 1
-    assert not {'async', 'defer', 'type'} & matches[0].keys()
+    assert 'defer' in matches[0] and not {'async', 'type'} & matches[0].keys()
     assert html.index('css/shell.css') < html.index(ASSET) < html.index('function refreshCsrfToken')
     assert 'function closeModuleMenus' not in html
     assert 'function toggleModuleMenu' not in html

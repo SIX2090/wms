@@ -87,7 +87,7 @@ def test_search_literal_wildcards_and_excludes_received_matching_lines(selection
 def test_selector_requests_explicit_first_page_and_ignores_stale_search_results():
     node=shutil.which('node')
     if not node:pytest.skip('Node.js required')
-    source=(ROOT/'app/templates/in_order_add.html').read_text(encoding='utf-8')
+    source=(ROOT/'app/static/js/pages/in-order-add.js').read_text(encoding='utf-8')
     function='function loadPurchaseOrderSelectable()'+source.split('function loadPurchaseOrderSelectable()',1)[1].split('\nfunction renderPurchaseOrderSelectableRows',1)[0]
     script=r'''
 const assert=require('node:assert/strict');let purchaseOrderSearchSeq=0,rendered=[];
@@ -116,7 +116,7 @@ setImmediate(()=>{
 def test_select_whole_order_accepts_quotes_without_css_selector_interpolation():
     node=shutil.which('node')
     if not node:pytest.skip('Node.js required')
-    source=(ROOT/'app/templates/in_order_add.html').read_text(encoding='utf-8')
+    source=(ROOT/'app/static/js/pages/in-order-add.js').read_text(encoding='utf-8')
     function='function selectAllRowsOfOrder(orderNo)'+source.split('function selectAllRowsOfOrder(orderNo)',1)[1].split('\nfunction updatePurchaseOrderSelectionSummary',1)[0]
     script=r'''
 const assert=require('node:assert/strict'),orderNo='PO"x\'[]';

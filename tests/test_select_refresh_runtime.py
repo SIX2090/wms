@@ -1,6 +1,8 @@
 """Execute all real select-refresh consumers with deferred HTTP responses."""
 import json
 from pathlib import Path
+
+from tests.frontend_page_source import page_source
 import re
 import shutil
 import subprocess
@@ -35,7 +37,7 @@ def test_automatic_refresh_keeps_silent_notification_policy(page, kind, scenario
 
 
 def run(page, kind, scenario, silent=False, source=None):
-    source = source if source is not None else (ROOT / 'app/templates' / (page + '.html')).read_text(encoding='utf-8')
+    source = source if source is not None else page_source(ROOT / 'app/templates' / (page + '.html'))
     name = 'refreshDepartments' if kind == 'department' else 'refreshWarehouses'
     asset = ROOT / 'app/static/js/select-refresh.js'
     app_js = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')

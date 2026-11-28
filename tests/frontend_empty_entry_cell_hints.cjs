@@ -2,7 +2,7 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const [root,scenario]=process.argv.slice(2);
 const app=fs.readFileSync(path.join(root,'app/static/js/app.js'),'utf8');
-const inbound=fs.readFileSync(path.join(root,'app/templates/in_order_add.html'),'utf8');
+const inbound=fs.readFileSync(path.join(root,'app/static/js/pages/in-order-add.js'),'utf8');
 function extract(source,name){const start=source.indexOf('function '+name+'(');return start<0?'':source.slice(start,source.indexOf('\n}',start)+2);}
 const classList=()=>{const values=new Set();return{add:x=>values.add(x),contains:x=>values.has(x),toggle(x,on){on?values.add(x):values.delete(x);}};};
 let watched,observations=0;

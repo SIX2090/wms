@@ -1,4 +1,5 @@
 """Read a template and the actual local scripts referenced by its script tags."""
+import json
 import re
 from pathlib import Path
 
@@ -14,13 +15,19 @@ def page_html_source(source):
         tag = match.group(0)
         filename = re.search(r"filename\s*=\s*['\"]([^'\"]+\.js)['\"]", tag)
         if not filename:
-            filename = re.search(r"/static/(js/pages/(?:opening-stock|print-template-editor)\.js)", tag)
+            filename = re.search(r"/static/(js/pages/(?:opening-stock|print-template-editor|in-order-add)\.js)", tag)
         if not filename or not filename.group(1).startswith("js/pages/"):
             return tag
         target = (static / filename.group(1)).resolve()
         assert target.is_relative_to(static.resolve()), target
         return tag + "\n" + target.read_text(encoding="utf-8")
     return re.sub(r"<script\b[^>]*\bsrc=[^>]*>\s*</script>", load, source)
+
+
+def in_order_add_data(html):
+    match = re.search(r'<script type="application/json" id="in-order-add-data">(.*?)</script>', html, re.S)
+    assert match, "in-order add page data is missing"
+    return json.loads(match[1])
 
 
 def page_style_source(path):

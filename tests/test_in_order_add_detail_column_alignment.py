@@ -24,6 +24,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parents[1]
 TPL = ROOT / "app" / "templates" / "in_order_add.html"
 
@@ -59,7 +61,7 @@ def test_thead_has_no_duplicate_column_keys() -> None:
 
 
 def test_header_footer_and_row_templates_share_same_column_order() -> None:
-    src = TPL.read_text(encoding="utf-8")
+    src = page_source(TPL)
     thead = _thead_keys(src)
     tfoot = _tfoot_keys(src)
     assert thead == tfoot, (

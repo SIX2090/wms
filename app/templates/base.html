@@ -21,7 +21,9 @@
     <!-- Bootstrap Icons (本地) -->
     <link href="{{ url_for('static', filename='cdn/bootstrap-icons-1.10.0.css') }}" rel="stylesheet">
     <!-- Flatpickr (日期控件，支持中文格式，本地化) -->
+    {% if uses_date_picker|default(false) %}
     <link href="{{ url_for('static', filename='cdn/flatpickr.min.css') }}" rel="stylesheet">
+    {% endif %}
     <!-- 自定义优化样式 -->
     <link href="{{ url_for('static', filename='css/custom.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
     <!-- jQuery (本地) -->
@@ -326,7 +328,7 @@
     });
     </script>
     <link href="{{ url_for('static', filename='css/shell.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" rel="stylesheet">
-    <script src="{{ url_for('static', filename='js/pages/shell-navigation.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/pages/shell-navigation.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% if h5_app %}<link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-app.css') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}">{% endif %}
     {% block extra_css %}{% endblock %}
     <!-- BUG-2026-07-31-001: 定时刷新 CSRF token（每 25 分钟，寿命 8 小时），避免长会话过期 -->
@@ -1029,49 +1031,29 @@
     <script src="{{ url_for('static', filename='js/pages/material-shell-actions.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% endif %}
     <script src="{{ url_for('static', filename='js/select-refresh.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    {% if uses_list_cache|default(false) %}
     <script src="{{ url_for('static', filename='js/list-cache.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
-<script src="{{ url_for('static', filename='js/quick-select.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" charset="utf-8"></script>
+    {% endif %}
+    {% if uses_quick_select|default(false) %}
+    <script defer src="{{ url_for('static', filename='js/quick-select.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}" charset="utf-8"></script>
+    {% endif %}
     {% if current_user.is_authenticated and current_user.role in ['admin', 'warehouse', 'purchase', 'production', 'sales'] %}
     {# 子修复归属：AI-C01-FIX-WEB-TRANSPORT-001 #}
-    <script src="{{ url_for('static', filename='js/pages/ai-assistant.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/pages/ai-assistant.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
     {% endif %}
 
+    {% if uses_quantity_summary|default(false) %}
     <script src="{{ url_for('static', filename='js/quantity-summary.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    {% endif %}
     {% if h5_app %}<script src="{{ url_for('static', filename='js/pages/mobile-app-shell.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>{% endif %}
-    {% block extra_js %}{% endblock %}
-
-    <!-- Flatpickr JS + 中文日期格式初始化（本地化） -->
+    {# Include the picker before page scripts and initialize visible fields before DOMContentLoaded. #}
+    {% if uses_date_picker|default(false) %}
     <script src="{{ url_for('static', filename='cdn/flatpickr.min.js') }}"></script>
-    <script>
-    (function() {
-        // 将所有原生 date 输入框替换为 flatpickr，显示中文格式 YYYY年MM月DD日
-        // dateFormat 控制提交值（Y-m-d），altFormat 控制显示格式
-        function initDateInputs(root) {
-            var inputs = root.querySelectorAll('input[type="date"]');
-            for (var i = 0; i < inputs.length; i++) {
-                var el = inputs[i];
-                if (el._flatpickr) continue;
-                flatpickr(el, {
-                    dateFormat: 'Y-m-d',
-                    altInput: true,
-                    altFormat: 'Y年m月d日',
-                    locale: {
-                        firstDayOfWeek: 1,
-                        weekdays: { shorthand: ['日','一','二','三','四','五','六'], longhand: ['星期日','星期一','星期二','星期三','星期四','星期五','星期六'] },
-                        months: { shorthand: ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'], longhand: ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'] },
-                        rangeSeparator: ' 至 ',
-                        weekAbbreviation: '周',
-                        scrollTitle: '滚动切换',
-                        toggleTitle: '点击切换 12/24 小时制'
-                    }
-                });
-            }
-        }
-        initDateInputs(document);
-        // 暴露给动态内容使用
-        window.initFlatpickrDates = initDateInputs;
-    })();
-    </script>
+    {% endif %}
+    {% block extra_js %}{% endblock %}
+    {% if uses_date_picker|default(false) %}
+    <script src="{{ url_for('static', filename='js/pages/flatpickr-dates.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+    {% endif %}
 
 </body>
 </html>

@@ -35,7 +35,7 @@ def test_real_input_and_blur_preserve_typing_then_round_with_feedback(page, kind
     if not node:
         pytest.skip('Node.js required')
     helper = ROOT / 'app/static/js/decimal-input.js'
-    source = (ROOT / f'app/templates/{page}.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}.html')
     support = '\n'.join(callback(page, f'function {name}(')
                         for name in ('formatQty', 'trimDecimalInput', 'bomRecordedFieldUnchanged') if f'function {name}(' in source)
     if page == 'in_order_add':

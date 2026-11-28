@@ -1,7 +1,7 @@
 """Other receipt ownership must survive entry, editing and posting."""
+from tests.frontend_page_source import in_order_add_data
 from datetime import date
 import json
-import re
 
 from bs4 import BeautifulSoup
 import pytest
@@ -51,7 +51,7 @@ def test_supplied_draft_keeps_customer_on_header_edit_and_rechecks_before_postin
     page = client.get('/other_in_order/add', query_string={'order_id': oid})
     assert page.status_code == 200
     html = page.get_data(as_text=True)
-    assert json.loads(re.search(r'const editItems = (.*?);', html)[1])[0]['is_customer_supplied'] is True
+    assert in_order_add_data(html)['editItems'][0]['is_customer_supplied'] is True
     assert '编辑其他入库单' in BeautifulSoup(html, 'html.parser').title.get_text()
     assert '有客供料时必填' in BeautifulSoup(html, 'html.parser').get_text()
     path = f'/in_order/{oid}'

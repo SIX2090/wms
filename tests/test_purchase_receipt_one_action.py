@@ -2,6 +2,8 @@
 import json
 import os
 from pathlib import Path
+
+from tests.frontend_page_source import page_source
 import shutil
 import subprocess
 
@@ -50,7 +52,7 @@ def test_other_receipts_keep_draft_actions(kind):
     'complete_network', 'double_click', 'invalid', 'partial',
 ])
 def test_submit_form_one_action(scenario):
-    source = SOURCE.read_text(encoding='utf-8')
+    source = page_source(SOURCE)
     submit = 'function submitForm(' + source.split('function submitForm(', 1)[1].split("\ndocument.addEventListener('click'", 1)[0]
     from tests.test_document_validation_feedback import function
     submit += '\n' + function(source, 'receiptRowHasDetails')

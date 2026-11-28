@@ -28,6 +28,8 @@ import re
 import sys
 from pathlib import Path
 
+from tests.frontend_page_source import in_order_add_data, page_html_source
+
 ROOT = Path(__file__).resolve().parent.parent
 APP_DIR = ROOT / "app"
 sys.path.insert(0, str(APP_DIR))
@@ -89,15 +91,15 @@ def _get_other_in_add_page():
 def test_T1_other_in_page_listens_customer_updated():
     """客户模式页必须监听 customer_updated 广播，否则跨页新建客户不刷新。"""
     body = _get_other_in_add_page()
-    assert 'const partyField = "customer_id"' in body, "其他入库单新增页应为客户模式（partyField=customer_id）"
-    assert "customer_updated" in body, "页面缺少 customer_updated 广播监听，新建客户后下拉列表不会刷新"
+    assert in_order_add_data(body)['partyField'] == 'customer_id', "其他入库单新增页应为客户模式（partyField=customer_id）"
+    assert "customer_updated" in page_html_source(body), "页面缺少 customer_updated 广播监听，新建客户后下拉列表不会刷新"
 
 
 def test_T2_refresh_suppliers_uses_customers_api_in_customer_mode():
     """refreshSuppliers 在客户模式必须请求 /api/customers，避免客户列表被供应商覆盖。"""
     body = _get_other_in_add_page()
-    assert "/api/customers" in body, "refreshSuppliers 缺少 /api/customers 端点，客户模式刷新会拉到供应商数据"
-    assert "partyField === 'customer_id'" in body, "refreshSuppliers 缺少按 partyField 分流端点的逻辑"
+    assert "/api/customers" in page_html_source(body), "refreshSuppliers 缺少 /api/customers 端点，客户模式刷新会拉到供应商数据"
+    assert "partyField === 'customer_id'" in page_html_source(body), "refreshSuppliers 缺少按 partyField 分流端点的逻辑"
 
 
 def test_T3_purchase_in_page_keeps_supplier_mode():
@@ -109,5 +111,5 @@ def test_T3_purchase_in_page_keeps_supplier_mode():
     resp = client.get("/in_order/add")
     assert resp.status_code == 200, f"采购入库单新增页返回 {resp.status_code}，应为 200"
     body = resp.data.decode("utf-8", errors="replace")
-    assert 'const partyField = "supplier_id"' in body, "采购入库单新增页应为供应商模式（partyField=supplier_id）"
-    assert "supplier_updated" in body, "采购入库单页供应商广播监听不应回退"
+    assert in_order_add_data(body)['partyField'] == 'supplier_id', "采购入库单新增页应为供应商模式（partyField=supplier_id）"
+    assert "supplier_updated" in page_html_source(body), "采购入库单页供应商广播监听不应回退"

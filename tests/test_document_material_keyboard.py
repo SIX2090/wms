@@ -5,6 +5,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +17,7 @@ def test_material_keyboard_navigation(template):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required to execute browser keyboard handlers')
-    source = (ROOT / 'app/templates' / template).read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates' / template)
     handler = re.search(r'function handleKeydown\(event, row\) \{.*?(?=\nfunction )', source, re.S).group(0)
     if 'function cancelMaterialSearch(' in source:
         state = re.search(r'const materialSearchState = [^\n]+', source).group(0)

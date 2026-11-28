@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}{{ page_title or '库存调整单' }}{% endblock %}
 {% block body_class %}{% if current_user.role not in ['admin', 'warehouse'] %}wms-no-global-actionbar{% endif %}{% endblock %}

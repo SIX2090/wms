@@ -24,12 +24,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "app" / "templates" / "in_order_add.html"
 
 
 def _template_text() -> str:
-    return TEMPLATE.read_text(encoding="utf-8")
+    return page_source(TEMPLATE)
 
 
 def _extract_js_function(name: str) -> str:

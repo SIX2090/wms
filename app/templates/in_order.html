@@ -1,4 +1,6 @@
 {% extends "base.html" %}
+{% set uses_date_picker = true %}
+{% set uses_quick_select = true %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% block title %}{{ page_title or '采购入库单' }}{% endblock %}
 {# 本页自带完整工具栏（新增/完成已选/更多/删除已选），opt-out 全局工具栏注入，

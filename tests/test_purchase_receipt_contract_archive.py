@@ -1,3 +1,4 @@
+from tests.frontend_page_source import in_order_add_data
 import pytest
 
 import app as w
@@ -72,8 +73,8 @@ def test_purchase_grid_has_archive_and_uses_it_on_draft_edit(purchase):
     created = client.post('/in_order/add', json=payload)
     oid = created.json['id']
     page = client.get(f'/in_order/add?order_id={oid}')
-    assert 'WMS.purchaseReceiptContracts =' in page.text and 'HD261103' in page.text
-    assert 'WMS.purchaseReceiptContracts =' not in client.get('/in_order/add?type=product').text
+    assert any(row['contract_no'] == 'HD261103' for row in in_order_add_data(page.text)['receiptContracts'])
+    assert in_order_add_data(client.get('/in_order/add?type=product').text)['receiptContracts'] is None
     payload.update(order_id=oid)
     payload['items'][0]['contract_no'] = '1103'
     assert document_post(client, '/in_order/add', json=payload).status_code == 200

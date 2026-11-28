@@ -5,13 +5,15 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tests.frontend_page_source import page_source
+
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def page_handlers(template):
-    text = (ROOT / 'app/templates' / template).read_text(encoding='utf-8')
+    text = page_source(ROOT / 'app/templates' / template)
     names = ['fillMaterialFields', 'selectMaterial', 'handleKeydown',
              'focusNextEditable', 'setupScanAutoFill']
     if template == 'out_order_add.html':

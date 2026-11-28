@@ -18,6 +18,7 @@ HTML，前端全量缓存 + filter。物料上万时：①首屏 HTML 体积与�
   T4. /api/material/search 支持按名称与品牌模糊匹配（前端依赖的口径）
 """
 from __future__ import annotations
+from tests.frontend_page_source import in_order_add_data
 
 import os
 import re
@@ -41,7 +42,7 @@ from app import db, Warehouse, User, Material, InOrder, InOrderItem, Unit  # noq
 app_module.app.config["TESTING"] = True
 app_module.app.config["WTF_CSRF_ENABLED"] = False
 
-IN_ADD = APP_DIR / "templates" / "in_order_add.html"
+IN_ADD = APP_DIR / "static/js/pages" / "in-order-add.js"
 CACHE_LIMIT = 300
 
 
@@ -82,11 +83,7 @@ def _make_client():
 
 
 def _inline_materials(body: str) -> list:
-    """从页面里抽出 `const materials = [...]` 内联的物料数组。"""
-    m = re.search(r"const materials = (\[.*?\]);\n", body, re.S)
-    assert m, "页面应内联 const materials = [...]"
-    import json
-    return json.loads(m.group(1))
+    return in_order_add_data(body)['materials']
 
 
 def test_T1_initial_cache_is_truncated():
