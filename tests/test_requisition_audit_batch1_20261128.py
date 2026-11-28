@@ -86,7 +86,7 @@ def test_p0_1_rbac_on_list_document_print_and_ai_anomaly_ast():
 
     ai_fn, _ = _get_func(APP_PY, "api_ai_out_order_anomaly_analysis")
     assert any(
-        "require_role('warehouse', 'finance', 'purchase', 'production', 'sales')" in d
+        "require_role('warehouse', 'purchase', 'production', 'sales')" in d
         for d in _decorator_calls(ai_fn)
     ), "api_ai_out_order_anomaly_analysis missing @require_role"
 
@@ -368,11 +368,12 @@ def test_b1_integration_rbac_list_print_and_ai_anomaly():
     r_list = prod_c.get(f"/out_order?warehouse_id={env['wh_a']}")
     assert r_list.status_code == 200
     assert "/out_order/export?" not in r_list.get_data(as_text=True)
+    assert prod_c.get(f"/api/ai/out_order/{oo_id}/anomaly_analysis").status_code == 200
 
     fin_c = _client_as(w, env["users"]["finance"])
     assert fin_c.get(f"/out_order?warehouse_id={env['wh_a']}").status_code == 200
     assert fin_c.get(f"/out_order/{oo_id}/print_options").status_code == 200
-    assert fin_c.get(f"/api/ai/out_order/{oo_id}/anomaly_analysis").status_code == 200
+    assert fin_c.get(f"/api/ai/out_order/{oo_id}/anomaly_analysis").status_code == 403
 
 
 @pytest.mark.skipif(not _IS_LINUX_ISOLATED, reason="Full Flask integration runs on isolated Linux CI")
@@ -529,6 +530,7 @@ def test_b1_integration_requisition_scope_and_price_dimension_toggle():
     # 3. price_dimension_enabled=1 restores price/amount everywhere
     with w.app.app_context():
         w.set_system_setting("price_dimension_enabled", "1")
+        w.db.session.commit()
     r_rpt1 = wh_c.get(f"/report/api/out_detail?warehouse_id={env['wh_a']}&start_date={date.today().isoformat()}&end_date={date.today().isoformat()}")
     d1 = r_rpt1.get_json()
     assert "price" in [c["field"] for c in d1["columns"]] and "amount" in d1["summary"]

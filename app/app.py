@@ -28795,7 +28795,7 @@ def _check_out_order_anomalies(order):
 
 
 @app.route('/api/ai/out_order/<int:id>/anomaly_analysis')
-@require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
+@require_role('warehouse', 'purchase', 'production', 'sales')
 @login_required
 def api_ai_out_order_anomaly_analysis(id):
     """出库单异常AI分析接口"""
