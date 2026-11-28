@@ -67,8 +67,10 @@
                 <th>规格</th>
                 <th>单位</th>
                 <th>数量</th>
+                {% if price_dimension_enabled %}
                 <th>单价</th>
                 <th>金额</th>
+                {% endif %}
                 <th>备注</th>
             </tr>
         </thead>
@@ -76,26 +78,34 @@
             {% for item in order.items %}
             <tr>
                 <td>{{ loop.index }}</td>
-                <td>{{ item.material.code }}</td>
-                <td class="text-left">{{ item.material.name }}</td>
-                <td>{{ item.material.spec or '-' }}</td>
-                <td>{{ item.material.unit.name if item.material.unit else '-' }}</td>
+                <td>{{ item.material.code if item.material else '-' }}</td>
+                <td class="text-left">{{ item.material.name if item.material else '-' }}</td>
+                <td>{{ (item.material.spec or '-') if item.material else '-' }}</td>
+                <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                 <td>{{ (item.quantity)|quantity }}</td>
-                <td class="text-right">{{ "%.2f"|format(item.price) }}</td>
-                <td class="text-right">{{ "%.2f"|format(item.amount) }}</td>
+                {% if price_dimension_enabled %}
+                <td class="text-right">{{ "%.2f"|format(item.price or 0) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.amount or 0) }}</td>
+                {% endif %}
                 <td class="text-left">{{ item.remark or '' }}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" class="text-center">无明细行</td>
+                <td colspan="{{ 9 if price_dimension_enabled else 7 }}" class="text-center">无明细行</td>
             </tr>
             {% endfor %}
         </tbody>
         <tfoot>
             <tr>
+                {% if price_dimension_enabled %}
                 <td colspan="7" style="text-align: right;">合　计：</td>
-                <td class="text-right">{{ "%.2f"|format(order.total_amount) }}</td>
+                <td class="text-right">{{ "%.2f"|format(order.total_amount or 0) }}</td>
                 <td></td>
+                {% else %}
+                <td colspan="5" style="text-align: right;">数量合计：</td>
+                <td>{{ (order.items|sum(attribute='quantity', start=0))|quantity }}</td>
+                <td></td>
+                {% endif %}
             </tr>
         </tfoot>
     </table>

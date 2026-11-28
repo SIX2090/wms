@@ -307,9 +307,12 @@ class ExcelTable {
     }
 
     /**
-     * 默认保存方法
+     * 默认保存方法（优先走统一传输层 WMS.api.postRaw，独立测试无 WMS.api 时降级 csrfFetch）
      */
     defaultSave(formData) {
+        if (typeof window !== 'undefined' && window.WMS && window.WMS.api && typeof window.WMS.api.postRaw === 'function') {
+            return window.WMS.api.postRaw('/in_order/item/update', formData);
+        }
         return csrfFetch('/in_order/item/update', {
             method: 'POST',
             body: formData
@@ -379,6 +382,10 @@ class ExcelTable {
                 : tfoot.querySelector('td:nth-last-child(2)');
             if (qtyTotal) qtyTotal.textContent = totalQty.toFixed(2);
             if (amountTotal) amountTotal.textContent = '¥' + totalAmount.toFixed(2);
+        }
+        if (typeof document !== 'undefined' && typeof document.getElementById === 'function') {
+            const headerAmount = document.getElementById('detailHeaderTotalAmount');
+            if (headerAmount) headerAmount.textContent = '¥' + totalAmount.toFixed(2);
         }
     }
 
@@ -563,11 +570,22 @@ class ExcelTable {
                     if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('clipboard unavailable');
                     const text = await navigator.clipboard.readText();
                     if (this.currentCell !== cell || this.isEditing) return;
-                    const value = parseFloat(text);
-                    if (!isNaN(value) && value >= 0) {
-                        this.startEdit(cell, value.toString());
+                    const field = (cell.dataset && cell.dataset.field) || '';
+                    if (field === 'remark' || field === 'box_no') {
+                        const maxLen = field === 'box_no' ? 100 : 500;
+                        const cleaned = String(text || '').replace(/[\r\n]+/g, ' ').trim();
+                        if (!cleaned) {
+                            this.showError('粘贴内容无效');
+                        } else {
+                            this.startEdit(cell, cleaned.slice(0, maxLen));
+                        }
                     } else {
-                        this.showError('粘贴内容无效');
+                        const value = parseFloat(text);
+                        if (!isNaN(value) && value >= 0) {
+                            this.startEdit(cell, value.toString());
+                        } else {
+                            this.showError('粘贴内容无效');
+                        }
                     }
                 } catch (error) {
                     this.showError('无法读取剪贴板，请双击单元格后手动粘贴');

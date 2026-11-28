@@ -151,27 +151,17 @@
                     <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
                 </div>
             </div>
-            {% if current_user.role in ['admin', 'warehouse'] %}
+            {% set can_edit_in = current_user.role in ['admin', 'warehouse'] %}
+            {% set editable_pending = order.status == 'pending' and can_edit_in %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
-                <button class="btn btn-sm btn-outline-info" onclick="copyOrder({{ order.id }})">
-                    <i class="bi bi-files"></i> 复制单据
-                </button>
-                <a class="btn btn-sm btn-outline-primary" href="{% if order.business_type == '其他入库' %}/other_in_order/add?{% elif order.business_type == '产品入库' %}/in_order/add?type=product&{% elif order.business_type == '销售退货入库' %}/in_order/add?type=sales_return&{% else %}/in_order/add?{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&supplier_id={{ order.supplier_id or '' }}&customer_id={{ order.customer_id or '' }}">
-                    <i class="bi bi-plus-square"></i> 再建一张
-                </a>
+                {% if can_edit_in %}
                 {% if order.status == 'pending' %}
+                <button data-document-action="completeOrder" class="btn btn-sm btn-success" onclick="completeOrder({{ order.id }})">
+                    <i class="bi bi-check-circle"></i> 完成入库
+                </button>
                 <a class="btn btn-sm btn-outline-primary" href="/in_order/add?order_id={{ order.id }}">
                     <i class="bi bi-pencil-square"></i> 编辑明细
                 </a>
-                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
-                    <i class="bi bi-pencil-square"></i> 编辑单据
-                </button>
-                <button data-document-action="completeOrder" class="btn btn-sm btn-outline-success" onclick="completeOrder({{ order.id }})">
-                    <i class="bi bi-check-circle"></i> 完成入库
-                </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteOrder({{ order.id }})">
-                    <i class="bi bi-trash"></i> 删除
-                </button>
                 {% elif order.status == 'completed' %}
                 {% if order.business_type == '产品入库' %}
                 <button type="button" class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#productCorrection">更正入库明细</button>
@@ -206,10 +196,35 @@
                 </button>
                 {% endif %}
                 {% endif %}
+                <a class="btn btn-sm btn-outline-primary" href="{% if order.business_type == '其他入库' %}/other_in_order/add?{% elif order.business_type == '产品入库' %}/in_order/add?type=product&{% elif order.business_type == '销售退货入库' %}/in_order/add?type=sales_return&{% else %}/in_order/add?{% endif %}warehouse={{ (order.warehouse or '')|urlencode }}&contract_id={{ order.contract_id or '' }}&contract_no={{ (order.contract_no or '')|urlencode }}&project_name={{ (order.project_name or '')|urlencode }}&purpose={{ (order.purpose or '')|urlencode }}&supplier_id={{ order.supplier_id or '' }}&customer_id={{ order.customer_id or '' }}">
+                    <i class="bi bi-plus-square"></i> 再建一张
+                </a>
+                {% endif %}
                 {{ document_print_menu('in_order', order.id) }}
-                <button class="btn btn-sm btn-outline-primary" onclick="sendToPrintStation('in_order', {{ order.id }})" title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送到已启动的桌面打印工作站' }}" {% if runtime_external_paused %}disabled{% endif %}>
-                    <i class="bi bi-printer-fill"></i> 发送打印{{ '（暂停）' if runtime_external_paused else '' }}
-                </button>
+                {% if can_edit_in %}
+                <div class="dropdown">
+                    <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">更多</button>
+                    <div class="dropdown-menu dropdown-menu-end">
+                        {% if order.status == 'pending' %}
+                        <button type="button" class="dropdown-item" data-bs-toggle="modal" data-bs-target="#editHeaderModal">
+                            <i class="bi bi-pencil-square"></i> 编辑单据
+                        </button>
+                        {% endif %}
+                        <button type="button" class="dropdown-item" onclick="copyOrder({{ order.id }})">
+                            <i class="bi bi-files"></i> 复制单据
+                        </button>
+                        <button type="button" class="dropdown-item" onclick="sendToPrintStation('in_order', {{ order.id }})" title="{{ '当前部署暂停设备队列' if runtime_external_paused else '发送到已启动的桌面打印工作站' }}" {% if runtime_external_paused %}disabled{% endif %}>
+                            <i class="bi bi-printer-fill"></i> 发送打印{{ '（暂停）' if runtime_external_paused else '' }}
+                        </button>
+                        {% if order.status == 'pending' %}
+                        <div class="dropdown-divider"></div>
+                        <button type="button" class="dropdown-item text-danger" onclick="deleteOrder({{ order.id }})">
+                            <i class="bi bi-trash"></i> 删除
+                        </button>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
                 <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" data-field-settings-table="itemTable" title="显示/隐藏及调整明细字段">
                     <i class="bi bi-layout-three-columns"></i> 栏目设置
                 </button>
@@ -217,7 +232,6 @@
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
             </div>
-            {% endif %}
         </div>
     </div>
 
@@ -337,10 +351,12 @@
                     <span class="info-label">操作人</span>
                     <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
                 </div>
+                {% if price_dimension_enabled %}
                 <div class="info-item">
                     <span class="info-label">总金额</span>
-                    <span class="info-value amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</span>
+                    <span class="info-value amount" id="detailHeaderTotalAmount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</span>
                 </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">备注</span>
                     <span class="info-value">{{ order.remark or '' }}</span>
@@ -367,7 +383,9 @@
                             <th>关系</th>
                             <th>来源采购单</th>
                             <th>供应商</th>
+                            {% if price_dimension_enabled %}
                             <th class="text-end">金额</th>
+                            {% endif %}
                             <th>状态</th>
                         </tr>
                     </thead>
@@ -378,11 +396,13 @@
                             <td><span class="badge bg-secondary">上游</span></td>
                             <td><a href="{{ url_for('purchase_order_detail', id=order.source_purchase_order.id) }}" target="_blank" rel="noopener">{{ order.source_purchase_order.order_no }}</a></td>
                             <td>{{ order.source_purchase_order.supplier.name if order.source_purchase_order.supplier else '-' }}</td>
+                            {% if price_dimension_enabled %}
                             <td class="text-end">¥{{ "%.2f"|format(order.source_purchase_order.total_amount or 0) }}</td>
+                            {% endif %}
                             <td>{{ {'pending':'未入库', 'partial':'部分入库', 'completed':'已入库', 'closed':'已关闭'}.get(order.source_purchase_order.status, '未知状态') }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="6" class="text-center text-muted">暂无单头来源采购单，明细行仍可查看来源追溯。</td></tr>
+                        <tr><td colspan="{{ 6 if price_dimension_enabled else 5 }}" class="text-center text-muted">暂无单头来源采购单，明细行仍可查看来源追溯。</td></tr>
                         {% endif %}
                     </tbody>
                 </table>
@@ -392,7 +412,7 @@
 
     {% endif %}
     <!-- 工具栏 -->
-    {% if order.status == 'pending' %}
+    {% if editable_pending %}
     <div class="order-toolbar">
         <div class="btn-group">
             <button class="toolbar-btn" type="button" onclick="addInlineMaterialRow()">
@@ -411,6 +431,7 @@
     {% endif %}
 
     <!-- 明细表格 -->
+    {% set show_batch_col = batch_management_enabled or (order.items|selectattr('batch_no')|list|length > 0) %}
     <div class="order-table-container">
         <div class="order-toolbar">
             <div class="table-header-custom">
@@ -422,36 +443,36 @@
             <table class="table order-table mb-0" id="itemTable"{% if order.business_type != '产品入库' %} data-detail-sort{% endif %} data-business-type="{{ order.business_type }}"{% if order.business_type == '销售退货入库' %} data-field-settings-key="sales_return_detail_v1"{% endif %}{% if order.business_type == '产品入库' %} data-field-settings-key="product_in_order_detail_v1"{% endif %}>
                 <thead>
                     <tr>
-                        <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="seq">序<div class="resize-handle"></div></th>
-                        {% if order.status == 'pending' %}
+                        <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="seq">序</th>
+                        {% if editable_pending %}
                         <th width="40" data-col="chk" data-column-key="chk"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
-                        {% if order.business_type == '产品入库' %}<th class="resizable-th" data-col="colBoxNo" data-column-key="colBoxNo">箱体编号<div class="resize-handle"></div></th>{% endif %}
-                        <th class="resizable-th" data-col="colCode" data-column-key="colCode">物料编码<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colBrand" data-column-key="colBrand">品牌<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colName" data-column-key="colName">物料名称<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSpec" data-column-key="colSpec">规格<div class="resize-handle"></div></th>
+                        {% if order.business_type == '产品入库' %}<th class="resizable-th" data-col="colBoxNo" data-column-key="colBoxNo">箱体编号</th>{% endif %}
+                        <th class="resizable-th" data-col="colCode" data-column-key="colCode">物料编码</th>
+                        <th class="resizable-th" data-col="colBrand" data-column-key="colBrand">品牌</th>
+                        <th class="resizable-th" data-col="colName" data-column-key="colName">物料名称</th>
+                        <th class="resizable-th" data-col="colSpec" data-column-key="colSpec">规格</th>
                         {% if order.business_type == '其他入库' %}<th class="text-center" data-col="colCustomerSupplied" data-column-key="colCustomerSupplied">客供</th>{% endif %}
                         <th data-col="colContractNo" data-column-key="colContractNo">合同编号</th>
                         <th data-col="colProjectName" data-column-key="colProjectName">工程名称</th>
-                        <th class="text-center resizable-th" data-col="colUnit" data-column-key="colUnit">单位<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colStock" data-column-key="colStock">当前库存<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colBatchNo" data-column-key="colBatchNo">批次号<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colExpiryDate" data-column-key="colExpiryDate">有效期<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colQty" data-column-key="colQty">数量<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colUnit" data-column-key="colUnit">单位</th>
+                        <th class="text-end resizable-th" data-col="colStock" data-column-key="colStock">当前库存</th>
+                        <th class="resizable-th{% if not show_batch_col %} d-none{% endif %}" data-col="colBatchNo" data-column-key="colBatchNo">批次号</th>
+                        <th class="resizable-th" data-col="colExpiryDate" data-column-key="colExpiryDate">有效期</th>
+                        <th class="text-end resizable-th" data-col="colQty" data-column-key="colQty">数量</th>
                         {% if order.business_type not in ['产品入库', '销售退货入库'] %}
-                        <th class="resizable-th" data-col="colSourcePo" data-column-key="colSourcePo">来源采购单<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourceQty" data-column-key="colSourceQty">采购数量<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourcePushed" data-column-key="colSourcePushed">已下推<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colSourceCompleted" data-column-key="colSourceCompleted">已入库<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSourceStatus" data-column-key="colSourceStatus">来源状态<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colSourcePo" data-column-key="colSourcePo">来源采购单</th>
+                        <th class="text-end resizable-th" data-col="colSourceQty" data-column-key="colSourceQty">采购数量</th>
+                        <th class="text-end resizable-th" data-col="colSourcePushed" data-column-key="colSourcePushed">已下推</th>
+                        <th class="text-end resizable-th" data-col="colSourceCompleted" data-column-key="colSourceCompleted">已入库</th>
+                        <th class="resizable-th" data-col="colSourceStatus" data-column-key="colSourceStatus">来源状态</th>
                         {% endif %}
                         {% if order.business_type == '销售退货入库' %}<th data-col="colSourceSales" data-column-key="colSourceSales">原销售订单</th>{% endif %}
-                        <th class="text-end resizable-th" data-col="colPrice" data-column-key="colPrice">单价<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colAmount" data-column-key="colAmount">金额<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colRemark" data-column-key="colRemark">备注<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colPrice" data-column-key="colPrice">单价</th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colAmount" data-column-key="colAmount">金额</th>
+                        <th class="resizable-th" data-col="colRemark" data-column-key="colRemark">备注</th>
                         <th class="text-center" width="80" data-col="label" data-column-key="label">标签</th>
-                        {% if order.status == 'pending' %}
+                        {% if editable_pending %}
                         <th class="text-center" width="120" data-col="action" data-column-key="action">操作</th>
                         {% endif %}
                     </tr>
@@ -463,10 +484,10 @@
                     {% set source_exec = purchase_order_execution.get(source_order.id, {}).get(source_item.id, {}) if source_order and source_item else {} %}
                     <tr data-id="{{ item.id }}" data-material-id="{{ item.material_id }}" data-customer-supplied="{{ 'true' if item.is_customer_supplied else 'false' }}">
                         <td class="text-center" data-column-key="seq"><span class="row-num">{{ loop.index }}</span></td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_pending %}
                         <td data-column-key="chk"><input type="checkbox" class="itemCheck" value="{{ item.id }}"></td>
                         {% endif %}
-                        {% if order.business_type == '产品入库' %}<td class="editable-cell" data-column-key="colBoxNo" data-field="box_no" data-value="{{ item.box_no or '' }}">{{ item.box_no or '' }}</td>{% endif %}
+                        {% if order.business_type == '产品入库' %}<td class="{% if editable_pending %}editable-cell{% endif %}" data-column-key="colBoxNo" data-field="box_no" data-value="{{ item.box_no or '' }}">{{ item.box_no or '' }}</td>{% endif %}
                         <td class="fw-medium" data-column-key="colCode">{{ item.material.code }}</td>
                         <td data-column-key="colBrand">{{ item.material.brand or '-' }}</td>
                         <td data-column-key="colName">{{ item.material.name }}</td>
@@ -478,9 +499,9 @@
                         <td data-column-key="colProjectName">{{ item.project_name or order.project_name or '-' }}</td>
                         <td class="text-center" data-column-key="colUnit">{{ item.material.unit.name if item.material.unit else '-' }}</td>
                         <td class="text-end" data-column-key="colStock">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if warehouse_stock is not none else '-' }}</td>
-                        <td data-column-key="colBatchNo">{{ item.batch_no or '-' }}</td>
+                        <td class="{% if not show_batch_col %}d-none{% endif %}" data-column-key="colBatchNo">{{ item.batch_no or '-' }}</td>
                         <td data-column-key="colExpiryDate">{{ item.expiry_date.strftime('%Y-%m-%d') if item.expiry_date else '-' }}</td>
-                        <td class="text-end fw-medium editable-cell" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
+                        <td class="text-end fw-medium{% if editable_pending %} editable-cell{% endif %}" data-column-key="colQty" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
                         {% if order.business_type not in ['产品入库', '销售退货入库'] %}
                         <td data-column-key="colSourcePo" data-source-purchase-order-id="{{ source_order.id if source_order else '' }}">
                             {% if source_order %}
@@ -511,9 +532,9 @@
                         {% if order.business_type == '销售退货入库' %}
                         <td data-column-key="colSourceSales">{% set sales_source = item.source_sales_order_item.sales_order if item.source_sales_order_item else None %}{% if sales_source %}<a href="{{ url_for('sales_order_detail', id=sales_source.id) }}" target="_blank" rel="noopener">{{ sales_source.order_no }}</a>{% else %}<span class="text-muted">手工录入</span>{% endif %}</td>
                         {% endif %}
-                        <td class="text-end editable-cell" data-column-key="colPrice" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
-                        <td class="text-end fw-bold text-danger" data-column-key="colAmount">¥{{ "%.2f"|format(item.amount) }}</td>
-                        {% if order.status == 'pending' %}
+                        <td class="text-end{% if editable_pending and price_dimension_enabled %} editable-cell{% endif %}{% if not price_dimension_enabled %} d-none{% endif %}" data-column-key="colPrice" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
+                        <td class="text-end fw-bold text-danger{% if not price_dimension_enabled %} d-none{% endif %}" data-column-key="colAmount">¥{{ "%.2f"|format(item.amount) }}</td>
+                        {% if editable_pending %}
                         <td class="editable-cell" data-column-key="colRemark" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
                         {% else %}
                         <td data-column-key="colRemark">{{ item.remark or '' }}</td>
@@ -523,7 +544,7 @@
                                 <i class="bi bi-upc-scan"></i>
                             </button>
                         </td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_pending %}
                         <td class="text-center" data-column-key="action">
                             <button class="toolbar-btn toolbar-btn-icon toolbar-btn-danger" data-id="{{ item.id }}" title="删除">
                                 <i class="bi bi-trash"></i>
@@ -533,9 +554,9 @@
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="{{ (23 if order.status == 'pending' else 21) + (1 if order.business_type == '其他入库' else 0) - (4 if order.business_type in ['产品入库', '销售退货入库'] else 0) }}" class="empty-state">
+                        <td colspan="{{ (23 if editable_pending else 21) + (1 if order.business_type == '其他入库' else 0) - (4 if order.business_type in ['产品入库', '销售退货入库'] else 0) }}" class="empty-state">
                             <i class="bi bi-inbox"></i>
-                            <p>暂无明细，请添加物料</p>
+                            <p>暂无明细{% if editable_pending %}，请添加物料{% endif %}</p>
                         </td>
                     </tr>
                     {% endfor %}
@@ -543,7 +564,7 @@
                 <tfoot>
                     <tr class="total-row">
                         <td data-column-key="seq">合计</td>
-                        {% if order.status == 'pending' %}<td data-column-key="chk"></td>{% endif %}
+                        {% if editable_pending %}<td data-column-key="chk"></td>{% endif %}
                         {% if order.business_type == '产品入库' %}<td data-column-key="colBoxNo"></td>{% endif %}
                         <td data-column-key="colCode"></td>
                         <td data-column-key="colBrand"></td>
@@ -554,7 +575,7 @@
                         <td data-column-key="colProjectName"></td>
                         <td data-column-key="colUnit"></td>
                         <td data-column-key="colStock"></td>
-                        <td data-column-key="colBatchNo"></td>
+                        <td class="{% if not show_batch_col %}d-none{% endif %}" data-column-key="colBatchNo"></td>
                         <td data-column-key="colExpiryDate"></td>
                         <td class="text-end" data-column-key="colQty" data-total="quantity" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
                         {% if order.business_type not in ['产品入库', '销售退货入库'] %}
@@ -565,11 +586,11 @@
                         <td data-column-key="colSourceStatus"></td>
                         {% endif %}
                         {% if order.business_type == '销售退货入库' %}<td data-column-key="colSourceSales"></td>{% endif %}
-                        <td data-column-key="colPrice"></td>
-                        <td class="text-end fs-6" data-column-key="colAmount" data-total="amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        <td class="{% if not price_dimension_enabled %}d-none{% endif %}" data-column-key="colPrice"></td>
+                        <td class="text-end fs-6{% if not price_dimension_enabled %} d-none{% endif %}" data-column-key="colAmount" data-total="amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="colRemark"></td>
                         <td data-column-key="label"></td>
-                        {% if order.status == 'pending' %}
+                        {% if editable_pending %}
                         <td data-column-key="action"></td>
                         {% endif %}
                     </tr>
@@ -579,7 +600,7 @@
     </div>
 </div>
 
-{% if order.status == 'pending' %}
+{% if editable_pending %}
 <!-- 编辑单据信息模态框 -->
 <div class="modal fade" id="editHeaderModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -609,20 +630,23 @@
                                 <option value="其他入库" {% if order.business_type == '其他入库' %}selected{% endif %}>其他入库</option>
                             </select>
                         </div>
-                        {% if order.business_type in ['产品入库', '销售退货入库'] %}
-                        <div class="col-md-6">
-                            <label class="form-label">{{ '退货客户' if order.business_type == '销售退货入库' else '客户名称' }}</label>
-                            <select class="form-select" name="customer_id"><option value="">请选择客户</option>
-                                {% for customer in customers %}<option value="{{ customer.id }}" {% if customer.id == order.customer_id %}selected{% endif %}>{{ customer.name }}</option>{% endfor %}
+                        {% set init_bt = order.business_type or '采购入库' %}
+                        {% set init_uses_customer = init_bt in ['产品入库', '销售退货入库', '其他入库'] %}
+                        <div class="col-md-6" id="editSupplierField"{% if init_uses_customer %} hidden{% endif %}>
+                            <label class="form-label fw-medium">供应商</label>
+                            <select class="form-select" name="supplier_id"{% if init_uses_customer %} disabled{% endif %}>
+                                <option value="">请选择供应商</option>
+                                {% for supplier in suppliers %}
+                                <option value="{{ supplier.id }}" {% if order.supplier_id == supplier.id %}selected{% endif %}>{{ supplier.name }}</option>
+                                {% endfor %}
                             </select>
                         </div>
-                        {% endif %}
-                        <div class="col-md-6" id="editPartyField"{% if order.business_type in ['产品入库', '销售退货入库'] %} hidden{% endif %}>
-                            <label class="form-label fw-medium">{{ '客户/客供方' if order.business_type == '其他入库' else '供应商' }}</label>
-                            <select class="form-select" name="{{ 'customer_id' if order.business_type == '其他入库' else 'supplier_id' }}">
-                                <option value="">请选择</option>
-                                {% for party in (customers if order.business_type == '其他入库' else suppliers) %}
-                                <option value="{{ party.id }}" {% if (order.customer_id if order.business_type == '其他入库' else order.supplier_id) == party.id %}selected{% endif %}>{{ party.name }}</option>
+                        <div class="col-md-6" id="editCustomerField"{% if not init_uses_customer %} hidden{% endif %}>
+                            <label class="form-label fw-medium" id="editCustomerLabel">{{ '退货客户' if init_bt == '销售退货入库' else ('客户/客供方' if init_bt == '其他入库' else '客户名称') }}</label>
+                            <select class="form-select" name="customer_id"{% if not init_uses_customer %} disabled{% endif %}>
+                                <option value="">请选择客户</option>
+                                {% for customer in customers %}
+                                <option value="{{ customer.id }}" {% if customer.id == order.customer_id %}selected{% endif %}>{{ customer.name }}</option>
                                 {% endfor %}
                             </select>
                         </div>
@@ -666,14 +690,13 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                <button class="btn btn-primary" onclick="saveHeader()">
+                <button class="btn btn-primary" id="saveHeaderBtn" onclick="saveHeader()">
                     <i class="bi bi-save"></i> 保存
                 </button>
             </div>
         </div>
     </div>
 </div>
-{% endif %}
 
 <!-- 添加物料模态框 -->
 <div class="modal fade" id="addModal" tabindex="-1">
@@ -715,7 +738,7 @@
                         <label class="form-label fw-medium">数量 <span class="text-danger">*</span></label>
                         <input class="form-control" id="qty" type="number" step="0.01" placeholder="请输入数量">
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-6{% if not price_dimension_enabled %} d-none{% endif %}">
                         <label class="form-label fw-medium">单价</label>
                         <input class="form-control" id="price" type="number" step="0.01" placeholder="请输入单价">
                     </div>
@@ -742,12 +765,12 @@
             <div class="modal-body">
                 <div class="alert alert-info d-flex align-items-center">
                     <i class="bi bi-info-circle me-2"></i>
-                    <div>支持格式：每行一个物料，格式为 <code>编码,数量,单价</code>（单价可选）</div>
+                    <div>支持格式：每行一个物料，格式为 {% if price_dimension_enabled %}<code>编码,数量,单价</code>（单价可选）{% else %}<code>编码,数量</code>{% endif %}</div>
                 </div>
                 <textarea class="form-control" id="batchPasteContent" rows="8" placeholder="例如：
-MAT001,10,25.50
+MAT001,10{% if price_dimension_enabled %},25.50{% endif %}
 MAT002,5
-MAT003,20,10.00"></textarea>
+MAT003,20{% if price_dimension_enabled %},10.00{% endif %}"></textarea>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -758,6 +781,7 @@ MAT003,20,10.00"></textarea>
         </div>
     </div>
 </div>
+{% endif %}
 
 <div class="anomaly-modal-overlay" id="anomalyModal">
     <div class="anomaly-modal">
@@ -989,11 +1013,30 @@ function bindMaterialQuickInput(input) {
 
 document.addEventListener('DOMContentLoaded', function() {
     const headerBusinessType = document.querySelector('#editHeaderForm [name="business_type"]');
-    const editPartyField = document.getElementById('editPartyField');
-    if (headerBusinessType && editPartyField) {
-        headerBusinessType.addEventListener('change', function() {
-            editPartyField.hidden = ['产品入库', '销售退货入库'].includes(this.value);
-        });
+    const editSupplierField = document.getElementById('editSupplierField');
+    const editCustomerField = document.getElementById('editCustomerField');
+    const editCustomerLabel = document.getElementById('editCustomerLabel');
+    function syncEditHeaderParty() {
+        if (!headerBusinessType) return;
+        const bt = headerBusinessType.value || '采购入库';
+        const usesCustomer = ['产品入库', '销售退货入库', '其他入库'].includes(bt);
+        if (editSupplierField) {
+            editSupplierField.hidden = usesCustomer;
+            const supSel = editSupplierField.querySelector('select');
+            if (supSel) supSel.disabled = usesCustomer;
+        }
+        if (editCustomerField) {
+            editCustomerField.hidden = !usesCustomer;
+            const custSel = editCustomerField.querySelector('select');
+            if (custSel) custSel.disabled = !usesCustomer;
+        }
+        if (editCustomerLabel) {
+            editCustomerLabel.textContent = bt === '销售退货入库' ? '退货客户' : (bt === '其他入库' ? '客户/客供方' : '客户名称');
+        }
+    }
+    if (headerBusinessType) {
+        headerBusinessType.addEventListener('change', syncEditHeaderParty);
+        syncEditHeaderParty();
     }
     const codeInput = document.getElementById('code');
     bindMaterialQuickInput(codeInput);
@@ -1242,44 +1285,7 @@ function copyDetailMaterialRow(row) {
     target.querySelector('.material-qty-field').select();
 }
 
-// ==================== 列宽调整 ====================
-let isResizing = false;
-let currentTh = null;
-let startX = 0;
-let startWidth = 0;
-
-document.querySelectorAll('.resizable-th .resize-handle').forEach(handle => {
-    handle.addEventListener('mousedown', function(e) {
-        isResizing = true;
-        currentTh = this.parentElement;
-        startX = e.pageX;
-        startWidth = currentTh.offsetWidth;
-        this.classList.add('resizing');
-        e.preventDefault();
-        e.stopPropagation();
-    });
-});
-
-document.addEventListener('mousemove', function(e) {
-    if (!isResizing || !currentTh) return;
-    const newWidth = startWidth + (e.pageX - startX);
-    if (newWidth > 30) {
-        currentTh.style.width = newWidth + 'px';
-        currentTh.style.minWidth = newWidth + 'px';
-    }
-});
-
-document.addEventListener('mouseup', function() {
-    if (isResizing && currentTh) {
-        currentTh.querySelector('.resize-handle').classList.remove('resizing');
-    }
-    isResizing = false;
-    currentTh = null;
-});
-
-// ==================== 行内编辑（已被ExcelTable替代，保留用于兼容性）====================
-// 旧的行内编辑代码已被ExcelTable组件替代
-// 如果需要禁用ExcelTable，取消下面代码的注释
+// 列宽拖拽与列序持久化统一由下方 setupDynamicDetailColumnControls 接管，避免双监听器冲突。
 
 // ==================== 全选/取消全选 ====================
 document.getElementById('selectAll')?.addEventListener('change', function() {
@@ -1324,6 +1330,7 @@ document.getElementById('batchDeleteBtn')?.addEventListener('click', function() 
 
 // ==================== 保存单据头 ====================
 function saveHeader() {
+    if (saveHeader._busy) return;
     const form = document.getElementById('editHeaderForm');
     if (!form) return;
     const formData = new FormData(form);
@@ -1332,16 +1339,25 @@ function saveHeader() {
         showToast('请选择入库日期', 'warning');
         return;
     }
+    const saveBtn = document.getElementById('saveHeaderBtn');
+    saveHeader._busy = true;
+    if (saveBtn) saveBtn.disabled = true;
     WMS.api.postRaw('/in_order/{{ order.id }}/update', data)
     .then(res => {
         if (res.status === 'success') {
             showToast(res.msg || '保存成功', 'success');
             setTimeout(() => location.reload(), 500);
         } else {
+            saveHeader._busy = false;
+            if (saveBtn) saveBtn.disabled = false;
             showToast(res.msg || '保存失败', 'danger');
         }
     })
-    .catch(err => showToast('保存失败：' + err.message, 'danger'));
+    .catch(err => {
+        saveHeader._busy = false;
+        if (saveBtn) saveBtn.disabled = false;
+        showToast('保存失败：' + err.message, 'danger');
+    });
 }
 
 // ==================== 完成入库 ====================
@@ -1616,13 +1632,14 @@ document.querySelectorAll('.toolbar-btn-danger[data-id]').forEach(btn => {
 <script src="{{ url_for('static', filename='js/excel-table.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
 {% if order.business_type == '产品入库' %}<script src="{{ url_for('static', filename='js/product-receipt-detail.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>{% endif %}
 <script src="{{ url_for('static', filename='js/excel-import-export.js') }}?v={{ config.get('STATIC_VERSION', '1.0.0') }}"></script>
+{% set editable_pending = order.status == 'pending' and current_user.role in ['admin', 'warehouse'] %}
 <script>
 let excelTable = null;
 document.addEventListener('DOMContentLoaded', function() {
     registerDetailRowActions({
         tableSelector: '#itemTable',
         rowSelector: '#itemTable tbody tr',
-        editable: function() { return {{ (order.status == 'pending')|tojson }}; },
+        editable: function() { return {{ editable_pending|tojson }}; },
         add: function() { addInlineMaterialRow(); },
         insert: function(row) { addInlineMaterialRow(row); },
         copy: function(row) { copyDetailMaterialRow(row); },
@@ -1656,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    {% if order.status == 'pending' %}
+    {% if editable_pending %}
     new ExcelImportExport({
         tableId: 'itemTable',
         fileName: '入库单明细',
@@ -1668,8 +1685,10 @@ document.addEventListener('DOMContentLoaded', function() {
             {label: '规格', field: 'spec', example: '100*200'},
             {label: '单位', field: 'unit', example: '个'},
             {label: '数量', field: 'quantity', required: true, example: '100'},
+            {% if price_dimension_enabled %}
             {label: '单价', field: 'price', example: '10.50'},
             {label: '金额', field: 'amount', example: '1050.00'},
+            {% endif %}
             {% if batch_management_enabled %}{label: '批次号', field: 'batch', example: 'B20260426'},{% endif %}
             {label: '备注', field: 'remark', example: '备注信息'}{% if order.business_type == '产品入库' %},
             {label: '箱体编号', field: 'box_no', example: '001-A'}{% endif %}
@@ -1678,16 +1697,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // 初始化Excel表格
     excelTable = new ExcelTable('itemTable', {
-        editableFields: ['quantity', 'price', 'remark', 'box_no'],
+        editableFields: {% if price_dimension_enabled %}['quantity', 'price', 'remark', 'box_no']{% else %}['quantity', 'remark', 'box_no']{% endif %},
         autoSave: true,
         enableKeyboard: true,
         enableCopyPaste: true,
         onSave: function(itemId, field, newValue, formData) {
             // 使用默认保存方法
             return WMS.api.postRaw('/in_order/item/update', formData);
-        },
-        onError: function(err) {
-            console.error('保存失败:', err);
         }
     });
     {% endif %}

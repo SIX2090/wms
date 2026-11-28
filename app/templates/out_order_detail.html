@@ -1,7 +1,8 @@
 {% extends "base.html" %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
-{% set editable_lines = order.status == 'pending' and not push_source %}
+{% set can_edit_out = current_user.role in ['admin', 'warehouse'] %}
+{% set editable_lines = order.status == 'pending' and not push_source and can_edit_out %}
 {% import '_list_macros.html' as ui %}
 {% block title %}{{ out_document_label }}详情 - {{ order.order_no }}{% endblock %}
 
@@ -152,8 +153,8 @@
                     {% if order.picker %}<span><i class="bi bi-person-check"></i> 领料人：{{ order.picker }}</span>{% endif %}
                 </div>
             </div>
-            {% if current_user.role in ['admin', 'warehouse'] %}
             <div class="d-flex gap-2 flex-wrap justify-content-end wms-entry-toolbar">
+                {% if can_edit_out %}
                 {% if order.business_type == '销售出库' and (source_sales_orders or order.source_sales_order_id or '来源销售订单' in (order.purpose or '') or order.purpose == '选单生成销售出库') %}
                 {% for source in source_sales_orders %}
                 <a class="btn btn-sm btn-outline-primary" href="{{ url_for('sales_order_detail', id=source.id) }}" target="_blank" rel="noopener">从销售订单 {{ source.order_no }} 下推</a>
@@ -197,7 +198,9 @@
                 </button>
                 {% endif %}
                 {% endif %}
+                {% endif %}
                 {{ document_print_menu('out_order', order.id) }}
+                {% if can_edit_out %}
                 {% if is_issue %}
                 <div class="dropdown">
                     <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">更多</button>
@@ -227,11 +230,11 @@
                     <i class="bi bi-robot"></i> AI异常分析
                 </button>
                 {% endif %}
+                {% endif %}
                 <a href="/out_order?business_type={{ (order.business_type or '领料单')|urlencode }}{% if request.args.get('embedded') == '1' %}&amp;embedded=1{% endif %}" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> 返回
                 </a>
             </div>
-            {% endif %}
         </div>
     </div>
 
@@ -290,10 +293,12 @@
                     <span class="info-label">操作人</span>
                     <span class="info-value">{{ order.operator.username if order.operator else '-' }}</span>
                 </div>
+                {% if price_dimension_enabled %}
                 <div class="info-item">
                     <span class="info-label">总金额</span>
-                    <span class="info-value amount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</span>
+                    <span class="info-value amount" id="detailHeaderTotalAmount">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</span>
                 </div>
+                {% endif %}
                 <div class="info-item">
                     <span class="info-label">备注</span>
                     <span class="info-value">{{ order.remark or '' }}</span>
@@ -407,8 +412,8 @@
                         <th class="text-center resizable-th" data-col="colUnit" data-column-key="unit" data-default-label="单位">单位<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colStock" data-column-key="stock" data-default-label="当前库存">当前库存<div class="resize-handle"></div></th>
                         <th class="text-end resizable-th" data-col="colQty" data-column-key="quantity" data-default-label="数量">数量<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colPrice" data-column-key="price" data-default-label="单价">单价<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colAmount" data-column-key="amount" data-default-label="金额">金额<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colPrice" data-column-key="price" data-default-label="单价">单价<div class="resize-handle"></div></th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colAmount" data-column-key="amount" data-default-label="金额">金额<div class="resize-handle"></div></th>
                         <th class="resizable-th" data-col="colRemark" data-column-key="remark" data-default-label="备注">备注<div class="resize-handle"></div></th>
                         <th class="text-center" width="80" data-col="label" data-column-key="label" data-default-label="标签">标签</th>
                         {% if editable_lines %}
@@ -432,9 +437,9 @@
                         <td data-column-key="project_name">{{ item.project_name or order.project_name or '-' }}</td>
                         <td data-column-key="unit" class="text-center">{{ item.material.unit.name if item.material.unit else '-' }}</td>
                         <td data-column-key="stock" class="text-end">{{ "%.2f"|format(warehouse_stock.get(item.material_id, 0)) if warehouse_stock is not none else '-' }}</td>
-                        <td data-column-key="quantity" class="text-end fw-medium editable-cell" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
-                        <td data-column-key="price" class="text-end editable-cell" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
-                        <td data-column-key="amount" class="text-end fw-bold text-danger">¥{{ "%.2f"|format(item.amount) }}</td>
+                        <td data-column-key="quantity" class="text-end fw-medium{% if editable_lines %} editable-cell{% endif %}" data-field="quantity" data-value="{{ item.quantity }}">{{ "%.2f"|format(item.quantity) }}</td>
+                        <td data-column-key="price" class="text-end{% if editable_lines and price_dimension_enabled %} editable-cell{% endif %}{% if not price_dimension_enabled %} d-none{% endif %}" data-field="price" data-value="{{ item.price }}">¥{{ "%.2f"|format(item.price) }}</td>
+                        <td data-column-key="amount" class="text-end fw-bold text-danger{% if not price_dimension_enabled %} d-none{% endif %}">¥{{ "%.2f"|format(item.amount) }}</td>
                         {% if editable_lines %}
                         <td data-column-key="remark" class="editable-cell" data-field="remark" data-value="{{ item.remark or '' }}">{{ item.remark or '' }}</td>
                         {% else %}
@@ -478,8 +483,8 @@
                         <td data-column-key="unit"></td>
                         <td data-column-key="stock"></td>
                         <td data-column-key="quantity" data-total="quantity" class="text-end" data-quantity-value aria-live="polite">{{ "%.2f"|format(order.items|sum(attribute='quantity', start=0)) }}</td>
-                        <td data-column-key="price"></td>
-                        <td data-column-key="amount" data-total="amount" class="text-end fs-6">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
+                        <td data-column-key="price" class="{% if not price_dimension_enabled %}d-none{% endif %}"></td>
+                        <td data-column-key="amount" data-total="amount" class="text-end fs-6{% if not price_dimension_enabled %} d-none{% endif %}">¥{{ "%.2f"|format(order.items|sum(attribute='amount', start=0)) }}</td>
                         <td data-column-key="remark"></td>
                         <td data-column-key="label"></td>
                         {% if editable_lines %}
@@ -1746,23 +1751,22 @@ document.addEventListener('DOMContentLoaded', function() {
             {label: '规格', field: 'spec', example: '100*200'},
             {label: '单位', field: 'unit', example: '个'},
             {label: '数量', field: 'quantity', required: true, example: '100'},
+            {% if price_dimension_enabled %}
             {label: '单价', field: 'price', example: '10.50'},
             {label: '金额', field: 'amount', example: '1050.00'},
+            {% endif %}
             {% if batch_management_enabled %}{label: '批次号', field: 'batch', example: 'B20260426'},{% endif %}
             {label: '备注', field: 'remark', example: '备注信息'}
         ]
     });
 
     excelTable = new ExcelTable('itemTable', {
-        editableFields: ['quantity', 'price', 'remark'],
+        editableFields: {% if price_dimension_enabled %}['quantity', 'price', 'remark']{% else %}['quantity', 'remark']{% endif %},
         autoSave: true,
         enableKeyboard: true,
         enableCopyPaste: true,
         onSave: function(itemId, field, newValue, formData) {
             return WMS.api.postRaw('/out_order/item/update', formData);
-        },
-        onError: function(err) {
-            console.error('保存失败:', err);
         }
     });
 

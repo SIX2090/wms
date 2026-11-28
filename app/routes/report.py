@@ -27,10 +27,31 @@ import json
 import os
 
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from db import db
 from utils import require_role
+
+_PURCHASE_ONLY_REPORTS = frozenset({
+    'purchase_order_execution',
+    'supplier_purchase_summary',
+    'material_purchase_summary',
+    'purchase_price_analysis',
+})
+_PURCHASE_REPORT_ALLOWED_ROLES = frozenset({'admin', 'warehouse', 'finance', 'purchase'})
+
+
+def _deny_purchase_report_access(report_type, *, as_json=False):
+    """Enforce purchase-report RBAC on shared report_view/api/print endpoints."""
+    if report_type not in _PURCHASE_ONLY_REPORTS:
+        return None
+    if getattr(current_user, 'role', None) in _PURCHASE_REPORT_ALLOWED_ROLES:
+        return None
+    msg = '当前账号没有权限查看采购报表'
+    if as_json:
+        return jsonify({'status': 'error', 'msg': msg}), 403
+    flash(msg, 'danger')
+    return redirect(url_for('index'))
 
 
 def _auto_register_report_template(app, report_type, title, template_path):
@@ -63,6 +84,7 @@ def _auto_register_report_template(app, report_type, title, template_path):
 # no-test:reason=路由注册辅助函数，能力由 report_* 各路由测试覆盖
 def register_report_routes(app):
     @app.route('/report')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report():
         from app import REPORT_DEFINITIONS, REPORT_TYPE_ORDER, get_default_warehouse, _get_report_definition
@@ -82,39 +104,42 @@ def register_report_routes(app):
         )
 
     @app.route('/purchase_report')
+    @require_role('warehouse', 'finance', 'purchase')
     @login_required
     def purchase_report():
-        available_reports = [
+        core_reports = [
             {
                 'title': '采购订单执行统计表',
-                'description': '按采购单和物料查看采购数量、已入库、未入库和逾期情况。',
-                'url': url_for('report_view', report_type='purchase_order_execution'),
+                'description': '按采购单和物料查看采购数量、已入库、已退货、未入库和逾期情况。',
+                'url': url_for('report_view', report_type='purchase_order_execution', **{'from': 'purchase_report'}),
                 'icon': 'bi-bag-check',
             },
             {
                 'title': '供应商采购汇总表',
-                'description': '按供应商汇总采购订单、金额、已入库和未入库。',
-                'url': url_for('report_view', report_type='supplier_purchase_summary'),
+                'description': '按供应商汇总采购单数、采购数量、已入库与逾期行数。',
+                'url': url_for('report_view', report_type='supplier_purchase_summary', **{'from': 'purchase_report'}),
                 'icon': 'bi-building',
             },
             {
                 'title': '物料采购汇总表',
-                'description': '按物料编号、名称和规格汇总采购数量和金额。',
-                'url': url_for('report_view', report_type='material_purchase_summary'),
+                'description': '按物料编码、名称和规格汇总采购数量、已入库与最近供应商。',
+                'url': url_for('report_view', report_type='material_purchase_summary', **{'from': 'purchase_report'}),
                 'icon': 'bi-box',
             },
             {
                 'title': '采购价格分析表',
                 'description': '对比物料、供应商、均价、最低价、最高价和最近采购价。',
-                'url': url_for('report_view', report_type='purchase_price_analysis'),
+                'url': url_for('report_view', report_type='purchase_price_analysis', **{'from': 'purchase_report'}),
                 'icon': 'bi-currency-yen',
             },
             {
                 'title': '全部入库明细报表',
-                'description': '按入库单据查询全部入库类型流水（采购/产品/其他入库），适合核对到货、数量和金额。',
-                'url': url_for('report_view', report_type='in_detail'),
+                'description': '按入库单据查询全部入库类型流水（采购/产品/其他入库），便于核对到货明细。',
+                'url': url_for('report_view', report_type='in_detail', **{'from': 'purchase_report'}),
                 'icon': 'bi-box-arrow-in-down',
             },
+        ]
+        related_entries = [
             {
                 'title': '采购单执行跟踪',
                 'description': '查看采购单下推、待入库、已入库和执行状态。',
@@ -138,10 +163,13 @@ def register_report_routes(app):
         # （产品路线图归开发台账跟踪，业务页面只呈现可用能力）
         return render_template(
             'purchase_report.html',
-            available_reports=available_reports,
+            core_reports=core_reports,
+            related_entries=related_entries,
+            available_reports=core_reports + related_entries,
         )
 
     @app.route('/report/dashboard')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_dashboard():
         from app import (ReportFilterError, build_report_dashboard_context, get_active_warehouses,
@@ -210,6 +238,7 @@ def register_report_routes(app):
             return jsonify({'status': 'error', 'msg': '生成失败，请稍后重试'}), 500
 
     @app.route('/report/view/<report_type>')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_view(report_type):
         from app import (Warehouse, _get_report_definition, get_active_warehouses,
@@ -219,6 +248,9 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type, request.args.get('business_type'))
         if definition is None:
             abort(404)
+        denied = _deny_purchase_report_access(report_type, as_json=False)
+        if denied is not None:
+            return denied
         # BUG-2026-10-17-014-F04（审计 §3.6）：价格维度关闭时资金类报表下线。
         if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
             flash('价格维度未启用，采购价格分析已下线；如需启用请把系统设置 price_dimension_enabled 设为 1。', 'warning')
@@ -233,13 +265,13 @@ def register_report_routes(app):
                 params.pop('report_type', None)
                 return redirect(url_for('report_view', report_type=report_type, **params))
         warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
-                      if report_type == 'in_detail' else get_active_warehouses())
+                      if (report_type == 'in_detail' or report_type in _PURCHASE_ONLY_REPORTS)
+                      else get_active_warehouses())
         category_rows = []
         if report_type in ('inventory', 'inventory_turnover'):
             from app import MaterialCategory, build_category_tree_rows
             category_rows = build_category_tree_rows(MaterialCategory.query.all())
         reconciliation = None
-        from flask_login import current_user
         if report_type == 'warehouse_monthly' and current_user.role in ('admin', 'warehouse'):
             from app import Notification
             reconciliation = Notification.query.filter_by(type='inventory_reconciliation').order_by(
@@ -265,6 +297,7 @@ def register_report_routes(app):
 
     @app.route('/report/api/query')
     @app.route('/report/api/<report_type>')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_api_query(report_type=None):
         from app import (ReportFilterError, _build_report_excel_download, _build_report_filters,
@@ -273,6 +306,9 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type)
         if definition is None:
             return jsonify({'status': 'error', 'msg': 'Unsupported report type'}), 400
+        denied = _deny_purchase_report_access(report_type, as_json=True)
+        if denied is not None:
+            return denied
         from app import price_dimension_enabled
         if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
             return jsonify({'status': 'error', 'msg': '价格维度未启用，采购价格分析已下线'}), 400
@@ -280,7 +316,8 @@ def register_report_routes(app):
         try:
             filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'), report_type=report_type)
             # P1-BUGFIX：AGENTS.md 仓库必填规则——报表查询未指定仓库且无默认仓库时拒绝返回数据
-            if not filters.get('warehouse_id'):
+            # 采购 4 表显式传 warehouse_id=0（all_warehouses=True）表示公司全口径（含未入库在途订单）。
+            if not filters.get('warehouse_id') and not filters.get('all_warehouses'):
                 return api_error('请选择仓库', 400)
             if report_type == 'ledger' and filters['export'] == 'excel' and not (filters.get('material_code') or filters.get('material_id')):
                 return api_error('请先选择物料再查询、导出或打印库存台账', 400)
@@ -316,12 +353,14 @@ def register_report_routes(app):
         })
 
     @app.route('/report/print')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_print_not_implemented():
         from app import api_error
         return api_error('报表打印功能未实现', code=404)
 
     @app.route('/report/<report_type>/print_excel')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_print_excel(report_type):
         """按所选（或默认）Excel 模板生成报表 .xlsx 下载（PRINT-TEMPLATE-F04 A4）。
@@ -337,12 +376,15 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type, request.args.get('business_type'))
         if definition is None:
             return api_error('Unsupported report type', 400)
+        denied = _deny_purchase_report_access(report_type, as_json=True)
+        if denied is not None:
+            return denied
         if report_type == 'purchase_price_analysis' and not price_dimension_enabled():
             return api_error('价格维度未启用，采购价格分析已下线', 400)
         try:
             filters = _build_report_filters(require_existing_warehouse=report_type not in ('inventory', 'material_movement', 'warehouse_monthly'), report_type=report_type)
             # AGENTS.md 仓库必填规则：报表查询未指定仓库且无默认仓库时拒绝返回数据
-            if not filters.get('warehouse_id'):
+            if not filters.get('warehouse_id') and not filters.get('all_warehouses'):
                 return api_error('请选择仓库', 400)
             if report_type == 'ledger' and not (filters.get('material_code') or filters.get('material_id')):
                 return api_error('请先选择物料再查询、导出或打印库存台账', 400)
@@ -360,11 +402,12 @@ def register_report_routes(app):
             return api_error('报表数据生成失败，请检查查询条件', 400)
         if truncated:
             return api_error('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据', 400)
-        if report_type in ('in_detail', 'out_detail'):
+        if report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ONLY_REPORTS:
             from services.report_print_preview import visible_report_data
             columns, all_rows = visible_report_data(columns, all_rows, price_dimension_enabled())
-            all_rows = [dict(row, status=_serialize_excel_value({'field': 'status', 'type': 'status'}, row))
-                        for row in all_rows]
+            if report_type in ('in_detail', 'out_detail', 'purchase_order_execution'):
+                all_rows = [dict(row, status=_serialize_excel_value({'field': 'status', 'type': 'status'}, row))
+                            for row in all_rows]
         try:
             layout = resolve_report_print_layout(report_type, request.args.get('template_id'), app.static_folder)
         except ValueError as exc:
@@ -383,6 +426,7 @@ def register_report_routes(app):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/report/<report_type>/print_preview')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_print_preview(report_type):
         """Preview current full report data using the selected Excel template, without writes."""
@@ -395,6 +439,9 @@ def register_report_routes(app):
         definition = _get_report_definition(report_type, request.args.get('business_type'))
         title = definition['title'] if definition else '报表'
         context = dict(title=title, sheets=[], template_name='', total=0, error=None)
+        denied = _deny_purchase_report_access(report_type, as_json=False)
+        if denied is not None:
+            return denied
         try:
             if definition is None:
                 raise ValueError('不支持的报表类型')
@@ -402,9 +449,9 @@ def register_report_routes(app):
             if report_type == 'purchase_price_analysis' and not include_prices:
                 raise ValueError('价格维度未启用，采购价格分析已下线')
             filters = _build_report_filters(report_type=report_type)
-            if not filters.get('warehouse_id'):
+            if not filters.get('warehouse_id') and not filters.get('all_warehouses'):
                 raise ValueError('请选择仓库')
-            if db.session.get(Warehouse, filters['warehouse_id']) is None:
+            if not filters.get('all_warehouses') and db.session.get(Warehouse, filters['warehouse_id']) is None:
                 raise ValueError('所选仓库不存在，请重新选择')
             if report_type == 'ledger' and not (filters.get('material_code') or filters.get('material_id')):
                 raise ValueError('请先选择物料再打印库存台账')
@@ -415,7 +462,11 @@ def register_report_routes(app):
             rows = [dict(row, **{column['field']: _serialize_excel_value(column, row)
                                for column in columns if column.get('type') == 'status'})
                     for row in rows]
-            scope = [f"仓库：{filters['warehouse']}（{filters['warehouse_code']}）"]
+            scope = [
+                '仓库：全部仓库（公司口径，含未入库订单）'
+                if filters.get('all_warehouses')
+                else f"仓库：{filters['warehouse']}（{filters['warehouse_code']}）"
+            ]
             if filters.get('start_month') or filters.get('end_month'):
                 scope.append(f"月份：{filters.get('start_month') or '不限'} 至 {filters.get('end_month') or '不限'}")
             elif filters.get('start_date') or filters.get('end_date'):
@@ -435,6 +486,7 @@ def register_report_routes(app):
         return response
 
     @app.route('/report/inout/print')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_inout_print():
         from openpyxl import Workbook
@@ -488,7 +540,7 @@ def register_report_routes(app):
             query = query.filter(_warehouse_document_match_clause(model.warehouse, warehouse))
             query = _apply_status_date_filters(query, model, status, start_date, end_date)
             if kind == 'in_order':
-                query = query.options(joinedload(InOrder.supplier))
+                query = query.options(joinedload(InOrder.supplier), joinedload(InOrder.customer))
                 supplier_id = request.args.get('supplier_id', type=int) or 0
                 if supplier_id:
                     query = query.filter(InOrder.supplier_id == supplier_id)
@@ -536,7 +588,10 @@ def register_report_routes(app):
                 if item is None and not document_type:
                     continue
                 if kind == 'in_order':
-                    partner = order.supplier.name if order.supplier else ''
+                    partner = (
+                        order.supplier.name if order.supplier
+                        else (order.customer.name if order.customer else '')
+                    )
                 else:
                     partner = order.department.name if order.department else (order.customer or '')
                 ws.append([_sanitize_excel_cell(v) for v in [
@@ -559,11 +614,13 @@ def register_report_routes(app):
             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/report/inout/export')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production')
     @login_required
     def report_inout_export():
         return report_inout_print()
 
     @app.route('/report/stock/print')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production', 'viewer')
     @login_required
     def report_stock_print():
         from openpyxl import Workbook
@@ -652,6 +709,7 @@ def register_report_routes(app):
         return send_file(output, download_name='stock_report.xlsx', as_attachment=True)
 
     @app.route('/report/stock/print_preview')
+    @require_role('warehouse', 'finance', 'purchase', 'sales', 'production', 'viewer')
     @login_required
     def report_stock_print_preview():
         """Render full filtered stock through the selected existing list template, read-only."""

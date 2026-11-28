@@ -8,11 +8,9 @@
 长周期查询会出现「采购金额比实际小」，违反 R2「汇总 = 明细全集」。这是共用
 该采集器的最后一张报表，做完整条采集器风险线关闭。
 
-关键语义细节：内存路径取「最新一行」（last_price/last_order_no/url）用的是
-`row_date >= last_purchase_date`（**含等号**）逐行覆写，而明细按
-(日期, 单号, 明细ID) 倒序遍历 → 同一最大日期内**单号最小**者最终胜出
-（与 009-07-014 物料汇总严格 `>` 取最大单号相反）。SQL 路径用两次 MIN 回连
-复刻该语义，T8 专项锁定。
+关键语义细节：同日期有多张采购单时，取「单号最大 / 明细ID最大」者作为最新采购价
+（与 009-07-014 物料采购汇总保持一致）。SQL 路径用两次 MAX 回连，内存路径用严格 `>`，
+T8 专项锁定双路径一致。
 
 断言：
   T1. 分页语义：行分页正确、互不重叠，total 为真实组数。
@@ -22,7 +20,7 @@
   T5. 仓库必填与多仓隔离（R2）：无仓库返回空；B 仓数据不串入 A 仓。
   T6. API 层：/report/api/purchase_price_analysis 分页元数据正确且不截断。
   T7. SQL 路径与内存路径分桶结果一致（按 物料×供应商 比对，防口径漂移）。
-  T8. last_* 复刻含等号覆写语义：同日期取**单号最小**者的价格与单号。
+  T8. last_* 取同日最新单：同日期取**单号最大**者的价格与单号。
 """
 from __future__ import annotations
 
@@ -115,7 +113,7 @@ class TestBug20260907016:
             ], "仓库A", "PIN-4")
 
             # ==== G3：M002 × 供应商甲（同日两单 09-02：PO-5 @5 / PO-6 @9）====
-            # 内存路径含等号覆写 → 胜出者应为「单号最小」的 PO-5 @5（T8 专项）
+            # 同日最新单口径（对齐物料采购汇总）：胜出者应为「单号最大」的 PO-6 @9（T8 专项）
             self._add_po("PO-5", D2, sup1.id, [
                 (m2.id, 8.0, 5.0, 40.0),
             ], "仓库A", "PIN-5")
@@ -181,8 +179,8 @@ class TestBug20260907016:
                                        last_price=20, last_purchase_date='2026-09-05'),
             ('M002', '供应商甲'): dict(purchase_times=2, quantity=10, amount=58,
                                        min_price=5, max_price=9, price_range=4,
-                                       avg_price=5.8, last_order_no='PO-5',
-                                       last_price=5, last_purchase_date='2026-09-02'),
+                                       avg_price=5.8, last_order_no='PO-6',
+                                       last_price=9, last_purchase_date='2026-09-02'),
             ('M002', '供应商乙'): dict(purchase_times=1, quantity=3, amount=21,
                                        min_price=7, max_price=7, price_range=0,
                                        avg_price=7, last_order_no='PO-7',
@@ -314,24 +312,24 @@ class TestBug20260907016:
             assert sql_total == len(mem_rows)
             assert sql_summary == mem_summary, "汇总口径必须与内存路径一致"
 
-    def test_T8_last_row_uses_min_order_no_on_same_date(self):
-        """last_* 复刻含等号覆写语义：同日两单（PO-6@9 > PO-5@5）胜出者为 PO-5。"""
+    def test_T8_last_row_uses_max_order_no_on_same_date(self):
+        """last_* 取同日最新单：同日两单（PO-6@9 > PO-5@5）胜出者为 PO-6。"""
         with app_module.app.app_context():
             exp = self._expect()
             _, rows, _, _ = app_module._sql_paged_purchase_price_analysis_report(
                 _filters(**self.a_kw))
             by_key = {(r['material_code'], r['supplier']): r for r in rows}
             g3 = by_key[('M002', '供应商甲')]
-            assert g3['last_order_no'] == 'PO-5', \
-                f"同日取最小单号 PO-5，实际 {g3['last_order_no']}"
-            assert g3['last_price'] == 5.0, f"最近采购价应为 PO-5 的 5，实际 {g3['last_price']}"
+            assert g3['last_order_no'] == 'PO-6', \
+                f"同日取最大单号 PO-6，实际 {g3['last_order_no']}"
+            assert g3['last_price'] == 9.0, f"最近采购价应为 PO-6 的 9，实际 {g3['last_price']}"
             assert g3['last_purchase_date'] == '2026-09-02'
             # 内存路径同样行为，双路一致
             with app_module.app.test_request_context('/report/view/purchase_price_analysis'):
                 _, mem_rows, _ = app_module._build_purchase_price_report(_filters(**self.a_kw))
             mem_g3 = {(r['material_code'], r['supplier']): r for r in mem_rows}[('M002', '供应商甲')]
-            assert mem_g3['last_order_no'] == 'PO-5', "内存路径语义应一致"
-            assert mem_g3['last_price'] == 5.0
+            assert mem_g3['last_order_no'] == 'PO-6', "内存路径语义应一致"
+            assert mem_g3['last_price'] == 9.0
 
             # 其余分组全字段复核
             for key, want in exp.items():

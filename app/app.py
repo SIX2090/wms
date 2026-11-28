@@ -7,7 +7,7 @@ from markupsafe import escape
 from functools import wraps
 from datetime import datetime, date, time, timedelta
 from urllib.parse import urljoin, urlparse, urlencode, quote_plus
-from sqlalchemy import case, func, false, true, tuple_ as sa_tuple, update as sa_update, or_, select, union_all
+from sqlalchemy import case, func, false, literal, true, tuple_ as sa_tuple, update as sa_update, or_, select, union_all
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import joinedload, selectinload
 import csv
@@ -5784,7 +5784,7 @@ def resolve_request_warehouse(params, *, allow_default=True):
         return default_wh, None
     return None, '请选择仓库'
 
-def get_warehouse_stock_quantities(warehouse):
+def get_warehouse_stock_quantities(warehouse, material_ids=None):
     """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。
 
     INV-AUDIT-001 / INV-AUDIT-002 修复：优先按 warehouse_id 汇总，
@@ -5794,9 +5794,15 @@ def get_warehouse_stock_quantities(warehouse):
         * 兼容 OR location == 仓库名/编码 AND warehouse_id IS NULL
     - 库位管理关闭：按 StockTransaction.location == 仓库名/编码 的流水净额汇总。
     - 仓库无任何记录时返回空 dict（调用方对缺失物料按 0 处理）。
+    - 可选 material_ids 仅聚合指定物料，避免单据详情页触发全仓库物料扫描。
     """
     if not warehouse:
         return {}
+    scoped_ids = None
+    if material_ids is not None:
+        scoped_ids = sorted({int(mid) for mid in material_ids if mid is not None})
+        if not scoped_ids:
+            return {}
     aliases = warehouse_aliases(warehouse)
     warehouse_key = (warehouse.name or '').strip() if (warehouse.name or '').strip() in aliases else ''
     warehouse_code = (warehouse.code or '').strip() if (warehouse.code or '').strip() in aliases else ''
@@ -5807,10 +5813,13 @@ def get_warehouse_stock_quantities(warehouse):
         # 优先按 warehouse_id 精确汇总；OR 兼容旧数据：warehouse_id 为 NULL
         # 且 location 字符串等于仓库名或编码的历史行。
         condition = bin_warehouse_condition(LocationInventory, warehouse.id, aliases)
-        rows = (db.session.query(LocationInventory.material_id,
-                                 func.coalesce(func.sum(LocationInventory.quantity), 0))
-                .filter(condition)
-                .group_by(LocationInventory.material_id).all())
+        q = db.session.query(
+            LocationInventory.material_id,
+            func.coalesce(func.sum(LocationInventory.quantity), 0),
+        ).filter(condition)
+        if scoped_ids is not None:
+            q = q.filter(LocationInventory.material_id.in_(scoped_ids))
+        rows = q.group_by(LocationInventory.material_id).all()
     else:
         # 库位管理关闭时仍用流水 location 字符串（仓库名/编码）汇总
         # BUG-2026-08-17-00X fallback：系统仅一个仓库时，所有库存必然属于该
@@ -5818,13 +5827,16 @@ def get_warehouse_stock_quantities(warehouse):
         # 无法按 location 聚合导致"有库存查不出来"。
         if Warehouse.query.count() == 1:
             # stock-truth:reason=单仓系统全局总账==唯一仓库库存（BUG-2026-08-17-00X 登记的兼容兜底，避免历史 NULL-location 流水漏算），非多仓掩护场景
-            return {m.id: float(m.stock or 0) for m in Material.query.all()}
+            mq = Material.query
+            if scoped_ids is not None:
+                mq = mq.filter(Material.id.in_(scoped_ids))
+            return {m.id: float(m.stock or 0) for m in mq.all()}
         # BUG-2026-08-18-003：历史数据 location 可能写的是仓库编号（如 WH001）
         # 而不是仓库名，需要同时匹配编号和名称。
         # BUG-2026-08-27-004：与台账/月报同口径——库位名流水经 _warehouse_location_filter_values
         # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
         # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
-        return _warehouse_ledger_quantities(warehouse)
+        return _warehouse_ledger_quantities(warehouse, material_ids=scoped_ids)
 
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
 
@@ -5848,12 +5860,16 @@ def get_all_warehouses_stock_quantities():
     return result
 
 
-def _warehouse_ledger_quantities(warehouse, since_dt=None, *, names=None, include_empty=True):
+def _warehouse_ledger_quantities(warehouse, since_dt=None, *, names=None, include_empty=True, material_ids=None):
     """按外键汇总已归仓行，对有来源的旧流水逐行交叉核对旧位置。"""
     if names is None:
         names = _warehouse_location_filter_values(warehouse.id, warehouse.name, warehouse.code)
     txn = StockTransaction
     scoped = txn.query
+    if material_ids is not None:
+        if not material_ids:
+            return {}
+        scoped = scoped.filter(txn.material_id.in_(material_ids))
     if not include_empty:
         scoped = scoped.filter(bin_warehouse_condition(txn, warehouse.id, names, bins=LocationInventory))
     if since_dt is not None:
@@ -29603,14 +29619,23 @@ def _begin_report_read():
         connection.exec_driver_sql('BEGIN')
 
 
+_PURCHASE_ORDER_REPORT_TYPES = frozenset({
+    'purchase_order_execution',
+    'supplier_purchase_summary',
+    'material_purchase_summary',
+    'purchase_price_analysis',
+})
+
+
 def _build_report_filters(require_existing_warehouse=True, report_type=None):
-    if report_type in ('in_detail', 'out_detail', 'ledger', 'inventory_turnover'):
+    if report_type in ('in_detail', 'out_detail', 'ledger', 'inventory_turnover') or report_type in _PURCHASE_ORDER_REPORT_TYPES:
         _begin_report_read()
     raw_warehouse = (request.args.get('warehouse_id') or '').strip()
     if report_type in ('in_detail', 'out_detail', 'ledger') and not raw_warehouse:
         raise ReportFilterError('请选择仓库')
-    warehouse_id = _parse_positive_int(raw_warehouse, 0)
-    if raw_warehouse and (not raw_warehouse.isdecimal() or not 0 < warehouse_id <= 2**63 - 1):
+    all_warehouses = bool(report_type in _PURCHASE_ORDER_REPORT_TYPES and raw_warehouse == '0')
+    warehouse_id = 0 if all_warehouses else _parse_positive_int(raw_warehouse, 0)
+    if raw_warehouse and not all_warehouses and (not raw_warehouse.isdecimal() or not 0 < warehouse_id <= 2**63 - 1):
         raise ReportFilterError('仓库参数无效，请重新选择仓库')
     start_date = _parse_date_arg('start_date')
     end_date = _parse_date_arg('end_date')
@@ -29623,7 +29648,11 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
         status = '' if status == 'all' else (status or 'completed')
     warehouse_name = ''
     warehouse_code = ''
-    if not warehouse_id:
+    if all_warehouses:
+        warehouse_id = 0
+        warehouse_name = ''
+        warehouse_code = ''
+    elif not warehouse_id:
         default_wh = get_default_warehouse()
         if default_wh:
             warehouse_id = default_wh.id
@@ -29645,10 +29674,15 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'ledger')
                    else _parse_positive_int(request.args.get('material_id'), 0))
     inbound_detail = report_type == 'in_detail'
-    include_prices = report_type not in ('in_detail', 'inventory_turnover') or price_dimension_enabled()
-    print_snapshot = inbound_detail and request.args.get('web_print') == '1'
+    include_prices = (
+        report_type not in (
+            'in_detail', 'inventory_turnover',
+            'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary',
+        ) or price_dimension_enabled()
+    )
+    print_snapshot = (inbound_detail or report_type in _PURCHASE_ORDER_REPORT_TYPES) and request.args.get('web_print') == '1'
     sort_field = (request.args.get('sort_field') or '').strip()
-    if not include_prices and sort_field in ('amount', 'price'):
+    if not include_prices and sort_field in ('amount', 'price', 'received_amount', 'remaining_amount', 'avg_price'):
         sort_field = ''
     raw_business_type = (request.args.get('business_type') or '').strip()
     # BUG-2026-08-18-004：入库明细报表此前硬编码只查"采购入库"，
@@ -29670,6 +29704,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
         'warehouse_id': warehouse_id,
         'warehouse': warehouse_name,
         'warehouse_code': warehouse_code,
+        'all_warehouses': all_warehouses,
         'business_type': raw_business_type,
         'contract_no': (request.args.get('contract_no') or '').strip(),
         'project_name': (request.args.get('project_name') or '').strip(),
@@ -29859,7 +29894,14 @@ def _iter_report_export_batches(report_type, filters):
         page = 1
         total = None
         while True:
-            batch_filters = dict(filters, page=page, page_size=batch, export='')
+            batch_filters = dict(
+                filters,
+                page=page,
+                page_size=batch,
+                export='',
+                _skip_summary=True,
+                _known_total=total,
+            )
             columns, rows, _summary, batch_total = sql_builder(batch_filters)
             if total is None:
                 total = batch_total
@@ -29910,20 +29952,32 @@ def _build_report_excel_download(report_type, filters):
     """
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell
+    from utils import _sanitize_excel_cell
 
-    definition = _get_report_definition(report_type)
+    definition = _get_report_definition(report_type, filters.get('business_type'))
+    raw_sheet_title = (definition.get('title') if definition else '') or '报表'
+    sheet_title = re.sub(r'[\\/*?:\[\]]', '_', str(raw_sheet_title))[:31] or '报表'
+    hide_money_columns = (
+        report_type in ('purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary')
+        and not filters.get('include_prices', True)
+    )
     workbook = Workbook(write_only=True)
-    worksheet = workbook.create_sheet('Report')
+    worksheet = workbook.create_sheet(sheet_title)
     columns = None
     written = 0
     for batch_columns, rows in _iter_report_export_batches(report_type, filters):
         if columns is None:
-            columns = batch_columns
-            worksheet.append([column['title'] for column in columns])
+            columns = (
+                [c for c in batch_columns if c.get('type') != 'money']
+                if hide_money_columns else batch_columns
+            )
+            worksheet.append([_sanitize_excel_cell(column['title']) for column in columns])
         for row in rows:
             cells = []
             for column in columns:
                 value = _serialize_excel_value(column, row)
+                if isinstance(value, str):
+                    value = _sanitize_excel_cell(value)
                 cell = WriteOnlyCell(worksheet, value=value)
                 if isinstance(value, str):
                     cell.data_type = 's'
@@ -30121,6 +30175,7 @@ def _purchase_order_execution_columns():
         {'field': 'unit', 'title': '单位'},
         {'field': 'order_quantity', 'title': '采购数量'},
         {'field': 'received_quantity', 'title': '已入库数量'},
+        {'field': 'returned_quantity', 'title': '已退货数量'},
         {'field': 'remaining_quantity', 'title': '未入库数量'},
         {'field': 'price', 'title': '单价', 'type': 'money'},
         {'field': 'amount', 'title': '采购金额', 'type': 'money'},
@@ -31511,7 +31566,7 @@ def _purchase_order_item_query(filters):
     # 之外，采购执行/供应商汇总/物料汇总/价格分析四张报表恒为「当前条件下
     # 没有数据」。与仓库内其余报表一致改为 名称 OR 编码 双匹配（R6 同根因
     # 收敛；同型修复见 BUG-2026-08-17-002 / BUG-2026-08-18-004）。
-    if filters.get('warehouse'):
+    if filters.get('warehouse') and not filters.get('all_warehouses'):
         match_clause = _document_warehouse_scope(InOrder, filters)
         query = query.outerjoin(
             InOrderItem,
@@ -31525,29 +31580,61 @@ def _purchase_order_item_query(filters):
         ).filter(match_clause).distinct()
     return query
 
-def _purchase_completed_receipts_subquery(filters=None, order_ids=None):
+def _purchase_completed_receipts_subquery(filters=None, order_ids=None, deduct_returns=False):
     """Completed inbound facts, including old header-only links, without per-row queries.
 
     Explicit source-line links win. Legacy rows without a source line are assigned
     once in receipt-ID/order-line-ID order within the same order and material.
     The last order line retains historical over-receipts instead of hiding them.
     Allocation precedes warehouse filtering so splitting warehouses never duplicates
-    a legacy receipt. This only reads facts; it never repairs or rewrites documents.
+    a legacy receipt. When deduct_returns=True (purchase reports), completed
+    「采购退货出库」 quantities are deducted from net receipts and exposed as
+    returned_quantity. This only reads facts; it never repairs or rewrites documents.
     """
     if order_ids is None and filters is not None:
         allowed = _purchase_order_item_query(filters).with_entities(
             PurchaseOrderItem.purchase_order_id.label('order_id')).distinct().subquery()
         order_ids = select(allowed.c.order_id)
-    linked_query = select(
-        InOrderItem.source_purchase_order_item_id.label('item_id'),
-        InOrder.warehouse.label('warehouse'),
-        func.sum(InOrderItem.quantity).label('received_quantity'),
-    ).join(InOrder, InOrderItem.in_order_id == InOrder.id).join(
-        PurchaseOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
-    ).where(
-        InOrder.status == 'completed',
-        InOrderItem.source_purchase_order_item_id.isnot(None),
-    )
+    if deduct_returns:
+        returned_by_in_item = select(
+            OutOrderItem.source_in_order_item_id.label('in_item_id'),
+            func.sum(OutOrderItem.quantity).label('returned_quantity'),
+        ).join(OutOrder, OutOrderItem.out_order_id == OutOrder.id).where(
+            OutOrder.business_type == '采购退货出库',
+            OutOrder.status == 'completed',
+            OutOrderItem.source_in_order_item_id.isnot(None),
+        ).group_by(OutOrderItem.source_in_order_item_id).cte()
+        ret_col = func.coalesce(returned_by_in_item.c.returned_quantity, 0)
+        net_in_qty = case(
+            (InOrderItem.quantity - ret_col > 0, InOrderItem.quantity - ret_col),
+            else_=0,
+        )
+        linked_query = select(
+            InOrderItem.source_purchase_order_item_id.label('item_id'),
+            InOrder.warehouse.label('warehouse'),
+            func.sum(net_in_qty).label('received_quantity'),
+            func.sum(ret_col).label('returned_quantity'),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).join(
+            PurchaseOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
+        ).outerjoin(
+            returned_by_in_item, returned_by_in_item.c.in_item_id == InOrderItem.id,
+        ).where(
+            InOrder.status == 'completed',
+            InOrderItem.source_purchase_order_item_id.isnot(None),
+        )
+    else:
+        returned_by_in_item = None
+        linked_query = select(
+            InOrderItem.source_purchase_order_item_id.label('item_id'),
+            InOrder.warehouse.label('warehouse'),
+            func.sum(InOrderItem.quantity).label('received_quantity'),
+            literal(0.0).label('returned_quantity'),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).join(
+            PurchaseOrderItem, InOrderItem.source_purchase_order_item_id == PurchaseOrderItem.id,
+        ).where(
+            InOrder.status == 'completed',
+            InOrderItem.source_purchase_order_item_id.isnot(None),
+        )
     if order_ids is not None:
         linked_query = linked_query.where(PurchaseOrderItem.purchase_order_id.in_(order_ids))
     linked = linked_query.group_by(InOrderItem.source_purchase_order_item_id, InOrder.warehouse).cte()
@@ -31570,14 +31657,33 @@ def _purchase_completed_receipts_subquery(filters=None, order_ids=None):
             partition_by=partition, order_by=capacity.c.item_id, rows=(None, 0)).label('end_qty'),
         func.row_number().over(partition_by=partition, order_by=capacity.c.item_id.desc()).label('reverse_row'),
     ).cte()
-    legacy_query = select(
-        InOrderItem.id.label('receipt_id'), InOrder.source_purchase_order_id.label('order_id'),
-        InOrderItem.material_id.label('material_id'), InOrder.warehouse.label('warehouse'),
-        InOrderItem.quantity.label('quantity'),
-    ).join(InOrder, InOrderItem.in_order_id == InOrder.id).where(
-        InOrder.status == 'completed', InOrder.source_purchase_order_id.isnot(None),
-        InOrderItem.source_purchase_order_item_id.is_(None), InOrderItem.quantity > 0,
-    )
+    if deduct_returns:
+        legacy_ret = func.coalesce(returned_by_in_item.c.returned_quantity, 0)
+        legacy_net = case(
+            (InOrderItem.quantity - legacy_ret > 0, InOrderItem.quantity - legacy_ret),
+            else_=0,
+        )
+        legacy_query = select(
+            InOrderItem.id.label('receipt_id'), InOrder.source_purchase_order_id.label('order_id'),
+            InOrderItem.material_id.label('material_id'), InOrder.warehouse.label('warehouse'),
+            legacy_net.label('quantity'),
+            legacy_ret.label('returned_quantity'),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).outerjoin(
+            returned_by_in_item, returned_by_in_item.c.in_item_id == InOrderItem.id,
+        ).where(
+            InOrder.status == 'completed', InOrder.source_purchase_order_id.isnot(None),
+            InOrderItem.source_purchase_order_item_id.is_(None), legacy_net > 0,
+        )
+    else:
+        legacy_query = select(
+            InOrderItem.id.label('receipt_id'), InOrder.source_purchase_order_id.label('order_id'),
+            InOrderItem.material_id.label('material_id'), InOrder.warehouse.label('warehouse'),
+            InOrderItem.quantity.label('quantity'),
+            literal(0.0).label('returned_quantity'),
+        ).join(InOrder, InOrderItem.in_order_id == InOrder.id).where(
+            InOrder.status == 'completed', InOrder.source_purchase_order_id.isnot(None),
+            InOrderItem.source_purchase_order_item_id.is_(None), InOrderItem.quantity > 0,
+        )
     if order_ids is not None:
         legacy_query = legacy_query.where(InOrder.source_purchase_order_id.in_(order_ids))
     legacy = legacy_query.cte()
@@ -31593,17 +31699,25 @@ def _purchase_completed_receipts_subquery(filters=None, order_ids=None):
     allocated = select(
         ranges.c.item_id, legacy_ranges.c.warehouse,
         func.sum(upper - lower).label('received_quantity'),
+        literal(0.0).label('returned_quantity'),
     ).select_from(ranges.join(legacy_ranges, db.and_(
         ranges.c.order_id == legacy_ranges.c.order_id, ranges.c.material_id == legacy_ranges.c.material_id,
     ))).where(upper > lower).group_by(ranges.c.item_id, legacy_ranges.c.warehouse)
-    receipts = union_all(select(linked.c.item_id, linked.c.warehouse, linked.c.received_quantity), allocated).subquery()
-    query = select(receipts.c.item_id, func.round(func.sum(receipts.c.received_quantity), 2).label('received_quantity'))
-    if filters is not None:
+    receipts = union_all(
+        select(linked.c.item_id, linked.c.warehouse, linked.c.received_quantity, linked.c.returned_quantity),
+        allocated,
+    ).subquery()
+    query = select(
+        receipts.c.item_id,
+        func.round(func.sum(receipts.c.received_quantity), 2).label('received_quantity'),
+        func.round(func.sum(receipts.c.returned_quantity), 2).label('returned_quantity'),
+    )
+    if filters is not None and not filters.get('all_warehouses'):
         query = query.where(_document_warehouse_scope(receipts.c, filters))
     return query.group_by(receipts.c.item_id).subquery()
 
 
-def _purchase_execution_row(item, today_value, completed_quantity):
+def _purchase_execution_row(item, today_value, completed_quantity, returned_quantity=0.0):
     """采购执行明细行映射（_collect 与 SQL 分页 builder 共用，防两份映射漂移）。
 
     remaining/overdue 依赖当前日期计算，由调用方传入 today_value。
@@ -31614,6 +31728,7 @@ def _purchase_execution_row(item, today_value, completed_quantity):
         return None
     order_qty = _safe_float(item.quantity)
     received_qty = _safe_float(completed_quantity)
+    returned_qty = _safe_float(returned_quantity)
     remaining_qty = max(round_to_2_decimals(order_qty - received_qty), 0)
     price = _safe_float(item.price)
     overdue_days = 0
@@ -31630,6 +31745,7 @@ def _purchase_execution_row(item, today_value, completed_quantity):
         'unit': material.unit.name if material.unit else '',
         'order_quantity': order_qty,
         'received_quantity': received_qty,
+        'returned_quantity': returned_qty,
         'remaining_quantity': remaining_qty,
         'price': price,
         'amount': _safe_float(item.amount) or round_money_product(order_qty, price),
@@ -31644,15 +31760,18 @@ def _purchase_execution_row(item, today_value, completed_quantity):
 
 
 def _collect_purchase_order_execution_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据（采购 4 表显式 all_warehouses=True 除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
     # BUG-2026-08-30-003：采购执行/汇总/价格分析共用本采集器，超限不再静默截断
     # BUG-2026-09-07-003：截断信息透传前端（统一走 _report_check_row_limit）
-    receipts = _purchase_completed_receipts_subquery(filters)
+    receipts = _purchase_completed_receipts_subquery(filters, deduct_returns=True)
     item_query = _purchase_order_item_query(filters).outerjoin(
         receipts, receipts.c.item_id == PurchaseOrderItem.id,
-    ).add_columns(func.coalesce(receipts.c.received_quantity, 0)).options(
+    ).add_columns(
+        func.coalesce(receipts.c.received_quantity, 0),
+        func.coalesce(receipts.c.returned_quantity, 0),
+    ).options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
         joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
@@ -31664,8 +31783,8 @@ def _collect_purchase_order_execution_rows(filters):
     items = _report_check_row_limit(item_query, REPORT_ROW_LIMIT, '采购执行明细').all()
     today_value = date.today()
     rows = []
-    for item, received_quantity in items:
-        row = _purchase_execution_row(item, today_value, received_quantity)
+    for item, received_quantity, returned_quantity in items:
+        row = _purchase_execution_row(item, today_value, received_quantity, returned_quantity)
         if row is not None:
             rows.append(row)
     return rows
@@ -31673,23 +31792,34 @@ def _collect_purchase_order_execution_rows(filters):
 def _build_purchase_summary_row(bucket):
     amount = bucket['amount']
     quantity = bucket['order_quantity']
+    units = bucket.get('units')
+    mixed_units = isinstance(units, set) and len(units) > 1
     row = {
         key: value
         for key, value in bucket.items()
-        if key not in ('order_ids', 'material_ids', 'supplier_ids')
+        if key not in ('order_ids', 'material_ids', 'supplier_ids', 'units')
     }
     return {
         **row,
         'order_count': len(bucket['order_ids']),
         'material_count': len(bucket.get('material_ids', set())),
         'supplier_count': len(bucket.get('supplier_ids', set())),
-        'avg_price': round_to_2_decimals(amount / quantity) if quantity else 0,
+        'avg_price': None if mixed_units else (round_to_2_decimals(amount / quantity) if quantity else 0),
         'last_purchase_date': bucket['last_purchase_date'].isoformat() if bucket.get('last_purchase_date') else '',
     }
 
-def _build_supplier_purchase_summary_report(filters):
+def _apply_mixed_unit_summary(summary, unit_totals):
+    """跨单位时不把不同单位数量强行相加，改为分单位展示（单一单位保持原数字口径）。"""
+    if len(unit_totals) > 1:
+        from services.report_quantity_units import format_quantities
+        summary['quantity'] = None
+        summary['quantity_text'] = format_quantities(unit_totals)
+    return summary
+
+def _build_supplier_purchase_summary_report(filters, exec_rows=None):
     rows_by_supplier = {}
-    for row in _collect_purchase_order_execution_rows(filters):
+    source_rows = _collect_purchase_order_execution_rows(filters) if exec_rows is None else exec_rows
+    for row in source_rows:
         supplier_name = row['supplier'] or '未指定供应商'
         key = supplier_name
         bucket = rows_by_supplier.setdefault(key, {
@@ -31697,6 +31827,7 @@ def _build_supplier_purchase_summary_report(filters):
             'supplier': supplier_name,
             'order_ids': set(),
             'material_ids': set(),
+            'units': set(),
             'order_quantity': 0.0,
             'received_quantity': 0.0,
             'remaining_quantity': 0.0,
@@ -31710,6 +31841,7 @@ def _build_supplier_purchase_summary_report(filters):
             bucket['order_ids'].add(row['order_url'])
         if row['material_code']:
             bucket['material_ids'].add(row['material_code'])
+        bucket['units'].add(row.get('unit') or '未设单位')
         bucket['order_quantity'] += _safe_float(row['order_quantity'])
         bucket['received_quantity'] += _safe_float(row['received_quantity'])
         bucket['remaining_quantity'] += _safe_float(row['remaining_quantity'])
@@ -31722,7 +31854,11 @@ def _build_supplier_purchase_summary_report(filters):
         if row_date and (bucket['last_purchase_date'] is None or row_date > bucket['last_purchase_date']):
             bucket['last_purchase_date'] = row_date
 
-    supplier_by_name = {supplier.name: supplier for supplier in Supplier.query.all()}
+    matched_names = [name for name in rows_by_supplier if name and name != '未指定供应商']
+    supplier_by_name = (
+        {supplier.name: supplier for supplier in Supplier.query.filter(Supplier.name.in_(matched_names)).all()}
+        if matched_names else {}
+    )
     rows = []
     for bucket in rows_by_supplier.values():
         supplier = supplier_by_name.get(bucket['supplier'])
@@ -31795,7 +31931,7 @@ def _build_purchase_price_analysis_report(filters):
         bucket['min_price'] = price if bucket['min_price'] is None else min(bucket['min_price'], price)
         bucket['max_price'] = price if bucket['max_price'] is None else max(bucket['max_price'], price)
         row_date = parse_date_value(row['date'])
-        if row_date and (bucket['last_purchase_date'] is None or row_date >= bucket['last_purchase_date']):
+        if row_date and (bucket['last_purchase_date'] is None or row_date > bucket['last_purchase_date']):
             bucket['last_purchase_date'] = row_date
             bucket['last_price'] = price
             bucket['last_order_no'] = row['order_no']
@@ -31953,29 +32089,42 @@ def _build_warehouse_monthly_report(filters):
 
 def _build_purchase_order_execution_report(filters):
     rows = _collect_purchase_order_execution_rows(filters)
-    summary = {
+    unit_totals = {}
+    for row in rows:
+        unit_label = row.get('unit') or '未设单位'
+        unit_totals[unit_label] = unit_totals.get(unit_label, 0.0) + _safe_float(row['order_quantity'])
+    summary = _apply_mixed_unit_summary({
         'count': len(rows),
         'quantity': sum(row['order_quantity'] for row in rows),
         'amount': sum(row['amount'] for row in rows),
-    }
+    }, unit_totals)
     return _purchase_order_execution_columns(), rows, summary
 
 def _build_supplier_purchase_report(filters):
-    rows = _build_supplier_purchase_summary_report(filters)
-    summary = {
+    exec_rows = _collect_purchase_order_execution_rows(filters)
+    rows = _build_supplier_purchase_summary_report(filters, exec_rows=exec_rows)
+    unit_totals = {}
+    for row in exec_rows:
+        unit_label = row.get('unit') or '未设单位'
+        unit_totals[unit_label] = unit_totals.get(unit_label, 0.0) + _safe_float(row['order_quantity'])
+    summary = _apply_mixed_unit_summary({
         'count': len(rows),
         'quantity': sum(row['order_quantity'] for row in rows),
         'amount': sum(row['amount'] for row in rows),
-    }
+    }, unit_totals)
     return _supplier_purchase_summary_columns(), rows, summary
 
 def _build_material_purchase_report(filters):
     rows = _build_material_purchase_summary_report(filters)
-    summary = {
+    unit_totals = {}
+    for row in rows:
+        unit_label = row.get('unit') or '未设单位'
+        unit_totals[unit_label] = unit_totals.get(unit_label, 0.0) + _safe_float(row['order_quantity'])
+    summary = _apply_mixed_unit_summary({
         'count': len(rows),
         'quantity': sum(row['order_quantity'] for row in rows),
         'amount': sum(row['amount'] for row in rows),
-    }
+    }, unit_totals)
     return _material_purchase_summary_columns(), rows, summary
 
 def _build_purchase_price_report(filters):
@@ -32124,8 +32273,12 @@ def _sql_paged_in_detail_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
     base = _filtered_in_detail_query(filters)
-    summary = _detail_unit_summary(base, InOrderItem)
-    total = summary['count']
+    if filters.get('_skip_summary') and filters.get('_known_total') is not None:
+        total = int(filters['_known_total'])
+        summary = {'count': total, 'quantity': 0, 'amount': 0}
+    else:
+        summary = _detail_unit_summary(base, InOrderItem)
+        total = summary['count']
     query = _sql_order_by(
         base, _IN_DETAIL_SORT_MAP,
         filters.get('sort_field'), filters.get('sort_order'),
@@ -32163,8 +32316,12 @@ def _sql_paged_out_detail_report(filters):
     if not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
     base = _filtered_out_detail_query(filters)
-    summary = _detail_unit_summary(base, OutOrderItem)
-    total = summary['count']
+    if filters.get('_skip_summary') and filters.get('_known_total') is not None:
+        total = int(filters['_known_total'])
+        summary = {'count': total, 'quantity': 0, 'amount': 0}
+    else:
+        summary = _detail_unit_summary(base, OutOrderItem)
+        total = summary['count']
     query = _sql_order_by(
         base, _OUT_DETAIL_SORT_MAP,
         filters.get('sort_field'), filters.get('sort_order'),
@@ -32180,7 +32337,8 @@ def _sql_paged_out_detail_report(filters):
     else:
         page = max(int(filters.get('page') or 1), 1)
         page_size = max(int(filters.get('page_size') or 20), 1)
-        items = query.offset((page - 1) * page_size).limit(page_size).all()
+        offset = (page - 1) * page_size
+        items = query.offset(offset).limit(page_size).all() if offset < total else []
     rows = []
     for item in items:
         row = _out_detail_row(item)
@@ -32283,35 +32441,44 @@ def _sql_paged_check_report(filters):
 def _sql_paged_purchase_execution_report(filters):
     """采购订单执行 SQL 分页 builder（BUG-2026-09-07-011）：返回 (columns, rows, summary, total)。"""
     columns = _purchase_order_execution_columns()
-    # AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # AGENTS.md 报表仓库必填，无仓库不返回数据（采购 4 表显式 all_warehouses=True 除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
-    receipts = _purchase_completed_receipts_subquery(filters)
+    receipts = _purchase_completed_receipts_subquery(filters, deduct_returns=True)
     received_quantity = func.coalesce(receipts.c.received_quantity, 0)
+    returned_quantity = func.coalesce(receipts.c.returned_quantity, 0)
     remaining = PurchaseOrderItem.quantity - received_quantity
     remaining_quantity = case((remaining > 0, remaining), else_=0)
     base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
-    total = base.count()
-    # 汇总必须基于 distinct 后的明细行：warehouse 分支 outerjoin 入库单会
-    # 把同一采购行展开多行，直接 sum 会按入库行数放大（金额/数量失真）。
-    sub = base.with_entities(
-        PurchaseOrderItem.id,
-        PurchaseOrderItem.quantity,
-        PurchaseOrderItem.price,
-        PurchaseOrderItem.amount,
-    ).distinct().subquery()
-    agg = db.session.query(
-        func.count(sub.c.id),
-        func.coalesce(func.sum(sub.c.quantity), 0),
-        func.coalesce(func.sum(
-            func.coalesce(func.nullif(sub.c.amount, 0), sub.c.quantity * sub.c.price)), 0),
-    ).first()
-    summary = {
-        'count': int(agg[0] or 0),
-        'quantity': _safe_float(agg[1]),
-        'amount': _safe_float(agg[2]),
-    }
+    if filters.get('_skip_summary') and filters.get('_known_total') is not None:
+        total = int(filters['_known_total'])
+        summary = {'count': total, 'quantity': 0, 'amount': 0}
+    else:
+        total = base.count()
+        # 汇总必须基于 distinct 后的明细行：warehouse 分支 outerjoin 入库单会
+        # 把同一采购行展开多行，直接 sum 会按入库行数放大（金额/数量失真）。
+        sub = base.with_entities(
+            PurchaseOrderItem.id,
+            PurchaseOrderItem.quantity,
+            PurchaseOrderItem.price,
+            PurchaseOrderItem.amount,
+            func.coalesce(func.nullif(Unit.name, ''), '未设单位').label('unit_name'),
+        ).distinct().subquery()
+        unit_rows = db.session.query(
+            sub.c.unit_name,
+            func.count(sub.c.id),
+            func.coalesce(func.sum(sub.c.quantity), 0),
+            func.coalesce(func.sum(
+                func.coalesce(func.nullif(sub.c.amount, 0), sub.c.quantity * sub.c.price)), 0),
+        ).group_by(sub.c.unit_name).all()
+        unit_totals = {u or '未设单位': _safe_float(q) for u, _, q, _ in unit_rows}
+        summary = _apply_mixed_unit_summary({
+            'count': sum(int(c or 0) for _, c, _, _ in unit_rows),
+            'quantity': sum(_safe_float(q) for _, _, q, _ in unit_rows),
+            'amount': sum(_safe_float(a) for _, _, _, a in unit_rows),
+        }, unit_totals)
     sort_map = dict(_PURCHASE_EXECUTION_SORT_MAP, received_quantity=received_quantity,
+                    returned_quantity=returned_quantity,
                     remaining_quantity=remaining_quantity,
                     received_amount=received_quantity * PurchaseOrderItem.price,
                     remaining_amount=remaining_quantity * PurchaseOrderItem.price)
@@ -32320,7 +32487,7 @@ def _sql_paged_purchase_execution_report(filters):
         filters.get('sort_field'), filters.get('sort_order'),
         (PurchaseOrder.date.desc(), PurchaseOrder.order_no.desc(), PurchaseOrderItem.id.desc()),
         PurchaseOrderItem.id,
-    ).add_columns(received_quantity).options(
+    ).add_columns(received_quantity, returned_quantity).options(
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.supplier),
         joinedload(PurchaseOrderItem.purchase_order).joinedload(PurchaseOrder.purchase_request),
         joinedload(PurchaseOrderItem.material).joinedload(Material.unit),
@@ -32330,11 +32497,12 @@ def _sql_paged_purchase_execution_report(filters):
     else:
         page = max(int(filters.get('page') or 1), 1)
         page_size = max(int(filters.get('page_size') or 20), 1)
-        items = query.offset((page - 1) * page_size).limit(page_size).all()
+        offset = (page - 1) * page_size
+        items = query.offset(offset).limit(page_size).all() if offset < total else []
     today_value = date.today()
     rows = []
-    for item, received_quantity in items:
-        row = _purchase_execution_row(item, today_value, received_quantity)
+    for item, rec_qty, ret_qty in items:
+        row = _purchase_execution_row(item, today_value, rec_qty, ret_qty)
         if row is not None:
             rows.append(row)
     return columns, rows, summary, total
@@ -32419,34 +32587,13 @@ def _sql_paged_summary_report(filters):
 
 
 def _sql_paged_supplier_purchase_report(filters):
-    """供应商采购汇总 SQL 分页 builder（BUG-2026-09-07-013）。
-
-    返回 (columns, rows, summary, total)。
-    原内存路径 `_build_supplier_purchase_summary_report` 把采购执行明细物化
-    最多 REPORT_ROW_LIMIT(5 万) 行（与采购执行/物料汇总/价格分析共用
-    `_collect_purchase_order_execution_rows`）后再在 Python 里按供应商分桶——
-    超过 5 万行时明细被截断，而汇总卡片正是对这份**截断后的分桶结果**求和
-    （违反 R2「汇总 = 明细全集」），长周期查询会出现「采购金额比实际小」。
-
-    SQL 路径分工：
-      - 分桶与聚合下沉 SQL GROUP BY 供应商，复用 009-07-011 建好的
-        `_purchase_order_item_query`（WHERE 口径单一事实源）；
-      - warehouse 分支 outerjoin 入库单会把同一采购行展开多行，故先对所需列
-        做 DISTINCT 子查询再聚合，避免金额/数量被放大
-        （与 `_sql_paged_purchase_execution_report` 同款防护）；
-      - 汇总再单独做一次 SQL 全量聚合，与分桶/分页/排序彻底解耦（R2）；
-      - 供应商编码沿用内存路径「按供应商名称查 Supplier 表」的语义，
-        在极小的聚合结果集上用 Python 回填，保证两条路径一致；
-      - 排序/分页在供应商聚合结果（行数 = 供应商数，通常数十行）上完成。
-    默认排序由内存路径的「首次出现顺序」改为**最近采购日期倒序**
-    （语义等价：内存路径明细按订单日期倒序，首次出现即最近下单供应商；新写法确定）。
-    """
+    """供应商采购汇总 SQL 分页 builder（BUG-2026-09-07-013）。"""
     columns = _supplier_purchase_summary_columns()
-    # AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # AGENTS.md 报表仓库必填，无仓库不返回数据（采购 4 表显式 all_warehouses=True 除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
-    receipts = _purchase_completed_receipts_subquery(filters)
+    receipts = _purchase_completed_receipts_subquery(filters, deduct_returns=True)
     base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
     # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
     # 再聚合，避免 sum 被入库行数放大
@@ -32462,6 +32609,7 @@ def _sql_paged_supplier_purchase_report(filters):
         PurchaseOrder.status.label('order_status'),
         Supplier.name.label('supplier_name'),
         Material.code.label('material_code'),
+        func.coalesce(func.nullif(Unit.name, ''), '未设单位').label('unit_name'),
     ).distinct().subquery()
 
     # 剩余量口径与 _purchase_execution_row 一致：单行剩余量下限为 0
@@ -32488,23 +32636,29 @@ def _sql_paged_supplier_purchase_report(filters):
     supplier_name_expr = func.coalesce(
         func.nullif(sub.c.supplier_name, ''), '未指定供应商')
 
-    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响
+    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响；并识别跨单位
     totals = db.session.query(
         func.count(func.distinct(supplier_name_expr)),
         func.coalesce(func.sum(sub.c.quantity), 0),
         func.coalesce(func.sum(amount_expr), 0),
     ).select_from(sub).first()
-    summary = {
+    unit_rows = db.session.query(
+        sub.c.unit_name,
+        func.coalesce(func.sum(sub.c.quantity), 0),
+    ).select_from(sub).group_by(sub.c.unit_name).all()
+    unit_totals = {u or '未设单位': _safe_float(q) for u, q in unit_rows}
+    summary = _apply_mixed_unit_summary({
         'count': int(totals[0] or 0),
         'quantity': _safe_float(totals[1]),
         'amount': _safe_float(totals[2]),
-    }
+    }, unit_totals)
 
     aggregated = db.session.query(
         supplier_name_expr.label('supplier'),
         func.count(func.distinct(sub.c.order_id)).label('order_count'),
         # 物料数按非空物料编码去重（与内存路径 `if row['material_code']` 一致）
         func.count(func.distinct(func.nullif(sub.c.material_code, ''))).label('material_count'),
+        func.count(func.distinct(sub.c.unit_name)).label('unit_count'),
         func.coalesce(func.sum(sub.c.quantity), 0).label('order_quantity'),
         func.coalesce(func.sum(sub.c.received_quantity), 0).label('received_quantity'),
         func.coalesce(func.sum(remaining_expr), 0).label('remaining_quantity'),
@@ -32515,14 +32669,19 @@ def _sql_paged_supplier_purchase_report(filters):
         func.max(sub.c.order_date).label('last_purchase_date'),
     ).select_from(sub).group_by(supplier_name_expr).all()
 
-    # 供应商编码：沿用内存路径「按名称查 Supplier 表」语义（未匹配则空串）
-    code_by_name = {supplier.name: (supplier.code or '')
-                    for supplier in Supplier.query.all()}
+    # 供应商编码：仅查命中供应商，避免全表 Supplier.query.all()
+    matched_names = [agg.supplier for agg in aggregated if agg.supplier and agg.supplier != '未指定供应商']
+    code_by_name = (
+        {supplier.name: (supplier.code or '')
+         for supplier in Supplier.query.filter(Supplier.name.in_(matched_names)).all()}
+        if matched_names else {}
+    )
     all_rows = []
     for agg in aggregated:
         order_quantity = _safe_float(agg.order_quantity)
         amount = _safe_float(agg.amount)
         last_date = agg.last_purchase_date
+        mixed_units = int(agg.unit_count or 0) > 1
         all_rows.append({
             'supplier_code': code_by_name.get(agg.supplier, ''),
             'supplier': agg.supplier,
@@ -32534,7 +32693,7 @@ def _sql_paged_supplier_purchase_report(filters):
             'amount': amount,
             'received_amount': round_to_2_decimals(_safe_float(agg.received_amount)),
             'remaining_amount': round_to_2_decimals(_safe_float(agg.remaining_amount)),
-            'avg_price': round_to_2_decimals(amount / order_quantity) if order_quantity else 0,
+            'avg_price': None if mixed_units else (round_to_2_decimals(amount / order_quantity) if order_quantity else 0),
             'overdue_count': int(agg.overdue_count or 0),
             'last_purchase_date': last_date.isoformat() if last_date else '',
         })
@@ -32579,11 +32738,11 @@ def _sql_paged_material_purchase_report(filters):
         **最近采购日期倒序**，同日期按物料编码升序稳定兜底。
     """
     columns = _material_purchase_summary_columns()
-    # AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # AGENTS.md 报表仓库必填，无仓库不返回数据（采购 4 表显式 all_warehouses=True 除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
-    receipts = _purchase_completed_receipts_subquery(filters)
+    receipts = _purchase_completed_receipts_subquery(filters, deduct_returns=True)
     base = _purchase_order_item_query(filters).outerjoin(receipts, receipts.c.item_id == PurchaseOrderItem.id)
     # warehouse 分支 outerjoin 入库单会展开同一采购行：先按所需列 DISTINCT
     # 再聚合，避免 sum 被入库行数放大（与 009-07-013 同款防护）
@@ -32616,7 +32775,7 @@ def _sql_paged_material_purchase_report(filters):
         sub.c.quantity * sub.c.price,
     )
 
-    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响
+    # 汇总：SQL 全量聚合（R2 汇总 = 明细全集），不受分桶/分页/排序影响；并识别跨单位
     totals = db.session.query(
         func.coalesce(func.sum(sub.c.quantity), 0),
         func.coalesce(func.sum(amount_expr), 0),
@@ -32624,11 +32783,17 @@ def _sql_paged_material_purchase_report(filters):
     group_count = db.session.query(func.count()).select_from(
         db.session.query(*group_key).select_from(sub).distinct().subquery()
     ).scalar()
-    summary = {
+    unit_expr = func.coalesce(func.nullif(sub.c.unit_name, ''), '未设单位')
+    unit_rows = db.session.query(
+        unit_expr,
+        func.coalesce(func.sum(sub.c.quantity), 0),
+    ).select_from(sub).group_by(unit_expr).all()
+    unit_totals = {u or '未设单位': _safe_float(q) for u, q in unit_rows}
+    summary = _apply_mixed_unit_summary({
         'count': int(group_count or 0),
         'quantity': _safe_float(totals[0]),
         'amount': _safe_float(totals[1]),
-    }
+    }, unit_totals)
 
     aggregated = db.session.query(
         sub.c.material_code,
@@ -32736,34 +32901,10 @@ def _sql_paged_purchase_price_analysis_report(filters):
     """采购价格分析 SQL 分页 builder（BUG-2026-09-07-016）。
 
     返回 (columns, rows, summary, total)。
-    与 BUG-2026-09-07-013/014 同源：本报表与采购执行/供应商采购汇总/物料采购
-    汇总**共用**采集器 `_collect_purchase_order_execution_rows`，受
-    REPORT_ROW_LIMIT(5 万) 截断；原内存路径先物化全部采购明细行再在 Python 里
-    按（物料 × 供应商）分桶，汇总卡片（采购数量/金额）正是对**截断后的分桶
-    结果**求和——长周期查询会出现「采购金额比实际小」，违反 R2「汇总 = 明细
-    全集」。这是共用该采集器的最后一张报表，做完整条采集器风险线关闭。
-
-    SQL 路径分工（与 013/014 同构）：
-      - 分桶与聚合下沉 SQL `GROUP BY`（物料编码/名称/规格/供应商），复用
-        `_purchase_order_item_query` 作为 WHERE 口径单一事实源；
-      - warehouse 分支 outerjoin 入库单会展开同一采购行，先对所需列做
-        DISTINCT 子查询再聚合，避免数量/金额被入库行数放大；
-      - 汇总（数量/金额）由 SQL 全量聚合，与分桶/分页/排序彻底解耦（R2）；
-      - `min/max/avg/price_range` 与 `_safe_float(price)` 口径一致（price
-        NULL/默认 0 → 按 0 参与 min/max，SQL 侧 coalesce 对齐）；
-      - **last_price/last_order_no/last_order_url 复刻内存路径的「最新一行」
-        语义**：内存路径用 `row_date >= last_purchase_date`（**含等号**）逐行
-        覆写，而明细按 (日期, 单号, 明细ID) 倒序遍历 → 最终胜出的是
-        「最大日期内、单号最小、明细ID最小」的那一行（与 009-07-014 物料汇总
-        的严格 `>` 取最大单号**相反**）。本实现不引入窗口函数，用两次 MIN
-        回连复刻：最大日期 → 该日期内最小单号 → 该单号内最小明细ID → 按
-        明细ID取 (单号/价格/单据ID)，各层用行值 IN 精确定位；
-      - 默认排序显式化为**最近采购日期倒序**，同日期按物料编码/供应商升序
-        稳定兜底（原内存路径默认 = 明细采集顺序的首次出现，语义等价且确定）。
     """
     columns = _purchase_price_analysis_columns()
-    # AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # AGENTS.md 报表仓库必填，无仓库不返回数据（采购 4 表显式 all_warehouses=True 除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return columns, [], {'count': 0, 'quantity': 0, 'amount': 0}, 0
 
     base = _purchase_order_item_query(filters)
@@ -32819,28 +32960,27 @@ def _sql_paged_purchase_price_analysis_report(filters):
         func.max(sub.c.order_date).label('last_purchase_date'),
     ).select_from(sub).group_by(*group_key).all()
 
-    # ---- last_price/last_order_no/last_order_url：分组内「最新一行」----
-    # 内存路径语义（含等号覆写 → 最大日期内最小单号 → 最小明细ID），两次 MIN 回连
+    # ---- last_price/last_order_no/last_order_url：分组内「最新一行」（同日按最大单号/最大明细ID）----
     last_date_by_group = {}
     for agg in aggregated:
         if agg.last_purchase_date is not None:
             last_date_by_group[(agg.material_code, agg.material_name,
                                 agg.material_spec, agg.supplier_name)] = \
                 agg.last_purchase_date
-    # ①分组最大日期 → 该日期内最小单号
+    # ①分组最大日期 → 该日期内最大单号（与 material_purchase_summary 口径一致）
     order_no_by_group = {}
     if last_date_by_group:
         keys = [(code, name, spec, supplier, day)
                 for (code, name, spec, supplier), day in last_date_by_group.items()]
         for code, name, spec, supplier, order_no in db.session.query(
                 sub.c.material_code, sub.c.material_name, sub.c.material_spec,
-                sub.c.supplier_name, func.min(sub.c.order_no),
+                sub.c.supplier_name, func.max(sub.c.order_no),
         ).select_from(sub).filter(
             sa_tuple(sub.c.material_code, sub.c.material_name, sub.c.material_spec,
                      sub.c.supplier_name, sub.c.order_date).in_(keys)
         ).group_by(*group_key).all():
             order_no_by_group[(code, name, spec, supplier)] = order_no
-    # ②(分组, 最大日期, 最小单号) → 该单号内最小明细ID
+    # ②(分组, 最大日期, 最大单号) → 该单号内最大明细ID
     item_id_by_group = {}
     if order_no_by_group:
         keys = [(code, name, spec, supplier,
@@ -32848,7 +32988,7 @@ def _sql_paged_purchase_price_analysis_report(filters):
                 for (code, name, spec, supplier), order_no in order_no_by_group.items()]
         for code, name, spec, supplier, item_id in db.session.query(
                 sub.c.material_code, sub.c.material_name, sub.c.material_spec,
-                sub.c.supplier_name, func.min(sub.c.item_id),
+                sub.c.supplier_name, func.max(sub.c.item_id),
         ).select_from(sub).filter(
             sa_tuple(sub.c.material_code, sub.c.material_name, sub.c.material_spec,
                      sub.c.supplier_name, sub.c.order_date, sub.c.order_no).in_(keys)
@@ -33214,7 +33354,7 @@ def _build_report_payload(report_type, filters):
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
 
-    if report_type == 'in_detail' and not filters.get('include_prices', True):
+    if report_type in ('in_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not filters.get('include_prices', True):
         definition = dict(definition, **{key: {k: v for k, v in definition[key].items() if k != 'amount'}
                                         for key in ('summary_labels', 'summary_types')})
 
@@ -33223,6 +33363,9 @@ def _build_report_payload(report_type, filters):
     sql_builder = SQL_PAGED_REPORT_BUILDERS.get(report_type)
     if sql_builder is not None:
         columns, rows, summary, total = sql_builder(filters)
+        if report_type in ('purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not filters.get('include_prices', True):
+            from services.report_print_preview import visible_report_data
+            columns, rows = visible_report_data(columns, rows, include_prices=False)
         truncated = bool(filters['export'] == 'excel' and total > len(rows))
         # 导出路径的截断已由 total > len(rows) 显式表达，
         # g 标记读后即清，防止同一上下文二次查询串值（与内存路径一致）

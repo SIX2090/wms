@@ -42,12 +42,26 @@ from uuid import uuid4
 
 from collections import Counter
 from flask import abort, flash, jsonify, redirect, render_template, request, send_file, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from db import db
 from services.web_document_idempotency import web_document_idempotent, web_document_command_idempotent, stage_document_response
 from utils import format_quantity, print_token_or_login_required, require_role
 from utils import round_money_product
+
+
+def _load_in_order_for_print(order_id):
+    """预加载入库单打印/导出常用关联对象，避免逐行触发 N+1 查询。"""
+    from sqlalchemy.orm import joinedload, selectinload
+    from app import InOrder, InOrderItem, Material, SalesOrderItem
+    return InOrder.query.options(
+        joinedload(InOrder.supplier),
+        joinedload(InOrder.customer),
+        joinedload(InOrder.operator),
+        joinedload(InOrder.source_sales_order),
+        selectinload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
+        selectinload(InOrder.items).joinedload(InOrderItem.source_sales_order_item).joinedload(SalesOrderItem.sales_order),
+    ).get_or_404(order_id)
 
 
 def _supplied_receipt_error(order):
@@ -638,22 +652,24 @@ def register_in_order_routes(app):
         )
 
     @app.route('/in_order/<int:id>')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def in_order_detail(id):
         from datetime import date
         from sqlalchemy.orm import joinedload
-        from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrderItem, SalesOrderItem,
-                         Supplier, _in_order_push_history, _in_order_push_source_type, _in_order_push_quantities,
-                         build_purchase_order_execution, get_active_warehouses,
+        from app import (Customer, InOrder, InOrderItem, Material, PurchaseOrder, PurchaseOrderItem,
+                         SalesOrderItem, Supplier, _in_order_push_history, _in_order_push_source_type,
+                         _in_order_push_quantities, build_purchase_order_execution, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
                          get_warehouse_stock_quantities)
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.customer),
+            joinedload(InOrder.operator),
             joinedload(InOrder.source_sales_order),
             joinedload(InOrder.items).joinedload(InOrderItem.source_sales_order_item).joinedload(SalesOrderItem.sales_order),
-            joinedload(InOrder.source_purchase_order),
+            joinedload(InOrder.source_purchase_order).joinedload(PurchaseOrder.supplier),
             joinedload(InOrder.items).joinedload(InOrderItem.material).joinedload(Material.unit),
             joinedload(InOrder.items).joinedload(InOrderItem.source_purchase_order_item).joinedload(PurchaseOrderItem.purchase_order),
         ).get_or_404(id)
@@ -666,13 +682,18 @@ def register_in_order_routes(app):
             purchase_order_id: build_purchase_order_execution(purchase_order)
             for purchase_order_id, purchase_order in source_purchase_orders.items()
         }
-        suppliers = Supplier.query.order_by(Supplier.name.asc(), Supplier.id.asc()).all()
-        customers = Customer.query.order_by(Customer.name.asc(), Customer.id.asc()).all()
-        warehouses = get_active_warehouses()
+        can_edit_header = order.status == 'pending' and current_user.role in ('admin', 'warehouse')
+        suppliers = Supplier.query.order_by(Supplier.name.asc(), Supplier.id.asc()).all() if can_edit_header else []
+        customers = Customer.query.order_by(Customer.name.asc(), Customer.id.asc()).all() if can_edit_header else []
+        warehouses = get_active_warehouses() if can_edit_header else []
         warehouse_names = [warehouse.name for warehouse in warehouses]
-        default_warehouse = get_default_warehouse()
+        default_warehouse = get_default_warehouse() if can_edit_header else None
         stock_warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
-        warehouse_stock = get_warehouse_stock_quantities(stock_warehouse) if stock_warehouse else None
+        item_material_ids = [item.material_id for item in order.items if item.material_id]
+        warehouse_stock = (
+            get_warehouse_stock_quantities(stock_warehouse, material_ids=item_material_ids)
+            if stock_warehouse else None
+        )
         # 先判定反提交身份，再按有效采购行及预留计数决定是否显示采购警示。
         is_reverted_draft = (
             order.status == 'pending' and order.id in get_reverted_in_order_ids([order.id])
@@ -1660,11 +1681,10 @@ def register_in_order_routes(app):
     @login_required
     def add_in_order_item(id):
         """Add a detail row to a pending inbound order."""
-        from app import (_purchase_reservation_error, InOrder, InOrderItem, Material, PurchaseOrderItem, api_error,
-                         is_purchase_in_order, log_operation, purchase_in_order_requires_order,
-                         recalculate_order_total, resolve_item_contract,
-                         round_to_2_decimals,
-                         update_purchase_order_status, validate_purchase_receive_quantity)
+        from app import (_acquire_order_write_lock, _purchase_reservation_error, InOrder, InOrderItem, Material,
+                         PurchaseOrderItem, api_error, is_purchase_in_order, log_operation,
+                         purchase_in_order_requires_order, recalculate_order_total, resolve_item_contract,
+                         round_to_2_decimals, update_purchase_order_status, validate_purchase_receive_quantity)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的入库单可以添加明细')
@@ -1672,6 +1692,13 @@ def register_in_order_routes(app):
         material_code = (request.form.get('material_code') or '').strip()
         if not material_code:
             return api_error('请选择物料后再添加')
+
+        box_no = (request.form.get('box_no') or '').strip()
+        if len(box_no) > 100:
+            return api_error('箱体编号不能超过100个字符')
+        remark = (request.form.get('remark') or '').strip()
+        if len(remark) > 500:
+            return api_error('备注不能超过500个字符')
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
@@ -1699,23 +1726,42 @@ def register_in_order_routes(app):
             return api_error('单价不能小于0')
         price = round_to_2_decimals(parsed_price)
         amount = round_money_product(quantity, price)
+
+        # P0 批次/有效期捕获：追加明细行同样接收行级批次号与有效期。
+        batch_no, batch_err = _resolve_item_batch_no(request.form.get('batch_no'))
+        if batch_err:
+            return api_error(batch_err)
+        expiry_date, expiry_err = _parse_item_expiry_date(request.form.get('expiry_date'))
+        if expiry_err:
+            return api_error(expiry_err)
+
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'pending')
+        if not ok:
+            return api_error('入库单状态已变更，请刷新后重试', 409)
+        order = locked
+
+        def fail(message, code=400):
+            db.session.rollback()
+            return api_error(message, code)
+
         source_purchase_order_item_id = None
         source_item = None
         source_item_id = request.form.get('source_purchase_order_item_id', type=int)
         if source_item_id:
             source_item = db.session.get(PurchaseOrderItem, source_item_id)
             if not source_item or source_item.material_id != material.id:
-                return api_error(f'采购单来源明细无效：{material.code}')
+                return fail(f'采购单来源明细无效：{material.code}')
+            if source_item.purchase_order and source_item.purchase_order.status in ('closed', 'cancelled'):
+                return fail('来源采购订单已关闭或取消，不能新增入库明细')
             reservation_error = _purchase_reservation_error(source_item)
             if reservation_error:
-                db.session.rollback()
-                return api_error(reservation_error)
+                return fail(reservation_error)
             valid_qty, qty_msg = validate_purchase_receive_quantity(source_item, quantity, material.code)
             if not valid_qty:
-                return api_error(qty_msg)
+                return fail(qty_msg)
             source_purchase_order_item_id = source_item.id
         elif is_purchase_in_order(order) and purchase_in_order_requires_order():
-            return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
+            return fail('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
 
         # BUG-2026-09-18-013：不再按物料做任何合并/去重。
         # 同一物料在本单内重复录入时**无条件新增一行** —— 因为不同行可能属于
@@ -1734,14 +1780,6 @@ def register_in_order_routes(app):
             user_contract_id=request.form.get('contract_id'),
         )
 
-        # P0 批次/有效期捕获：追加明细行同样接收行级批次号与有效期。
-        batch_no, batch_err = _resolve_item_batch_no(request.form.get('batch_no'))
-        if batch_err:
-            return api_error(batch_err)
-        expiry_date, expiry_err = _parse_item_expiry_date(request.form.get('expiry_date'))
-        if expiry_err:
-            return api_error(expiry_err)
-
         try:
             if is_purchase_in_order(order) and any(request.form.get(key, '').strip()
                                                    for key in ('contract_no', 'project_name', 'contract_id')):
@@ -1749,8 +1787,7 @@ def register_in_order_routes(app):
                     contract_id, contract_no, project_name = resolve_purchase_receipt_contract(
                         request.form.get('contract_no'), request.form.get('project_name'), request.form.get('contract_id'))
                 except ValueError as exc:
-                    db.session.rollback()
-                    return api_error(str(exc))
+                    return fail(str(exc))
             item = InOrderItem(
                 in_order_id=id,
                 material_id=material.id,
@@ -1760,8 +1797,8 @@ def register_in_order_routes(app):
                 amount=amount,
                 batch_no=batch_no,
                 expiry_date=expiry_date,
-                box_no=(request.form.get('box_no') or '').strip() or None,
-                remark=(request.form.get('remark') or '').strip() or None,
+                box_no=box_no or None,
+                remark=remark or None,
                 contract_id=contract_id,
                 contract_no=contract_no,
                 project_name=project_name,
@@ -1790,7 +1827,9 @@ def register_in_order_routes(app):
     @login_required
     def batch_add_in_order_items(id):
         """Batch add inbound detail rows. Format per line: code,quantity,price."""
-        from app import (InOrder, InOrderItem, Material, api_error, is_purchase_in_order,
+        import zipfile
+        from openpyxl.utils.exceptions import InvalidFileException
+        from app import (_acquire_order_write_lock, InOrder, InOrderItem, Material, api_error, is_purchase_in_order,
                          log_operation, parse_float_value, purchase_in_order_requires_order,
                          recalculate_order_total, round_to_2_decimals, resolve_item_contract)
         order = InOrder.query.get_or_404(id)
@@ -1811,11 +1850,14 @@ def register_in_order_routes(app):
             if file:
                 from app import _read_import_sheet, _get_excel_cell, import_max_rows
                 fields = ('code', 'quantity', 'price', 'batch', 'expiry', 'remark', 'box_no')
-                sheet, columns, _ = _read_import_sheet(file, {
-                    'code':['物料编码', '材料编码'], 'quantity':['数量'],
-                    'price':['单价', '价格'], 'batch':['批次号', '批次'],
-                    'expiry':['有效期', '到期日期'], 'remark':['备注'], 'box_no':['箱体编号'],
-                })
+                try:
+                    sheet, columns, _ = _read_import_sheet(file, {
+                        'code':['物料编码', '材料编码'], 'quantity':['数量'],
+                        'price':['单价', '价格'], 'batch':['批次号', '批次'],
+                        'expiry':['有效期', '到期日期'], 'remark':['备注'], 'box_no':['箱体编号'],
+                    })
+                except (zipfile.BadZipFile, InvalidFileException):
+                    return api_error('文件格式无效或为旧版 .xls，请另存为标准 .xlsx 文件后重新导入')
                 if not {'code', 'quantity'}.issubset(columns):
                     return api_error('明细文件必须包含物料编码和数量列')
                 if sheet.max_row - 1 > import_max_rows():
@@ -1827,14 +1869,23 @@ def register_in_order_routes(app):
             else:
                 import_lines = [[part.strip() for part in line.replace('\t', ',').split(',')]
                                 for line in content.splitlines() if line.strip()]
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending')
+            if not ok:
+                return api_error('入库单状态已变更，请刷新后重试', 409)
+            order = locked
+            requested_codes = {str(parts[0]).strip() for parts in import_lines if parts and str(parts[0] or '').strip()}
+            materials_by_code = (
+                {m.code: m for m in Material.query.filter(Material.code.in_(requested_codes)).all()}
+                if requested_codes else {}
+            )
             for line_no, parts in enumerate(import_lines, start=1):
-                material_code = parts[0] if parts else ''
+                material_code = str(parts[0] or '').strip() if parts else ''
                 quantity = round_to_2_decimals(parse_float_value(parts[1] if len(parts) > 1 else None, 0))
                 if not material_code or quantity <= 0:
                     errors.append(f'第 {line_no} 行格式不正确')
                     continue
 
-                material = Material.query.filter_by(code=material_code).first()
+                material = materials_by_code.get(material_code)
                 if not material:
                     errors.append(f'第 {line_no} 行物料不存在：{material_code}')
                     continue
@@ -1871,6 +1922,10 @@ def register_in_order_routes(app):
                 if expiry_err:
                     errors.append(f'第 {line_no} 行{expiry_err}')
                     continue
+                remark_text = str(parts[5] or '').strip() if len(parts) > 5 else ''
+                if len(remark_text) > 500:
+                    errors.append(f'第 {line_no} 行备注不能超过500个字符')
+                    continue
                 box_no = str(parts[6] or '').strip() if len(parts) > 6 else ''
                 if len(box_no) > 100:
                     errors.append(f'第 {line_no} 行箱体编号不能超过100个字符')
@@ -1888,11 +1943,12 @@ def register_in_order_routes(app):
                     contract_no=_c_no,
                     project_name=_p_name,
                     box_no=box_no or None,
-                    remark=parts[5] if len(parts) > 5 else '',
+                    remark=remark_text or '',
                 ))
                 added += 1
 
             if added == 0:
+                db.session.rollback()
                 return api_error(errors[0] if errors else '未添加任何明细')
             recalculate_order_total(order)
             db.session.commit()
@@ -1912,15 +1968,23 @@ def register_in_order_routes(app):
     @login_required
     def delete_in_order_item(id, item_id):
         """Delete a detail row from a pending inbound order."""
-        from app import (_purchase_reservation_error, InOrder, InOrderItem, api_error, log_operation,
-                         recalculate_order_total, round_to_2_decimals,
-                         update_purchase_order_status)
+        from app import (_acquire_order_write_lock, _purchase_reservation_error, InOrder, InOrderItem, api_error,
+                         log_operation, recalculate_order_total, round_to_2_decimals, update_purchase_order_status)
         order = InOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的入库单可以删除明细')
 
-        item = InOrderItem.query.get_or_404(item_id)
+        locked, ok = _acquire_order_write_lock(InOrder, id, 'pending')
+        if not ok:
+            return api_error('入库单状态已变更，请刷新后重试', 409)
+        order = locked
+
+        item = db.session.get(InOrderItem, item_id)
+        if item is None:
+            db.session.rollback()
+            abort(404)
         if item.in_order_id != id:
+            db.session.rollback()
             return api_error('明细不属于当前入库单')
 
         material_name = item.material.name if item.material else ''
@@ -1966,8 +2030,9 @@ def register_in_order_routes(app):
     @login_required
     def update_in_order_item():
         """Update an inbound order item."""
-        from app import (_purchase_reservation_error, InOrderItem, STOCK_COMPARE_EPSILON, api_error, is_purchase_in_order,
-                         log_operation, purchase_in_order_requires_order, recalculate_order_total, round_to_2_decimals,
+        from app import (_acquire_order_write_lock, _purchase_reservation_error, InOrder, InOrderItem,
+                         STOCK_COMPARE_EPSILON, api_error, is_purchase_in_order, log_operation,
+                         purchase_in_order_requires_order, recalculate_order_total, round_to_2_decimals,
                          should_block_purchase_over_receive, update_purchase_order_status)
         from services.warehouse_stock_service import _recorded_quantity_matches
         item_id = request.form.get('id', type=int)
@@ -1976,15 +2041,32 @@ def register_in_order_routes(app):
         item = InOrderItem.query.get_or_404(item_id)
         if item.in_order.status != 'pending':
             return api_error('只有待处理的入库单可以修改明细')
+        if 'box_no' in request.form and len((request.form.get('box_no') or '').strip()) > 100:
+            return api_error('箱体编号不能超过100个字符')
+        if 'remark' in request.form and len((request.form.get('remark') or '').strip()) > 500:
+            return api_error('备注不能超过500个字符')
+
+        locked, ok = _acquire_order_write_lock(InOrder, item.in_order_id, 'pending')
+        if not ok:
+            return api_error('入库单状态已变更，请刷新后重试', 409)
+        item = db.session.get(InOrderItem, item_id)
+        if item is None:
+            db.session.rollback()
+            abort(404)
+
+        def fail(message, code=400):
+            db.session.rollback()
+            return api_error(message, code)
+
         old_quantity = item.quantity or 0
         old_price = item.price or 0
         try:
             requested_quantity = float(request.form.get('quantity', old_quantity))
             requested_price = float(request.form.get('price', old_price))
             if not math.isfinite(requested_quantity) or not math.isfinite(requested_price):
-                return api_error('数量和单价必须是有限数字')
+                return fail('数量和单价必须是有限数字')
             if requested_price < 0:
-                return api_error('单价不能小于 0')
+                return fail('单价不能小于 0')
             quantity_changed = not _recorded_quantity_matches(requested_quantity, old_quantity)
             new_quantity = round_to_2_decimals(requested_quantity) if quantity_changed else old_quantity
             quantity_changed = not _recorded_quantity_matches(new_quantity, old_quantity)
@@ -1992,7 +2074,7 @@ def register_in_order_routes(app):
                 new_quantity = old_quantity
             # P0-BUGFIX: 数量必须为有限正数，规范后为0仍然拒绝。
             if not math.isfinite(new_quantity) or new_quantity <= 0:
-                return api_error('数量必须大于 0')
+                return fail('数量必须大于 0')
             price_changed = not _recorded_quantity_matches(requested_price, old_price)
             new_price = round_to_2_decimals(requested_price) if price_changed else old_price
             price_changed = not _recorded_quantity_matches(new_price, old_price)
@@ -2000,20 +2082,19 @@ def register_in_order_routes(app):
                 new_price = old_price
             new_amount = round_money_product(new_quantity, new_price) if quantity_changed or price_changed else item.amount
         except (TypeError, ValueError, ArithmeticError):
-            return api_error('数量或单价必须是有效数字且能计算金额')
-        if is_purchase_in_order(item.in_order) and purchase_in_order_requires_order() and not item.source_purchase_order_item:
-            return api_error('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
+            return fail('数量或单价必须是有效数字且能计算金额')
+        if is_purchase_in_order(locked) and purchase_in_order_requires_order() and not item.source_purchase_order_item:
+            return fail('采购入库必须关联采购订单，请从采购订单下推或选单生成入库单')
         source_item = item.source_purchase_order_item
         if source_item and quantity_changed:
             reservation_error = _purchase_reservation_error(source_item, old_quantity)
             if reservation_error:
-                db.session.rollback()
-                return api_error(reservation_error)
+                return fail(reservation_error)
         if source_item and quantity_changed and should_block_purchase_over_receive():
             available_qty = round_to_2_decimals((source_item.quantity or 0) - ((source_item.received_quantity or 0) - old_quantity))
             if new_quantity - available_qty > STOCK_COMPARE_EPSILON:
                 material_code = item.material.code if item.material else item.material_id
-                return api_error(f'物料 {material_code} 入库数量不能大于采购单未入库数量')
+                return fail(f'物料 {material_code} 入库数量不能大于采购单未入库数量')
         if source_item and quantity_changed:
             source_item.received_quantity = round_to_2_decimals((source_item.received_quantity or 0) - old_quantity + new_quantity)
             update_purchase_order_status(source_item.purchase_order)
@@ -2021,7 +2102,7 @@ def register_in_order_routes(app):
         item.price = new_price
         if quantity_changed or price_changed:
             item.amount = new_amount
-            recalculate_order_total(item.in_order)
+            recalculate_order_total(locked)
         if 'box_no' in request.form:
             item.box_no = (request.form.get('box_no') or '').strip() or None
         if 'remark' in request.form:
@@ -2032,7 +2113,7 @@ def register_in_order_routes(app):
             db.session.rollback()
             app.logger.error(f"数据库操作失败: {e}")
             return jsonify({"status": "error", "msg": "操作失败"}), 500
-        log_operation('编辑入库单', f'修改入库单明细：{item.in_order.order_no}', 'in_order', item.in_order_id)
+        log_operation('编辑入库单', f'修改入库单明细：{locked.order_no}', 'in_order', item.in_order_id)
         return jsonify({'status': 'success', 'msg': '保存成功'})
 
     # pydantic:reason=存量路由从 app.py 原样迁移，保持行为不变，pydantic 迁移另行任务
@@ -2042,7 +2123,8 @@ def register_in_order_routes(app):
     def copy_in_order_to_out(id):
         """Copy an inbound order into a draft outbound order."""
         from datetime import date
-        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no, log_operation)
+        from app import (InOrder, OutOrder, OutOrderItem, api_error, generate_order_no,
+                         log_operation, recalculate_order_total)
         in_order = InOrder.query.get_or_404(id)
         if in_order.business_type == '产品入库':
             return convert_in_order_to_out_order(id)
@@ -2051,12 +2133,22 @@ def register_in_order_routes(app):
             in_order = InOrder.query.get_or_404(id)
             if in_order.business_type == '产品入库':
                 return api_error('来源单据已变化，请刷新后重试', 409)
+            if not in_order.items:
+                return api_error('入库单没有明细，无法转为领料出库单')
+            for item in in_order.items:
+                if bool(getattr(item, 'is_customer_supplied', False)):
+                    return api_error('客供料明细不能转为领料出库单，请按客供出库流程处理')
+                if getattr(item.material, 'status', None) == 'inactive':
+                    return api_error(f'物料 {item.material.code} 已停用，不能转为领料出库单')
             order_no = generate_order_no('OU')
             out_order = OutOrder(
                 order_no=order_no,
                 date=date.today(),
-                customer=in_order.supplier.name if in_order.supplier else '',
+                customer='',
                 purpose=in_order.purpose or '',
+                contract_id=in_order.contract_id,
+                contract_no=in_order.contract_no,
+                project_name=in_order.project_name,
                 business_type='领料单',
                 warehouse=in_order.warehouse or '',
                 status='pending'
@@ -2070,9 +2162,13 @@ def register_in_order_routes(app):
                     quantity=item.quantity,
                     price=item.price,
                     amount=item.amount,
+                    contract_id=item.contract_id,
+                    contract_no=item.contract_no,
+                    project_name=item.project_name,
                     remark=item.remark
                 )
                 db.session.add(out_item)
+            recalculate_order_total(out_order)
             try:
                 response_payload = {'status': 'success', 'msg': '操作完成', 'out_order_id': out_order.id}
                 stage_document_response(response_payload)
@@ -2346,6 +2442,11 @@ def register_in_order_routes(app):
                 if not ret_ok:
                     db.session.rollback()
                     return api_error(ret_msg)
+            from services.in_order_completion import check_purchase_over_receive_for_order
+            po_ok, po_msg = check_purchase_over_receive_for_order(order)
+            if not po_ok:
+                db.session.rollback()
+                return api_error(po_msg)
             # BUG-2026-08-04-015 修复：移除 is_recompleted 递增。
             # 反提交（revert_in_order）不再释放 received_quantity 预留，
             # 因此重新完成时无需再次递增，避免 反提交→编辑→重新完成 双计数。
@@ -2885,6 +2986,9 @@ def register_in_order_routes(app):
             if not ok:
                 return jsonify({'status': 'error', 'msg': '该入库单状态已变更；已完成单请先反提交后再删除'}), 409
             order = locked
+            if _source_has_active_push(order.id):
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能删除；请先处理下游草稿。'}), 409
             from services.document_stock_audit import stage_stock_document_snapshot
             stage_stock_document_snapshot(order, deleting=True)
 
@@ -2954,6 +3058,9 @@ def register_in_order_routes(app):
             if not ok:
                 return api_error('该入库单已反提交，不能重复操作')
             order = locked
+            if _source_has_active_push(order.id):
+                db.session.rollback()
+                return jsonify({'status': 'error', 'msg': '该入库单存在有效下推单据，不能反提交；请先处理下游单据。'}), 409
             audit_checkpoint = stock_document_audit_checkpoint(order)
             from services.document_return_guard import purchase_inbound_revert_check
             valid, message = purchase_inbound_revert_check(order)
@@ -3819,11 +3926,12 @@ def register_in_order_routes(app):
                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     @app.route('/in_order/<int:id>/preview_template')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def preview_in_order_template(id):
-        from app import (InOrder, InOrderPrintTemplate,
+        from app import (InOrderPrintTemplate,
                          get_default_print_template)
-        order = InOrder.query.get_or_404(id)
+        order = _load_in_order_for_print(id)
         if order.business_type == '产品入库':
             from services.product_receipt_print import product_receipt_pages
             return jsonify({'status': 'success', 'type': 'html', 'content': render_template(
@@ -3842,14 +3950,15 @@ def register_in_order_routes(app):
 
         # 打印模板仅允许 Excel：无 Excel 模板时预览内置打印页
         return jsonify({'status': 'success', 'msg': '操作完成', 'type': 'html',
-                        'content': render_template('print_in.html', order=order)})
+                        'content': render_template('print_in.html', order=order,
+                                                   sales_return_sources=_in_order_sales_sources(order))})
 
     def _render_in_order_print(id):
         # PRINT-ROUTING-F01-P3：抽出的未装饰实现，供 /print（ptoken 免登录）复用，
         # 避免直接调用带 @login_required 的视图函数导致 ptoken 通过外层仍被内层重定向。
-        from app import (InOrder, InOrderPrintTemplate,
+        from app import (InOrderPrintTemplate,
                          get_default_print_template)
-        order = InOrder.query.get_or_404(id)
+        order = _load_in_order_for_print(id)
         if order.business_type == '产品入库':
             from services.product_receipt_print import product_receipt_pages
             return render_template('product_receipt_print.html', order=order, pages=product_receipt_pages(order))
@@ -3862,6 +3971,7 @@ def register_in_order_routes(app):
         return render_template('print_in.html', order=order, sales_return_sources=sales_return_sources)
 
     @app.route('/in_order/<int:id>/print_with_template')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_in_order_with_template(id):
         return _render_in_order_print(id)
@@ -3872,13 +3982,14 @@ def register_in_order_routes(app):
         return _render_in_order_print(id)
 
     @app.route('/in_order/<int:id>/print_excel')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_in_order_excel(id):
         """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
-        from app import InOrder, InOrderPrintTemplate, api_error
+        from app import InOrderPrintTemplate, api_error
         from print_display import PrintFieldError
         from utils import resolve_print_template
-        order = InOrder.query.get_or_404(id)
+        order = _load_in_order_for_print(id)
         if order.business_type == '产品入库' and not request.args.get('template_id', type=int):
             from services.product_receipt_print import build_product_receipt_excel
             return send_file(build_product_receipt_excel(order),
@@ -3919,6 +4030,7 @@ def register_in_order_routes(app):
         )
 
     @app.route('/in_order_print_templates.json')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def in_order_print_templates_json():
         """返回可选的 Excel 打印模板列表（用于打印时选择模板）。"""
@@ -3937,6 +4049,7 @@ def register_in_order_routes(app):
         })
 
     @app.route('/in_order_print_template/<int:template_id>/download')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def download_in_order_print_template(template_id):
         """下载指定打印模板的 Excel 文件。"""
@@ -3945,10 +4058,10 @@ def register_in_order_routes(app):
         from print_fill import template_file_abspath
         template = InOrderPrintTemplate.query.get_or_404(template_id)
         if not template.excel_template_path:
-            return api_error('打印模板缺少 Excel 文件'), 404
+            return api_error('打印模板缺少 Excel 文件', 404)
         template_path = template_file_abspath(template.excel_template_path, app.static_folder)
         if not template_path or not os.path.exists(template_path):
-            return api_error('打印模板文件不存在'), 404
+            return api_error('打印模板文件不存在', 404)
         from flask import send_from_directory
         return send_from_directory(
             os.path.dirname(template_path) or '.',
@@ -3959,16 +4072,17 @@ def register_in_order_routes(app):
         )
 
     @app.route('/in_order/<int:id>/print_direct')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_in_order_direct(id):
-        from app import InOrder
-        order = InOrder.query.get_or_404(id)
+        order = _load_in_order_for_print(id)
         if order.business_type == '产品入库':
             from services.product_receipt_print import product_receipt_pages
             return render_template('product_receipt_print.html', order=order, pages=product_receipt_pages(order))
-        return render_template('print_in.html', order=order)
+        return render_template('print_in.html', order=order, sales_return_sources=_in_order_sales_sources(order))
 
     @app.route('/print_in_order_labels')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_in_order_labels():
         from datetime import datetime
@@ -4011,6 +4125,7 @@ def register_in_order_routes(app):
                                qr_public_base=materials_data[0]['qrcode'].split('/mobile/material?')[0] if materials_data else '')
 
     @app.route('/in_order_print_template')
+    @require_role('admin')
     @login_required
     def in_order_print_template_list():
         from app import InOrderPrintTemplate, _print_template_query_from_args

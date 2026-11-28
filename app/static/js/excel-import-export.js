@@ -90,17 +90,19 @@ class ExcelImportExport {
             toolbar.appendChild(btnGroup);
         }
 
-        // 导出按钮
-        const exportBtn = document.createElement('button');
-        exportBtn.className = 'btn-order btn-order-success btn-order-sm';
-        exportBtn.innerHTML = '<i class="bi bi-file-earmark-excel"></i> 导出Excel';
-        exportBtn.onclick = () => this.exportToExcel();
-        btnGroup.appendChild(exportBtn);
+        // 导出按钮（若嵌入全局栏已提供单据级导出，跳过重复渲染）
+        if (!document.querySelector('#cbGlobalActionBar [data-wms-action="export"]')) {
+            const exportBtn = document.createElement('button');
+            exportBtn.className = 'btn-order btn-order-success btn-order-sm';
+            exportBtn.innerHTML = '<i class="bi bi-file-earmark-excel"></i> 导出Excel';
+            exportBtn.onclick = () => this.exportToExcel();
+            btnGroup.appendChild(exportBtn);
+        }
 
-        // 导入按钮
+        // 导入按钮（单据明细追加导入）
         const importBtn = document.createElement('button');
         importBtn.className = 'btn-order btn-order-primary btn-order-sm';
-        importBtn.innerHTML = '<i class="bi bi-upload"></i> 导入Excel';
+        importBtn.innerHTML = '<i class="bi bi-upload"></i> 导入明细';
         importBtn.onclick = () => this.showImportModal();
         btnGroup.appendChild(importBtn);
 

@@ -39,6 +39,18 @@ from utils import get_default_print_template, print_token_or_login_required, req
 from utils import round_money_product
 
 
+def _load_out_order_for_print(order_id):
+    """预加载出库单打印/导出常用关联对象，避免逐行触发 N+1 查询。"""
+    from sqlalchemy.orm import joinedload, selectinload
+    from app import Material, OutOrder, OutOrderItem
+    return OutOrder.query.options(
+        joinedload(OutOrder.department),
+        joinedload(OutOrder.operator),
+        joinedload(OutOrder.source_in_order),
+        selectinload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+    ).get_or_404(order_id)
+
+
 def _out_order_departments(order):
     from app import Department
 
@@ -458,6 +470,7 @@ def register_out_order_routes(app):
         return render_template('out_order.html', items=items, pagination=pagination, sort_by=sort_by, sort_order=sort_order, per_page=per_page, filters=filters, page_title=page_title, list_base_path=request.path, warehouses=get_active_warehouses(), default_warehouse=get_default_warehouse())
 
     @app.route('/out_order/<int:id>')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def out_order_detail(id):
         from datetime import date
@@ -467,9 +480,19 @@ def register_out_order_routes(app):
                          location_management_enabled, validate_inventory_warehouse,
                          get_warehouse_stock_quantities)
         from sqlalchemy.orm import joinedload
-        order = OutOrder.query.options(joinedload(OutOrder.department), joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit)).get_or_404(id)
+        order = OutOrder.query.options(
+            joinedload(OutOrder.department),
+            joinedload(OutOrder.operator),
+            joinedload(OutOrder.source_in_order),
+            joinedload(OutOrder.source_sales_order),
+            joinedload(OutOrder.items).joinedload(OutOrderItem.material).joinedload(Material.unit),
+        ).get_or_404(id)
         warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
-        warehouse_stock = get_warehouse_stock_quantities(warehouse) if warehouse else None
+        item_material_ids = [item.material_id for item in order.items if item.material_id]
+        warehouse_stock = (
+            get_warehouse_stock_quantities(warehouse, material_ids=item_material_ids)
+            if warehouse else None
+        )
         source_sales_orders = {}
         if order.source_sales_order:
             source_sales_orders[order.source_sales_order.id] = order.source_sales_order
@@ -1088,21 +1111,30 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def add_out_order_item(id):
-        from app import (Material, OutOrder, OutOrderItem, api_error,
+        from app import (_acquire_order_write_lock, Material, OutOrder, OutOrderItem, api_error,
                          parse_float_value, recalculate_order_total,
                          resolve_item_contract, round_to_2_decimals)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以添加明细')
+        locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending')
+        if not ok:
+            return api_error('出库单状态已变更，请刷新后重试', 409)
+        order = locked
+
+        def fail(message, code=400):
+            db.session.rollback()
+            return api_error(message, code)
+
         if _active_outbound_allocations(order).first():
-            return api_error(_PUSH_EDIT_MESSAGE, 409)
+            return fail(_PUSH_EDIT_MESSAGE, 409)
         # BUG-2026-09-22-007：采购退货出库单的明细必须带「来源采购入库行」，
         # 本接口是单行裸加（只收物料+数量，无 source_in_order_item_id），
         # 加出来的行**无来源 → 防超退闸整行跳过 → 可无限退货**，直接击穿
         # P1-7 的整单真闸。故采购退货模式一律拒绝，指引用整单编辑页维护行级来源。
         if order.business_type == '采购退货出库':
-            return api_error('采购退货出库单的明细必须关联来源采购入库行，'
-                             '请使用编辑页维护退货明细')
+            return fail('采购退货出库单的明细必须关联来源采购入库行，'
+                        '请使用编辑页维护退货明细')
         # PC-P1-04 / BUG-2026-11-26-009：销售出库开启强制来源或已关联销售订单时，禁止裸新增无来源明细
         if order.business_type == '销售出库':
             from app import sales_outbound_requires_order
@@ -1113,22 +1145,22 @@ def register_out_order_routes(app):
                     or (order.purpose or '').strip().startswith('来源销售订单 ')
                     or any(item.source_sales_order_item_id for item in order.items)
             ):
-                return api_error('销售出库单不能直接追加无来源明细，请从原销售订单重新下推或使用编辑页维护')
+                return fail('销售出库单不能直接追加无来源明细，请从原销售订单重新下推或使用编辑页维护')
 
         material_code = (request.form.get('material_code') or request.form.get('code') or '').strip()
         if not material_code:
-            return api_error('请选择物料后再添加')
+            return fail('请选择物料后再添加')
 
         material = Material.query.filter_by(code=material_code).first()
         if not material:
-            return api_error(f'物料 {material_code} 不存在')
+            return fail(f'物料 {material_code} 不存在')
 
         if material.status == 'inactive':
-            return api_error(f'物料 {material_code} 已停用，不能新增明细')
+            return fail(f'物料 {material_code} 已停用，不能新增明细')
 
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), 0))
         if quantity <= 0:
-            return api_error('数量必须大于0')
+            return fail('数量必须大于0')
 
         raw_price = request.form.get('price')
         if raw_price in (None, ''):
@@ -1137,9 +1169,9 @@ def register_out_order_routes(app):
             try:
                 parsed_price = float(raw_price)
             except (TypeError, ValueError):
-                return api_error('单价必须是数字')
+                return fail('单价必须是数字')
             if not math.isfinite(parsed_price) or parsed_price < 0:
-                return api_error('单价不能小于0')
+                return fail('单价不能小于0')
             price = round_to_2_decimals(parsed_price)
 
         # BUG-2026-09-18-013：出库明细也带合同归属。领料单没有「来源销售行」这一层，
@@ -1182,16 +1214,25 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def delete_out_order_item(id, item_id):
-        from app import (OutOrder, OutOrderItem, api_error,
+        from app import (_acquire_order_write_lock, OutOrder, OutOrderItem, api_error,
                          recalculate_order_total)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以删除明细')
+        locked, ok = _acquire_order_write_lock(OutOrder, id, 'pending')
+        if not ok:
+            return api_error('出库单状态已变更，请刷新后重试', 409)
+        order = locked
         if _active_outbound_allocations(order).first():
+            db.session.rollback()
             return api_error(_PUSH_EDIT_MESSAGE, 409)
 
-        item = OutOrderItem.query.get_or_404(item_id)
+        item = db.session.get(OutOrderItem, item_id)
+        if item is None:
+            db.session.rollback()
+            abort(404)
         if item.out_order_id != id:
+            db.session.rollback()
             return api_error('明细不属于当前领料单')
 
         try:
@@ -1208,7 +1249,7 @@ def register_out_order_routes(app):
     @require_role('warehouse')
     @login_required
     def update_out_order_item():
-        from app import (InOrderItem, Material, OutOrderItem, api_error,
+        from app import (_acquire_order_write_lock, InOrderItem, Material, OutOrder, OutOrderItem, api_error,
                          parse_float_value, recalculate_order_total,
                          round_to_2_decimals, validate_purchase_return_quantity)
         item_id = request.form.get('id', type=int)
@@ -1219,19 +1260,32 @@ def register_out_order_routes(app):
         order = item.out_order
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以修改明细')
+        locked, ok = _acquire_order_write_lock(OutOrder, item.out_order_id, 'pending')
+        if not ok:
+            return api_error('出库单状态已变更，请刷新后重试', 409)
+        order = locked
+        item = db.session.get(OutOrderItem, item_id)
+        if item is None:
+            db.session.rollback()
+            abort(404)
+
+        def fail(message, code=400):
+            db.session.rollback()
+            return api_error(message, code)
+
         if _active_outbound_allocations(order).first():
-            return api_error(_PUSH_EDIT_MESSAGE, 409)
+            return fail(_PUSH_EDIT_MESSAGE, 409)
 
         material_code = (request.form.get('code') or '').strip()
         if material_code:
             material = Material.query.filter_by(code=material_code).first()
             if not material:
-                return api_error(f'物料 {material_code} 不存在')
+                return fail(f'物料 {material_code} 不存在')
             item.material_id = material.id
 
         quantity = round_to_2_decimals(parse_float_value(request.form.get('quantity'), item.quantity))
         if quantity <= 0:
-            return api_error('数量必须大于0')
+            return fail('数量必须大于0')
 
         raw_price = request.form.get('price')
         if raw_price in (None, ''):
@@ -1240,9 +1294,9 @@ def register_out_order_routes(app):
             try:
                 parsed_price = float(raw_price)
             except (TypeError, ValueError):
-                return api_error('单价必须是数字')
+                return fail('单价必须是数字')
             if not math.isfinite(parsed_price) or parsed_price < 0:
-                return api_error('单价不能小于0')
+                return fail('单价不能小于0')
             price = round_to_2_decimals(parsed_price)
 
         # BUG-2026-09-22-007：采购退货出库单有来源的明细改数量必须复校可退量。
@@ -1253,17 +1307,17 @@ def register_out_order_routes(app):
         # 行级校验，让限额改不动，而不是等完成时才发现。
         if order.business_type == '采购退货出库':
             if not item.source_in_order_item_id:
-                return api_error('采购退货出库明细必须关联来源采购入库行，'
-                                 '当前行无来源，无法修改数量')
+                return fail('采购退货出库明细必须关联来源采购入库行，'
+                            '当前行无来源，无法修改数量')
             source_item = db.session.get(InOrderItem, item.source_in_order_item_id)
             if not source_item:
-                return api_error('来源采购入库明细不存在，请重新关联来源')
+                return fail('来源采购入库明细不存在，请重新关联来源')
             qty_ok, qty_msg = validate_purchase_return_quantity(
                 source_item, quantity + sum((row.quantity or 0) for row in order.items
                     if row.id != item.id and row.source_in_order_item_id == item.source_in_order_item_id),
                 item.material.code if item.material else str(item.material_id))
             if not qty_ok:
-                return api_error(qty_msg)
+                return fail(qty_msg)
 
         try:
             item.quantity = quantity
@@ -1785,10 +1839,11 @@ def register_out_order_routes(app):
         return jsonify({'status': 'success', 'msg': msg, 'completed': completed})
 
     @app.route('/out_order/<int:id>/preview_template')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def preview_out_order_template(id):
-        from app import (OutOrder, OutOrderPrintTemplate)
-        order = OutOrder.query.get_or_404(id)
+        from app import OutOrderPrintTemplate
+        order = _load_out_order_for_print(id)
         box_numbers = get_out_order_box_numbers(order)
         template = None if box_numbers else get_default_print_template(OutOrderPrintTemplate)
 
@@ -1807,8 +1862,8 @@ def register_out_order_routes(app):
     def _render_out_order_print(id):
         # PRINT-ROUTING-F01-P3：抽出的未装饰实现，供 /print（ptoken 免登录）复用，
         # 避免直接调用带 @login_required 的视图函数导致 ptoken 通过外层仍被内层重定向。
-        from app import (OutOrder, OutOrderPrintTemplate)
-        order = OutOrder.query.get_or_404(id)
+        from app import OutOrderPrintTemplate
+        order = _load_out_order_for_print(id)
         box_numbers = get_out_order_box_numbers(order)
         template = None if box_numbers else get_default_print_template(OutOrderPrintTemplate)
         # 打印模板仅允许 Excel：历史 HTML 模板不再渲染，一律回退内置打印页
@@ -1817,6 +1872,7 @@ def register_out_order_routes(app):
         return render_template('print_out.html', order=order, box_numbers=box_numbers)
 
     @app.route('/out_order/<int:id>/print_with_template')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_out_order_with_template(id):
         return _render_out_order_print(id)
@@ -1827,13 +1883,14 @@ def register_out_order_routes(app):
         return _render_out_order_print(id)
 
     @app.route('/out_order/<int:id>/print_excel')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def print_out_order_excel(id):
         """按用户选定（或默认）Excel 打印模板填充并下载；无模板时回退内置版式。"""
-        from app import OutOrder, OutOrderPrintTemplate, api_error
+        from app import OutOrderPrintTemplate, api_error
         from print_display import PrintFieldError, _field_paths, _project
         from utils import resolve_print_template
-        order = OutOrder.query.get_or_404(id)
+        order = _load_out_order_for_print(id)
         box_numbers = get_out_order_box_numbers(order)
         template_id = request.args.get('template_id', type=int)
         template = None if box_numbers and not template_id else resolve_print_template(OutOrderPrintTemplate, template_id)
@@ -1872,6 +1929,7 @@ def register_out_order_routes(app):
         )
 
     @app.route('/out_order_print_templates.json')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def out_order_print_templates_json():
         """返回可选的 Excel 打印模板列表（用于打印时选择模板）。"""
@@ -1890,6 +1948,7 @@ def register_out_order_routes(app):
         })
 
     @app.route('/out_order_print_template/<int:template_id>/download')
+    @require_role('warehouse', 'finance', 'purchase', 'production', 'sales')
     @login_required
     def download_out_order_print_template(template_id):
         """下载指定打印模板的 Excel 文件。"""
@@ -1898,10 +1957,10 @@ def register_out_order_routes(app):
         from print_fill import template_file_abspath
         template = OutOrderPrintTemplate.query.get_or_404(template_id)
         if not template.excel_template_path:
-            return api_error('打印模板缺少 Excel 文件'), 404
+            return api_error('打印模板缺少 Excel 文件', 404)
         template_path = template_file_abspath(template.excel_template_path, app.static_folder)
         if not template_path or not os.path.exists(template_path):
-            return api_error('打印模板文件不存在'), 404
+            return api_error('打印模板文件不存在', 404)
         from flask import send_from_directory
         return send_from_directory(
             os.path.dirname(template_path) or '.',
@@ -1913,6 +1972,7 @@ def register_out_order_routes(app):
 
     @app.route('/out_order/print_template')
     @app.route('/out_order_print_template')
+    @require_role('admin')
     @login_required
     def out_order_print_template_list():
         from app import OutOrderPrintTemplate, _print_template_query_from_args

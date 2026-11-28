@@ -21,7 +21,7 @@ def preview_case(monkeypatch, tmp_path):
         m.db.session.remove()
         m.db.drop_all()
         m.db.create_all()
-        user = m.User(username='preview', role='viewer', must_change_password=False,
+        user = m.User(username='preview', role='finance', must_change_password=False,
                       password_hash='isolated-test-only')
         warehouse = m.Warehouse(code='PREVIEW', name='预览仓', status='active')
         m.db.session.add_all([user, warehouse])

@@ -1,47 +1,7 @@
 {% extends "base.html" %}
 {% block title %}采购报表{% endblock %}
 
-{% block content %}
-<div class="page-header">
-    <h2 class="mb-0"><i class="bi bi-clipboard-data"></i> 采购报表</h2>
-</div>
-
-<section class="purchase-report-hero mb-4">
-    <div>
-        <span class="section-kicker">采购报表</span>
-        <h3>把采购报表放回采购管理模块</h3>
-        <p class="text-muted mb-0">现有系统已经具备采购申请、采购单、采购入库和供应商资料；本轮已补齐采购执行、供应商、物料等核心报表。</p>
-    </div>
-    <a href="{{ url_for('report_view', report_type='in_detail', business_type='采购入库') }}" class="btn btn-primary">
-        <i class="bi bi-box-arrow-in-down"></i> 查看采购入库明细
-    </a>
-</section>
-
-<section class="mb-4">
-    <div class="section-title-row">
-        <h4>现有采购相关报表</h4>
-        <span class="text-muted small">从采购模块直接进入，避免报表分散在报表中心</span>
-    </div>
-    <div class="row g-3">
-        {% for item in available_reports %}
-        {% if price_dimension_enabled or '价格分析' not in item.title %}
-        <div class="col-md-6 col-xl-3">
-            <a class="purchase-report-card" href="{{ item.url }}">
-                <span class="report-icon"><i class="bi {{ item.icon }}"></i></span>
-                <strong>{{ item.title }}</strong>
-                <span>{{ item.description }}</span>
-            </a>
-        </div>
-        {% endif %}
-        {% endfor %}
-    </div>
-</section>
-
-{# BUG-2026-09-07-010：撤下「缺失报表差距清单」——把产品路线图直接展示给
-   最终用户是自曝其短，缺失能力应在开发台账跟踪而非业务页面公示 #}
-{% endblock %}
-
-{% block extra_js %}
+{% block extra_css %}
 <style>
 .purchase-report-hero {
     display: flex;
@@ -120,25 +80,10 @@
     font-size: 1.25rem;
 }
 
-.purchase-gap-table th {
-    background: #f8fafc;
-    color: #334155;
-    font-weight: 700;
+.report-icon-muted {
+    background: #f1f5f9;
+    color: #475569;
 }
-
-.priority-badge {
-    display: inline-flex;
-    min-width: 44px;
-    justify-content: center;
-    padding: 0.25rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.8rem;
-    font-weight: 700;
-}
-
-.priority-高 { background: #fee2e2; color: #b91c1c; }
-.priority-中 { background: #fef3c7; color: #92400e; }
-.priority-低 { background: #e0f2fe; color: #0369a1; }
 
 @media (max-width: 768px) {
     .purchase-report-hero,
@@ -148,4 +93,61 @@
     }
 }
 </style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2 class="mb-0"><i class="bi bi-clipboard-data"></i> 采购报表</h2>
+</div>
+
+<section class="purchase-report-hero mb-4">
+    <div>
+        <span class="section-kicker">采购统计中心</span>
+        <h3>采购执行与到货对账</h3>
+        <p class="text-muted mb-0">按采购订单、供应商、物料及入库明细多维度核对采购履约进度、退货冲减与到货明细。</p>
+    </div>
+    <a href="{{ url_for('report_view', report_type='in_detail', business_type='采购入库', **{'from': 'purchase_report'}) }}" class="btn btn-primary">
+        <i class="bi bi-box-arrow-in-down"></i> 查看采购入库明细
+    </a>
+</section>
+
+<section class="mb-4">
+    <div class="section-title-row">
+        <h4>核心采购报表</h4>
+        <span class="text-muted small">支持筛选、导出 Excel 与自定义模板打印</span>
+    </div>
+    <div class="row g-3">
+        {% for item in (core_reports if core_reports is defined else available_reports) %}
+        {% if price_dimension_enabled or '价格分析' not in item.title %}
+        <div class="col-md-6 col-xl-3">
+            <a class="purchase-report-card" href="{{ item.url }}">
+                <span class="report-icon"><i class="bi {{ item.icon }}"></i></span>
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.description }}</span>
+            </a>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</section>
+
+{% if related_entries is defined and related_entries %}
+<section class="mb-4">
+    <div class="section-title-row">
+        <h4>关联单据与档案</h4>
+        <span class="text-muted small">快速跳转采购单据列表与供应商主数据</span>
+    </div>
+    <div class="row g-3">
+        {% for item in related_entries %}
+        <div class="col-md-6 col-xl-4">
+            <a class="purchase-report-card" href="{{ item.url }}">
+                <span class="report-icon report-icon-muted"><i class="bi {{ item.icon }}"></i></span>
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.description }}</span>
+            </a>
+        </div>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
 {% endblock %}

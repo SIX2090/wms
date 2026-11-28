@@ -3769,6 +3769,8 @@ function insertGlobalActionBar() {
             if (isUnsavedAddForm && (item.key === 'print' || item.key === 'import' || item.key === 'export' || item.key === 'template')) return false;
             if (isUnsavedAddForm && item.key === 'settings' && module.printTemplateUrl) return false;
             if (item.key === 'add' && /\/\d+\/?$/.test(window.location.pathname) && pageHasOwnButton(['再建一张', '新增'], bar)) return false;
+            if (/\/\d+\/?$/.test(window.location.pathname) && item.key === 'export' && pageHasOwnButton(['导出Excel', '导出 Excel', '导出'], bar)) return false;
+            if (/\/\d+\/?$/.test(window.location.pathname) && item.key === 'import' && pageHasOwnButton(['导入Excel', '导入 Excel', '导入明细'], bar)) return false;
             if (item.key === 'settings' && !module.printTemplateUrl && pageHasOwnListAction('settings', bar)) return false;
             return true;
         }));
