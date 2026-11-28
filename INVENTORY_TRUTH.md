@@ -120,7 +120,7 @@
 |---|---|---|---|
 | `deduct_stock_atomic` | `app/app.py:5194` | 原子扣减总账 + 写 `out`/`adjustment_out` 等流水 | ❌ 由调用方负责 |
 | `add_stock` | `app/app.py:5262` | 原子增加总账 + 写 `in`/`adjustment_in` 等流水 | ❌ 由调用方负责 |
-| `_apply_opening_stock_balance` | `app/app.py:8833` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
+| `_apply_opening_stock_balance` | `app/app.py:8855` | 期初建账（改总账 + 写 `opening` 流水） | ✅ 内部同步 |
 | `add_stock_transaction` | `app/app.py:5535` | **只写流水，不动总账**（调拨/审计用） | ❌ 由调用方负责 |
 
 **新代码不要直接调上面这些原语**（P1-7，2026-09-25）。三账写入已收敛到
@@ -329,7 +329,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 - **B1（已做）**：新增 `warehouse_id` 外键列 + 索引 `idx_stock_txn_warehouse_id`。
 - **B2（已做）**：写入端（`add_stock` / `deduct_stock_atomic` / `add_stock_transaction`）统一落 `warehouse_id`。
-- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:31170`）幂等回填历史行。
+- **启动回填（已做，强禁用开关关闭时）**：`backfill_stock_txn_warehouse_id()`（`app/app.py:31192`）幂等回填历史行。
 - **兼容读取**：优先使用 `warehouse_id`。对外键为空的流水，旧文本同时按仓库名、编码和库位名核对，只有全部匹配都指向同一仓库时才纳入该仓。兼容读取和回填共用这条判据。空位置仍按可核实的来源单据解析。
 - **每日巡检**：对仓库外键为空、位置有旧文本且有明确来源单据仓库的流水，按物料、单据和旧位置汇总净额。位置无法唯一匹配，或匹配仓库与当前来源单据仓不同，月报显示待核对的组数，并列出示例单号、旧位置和仓库 ID。结果供人工核对。
 
@@ -345,7 +345,7 @@ warehouse_id = db.Column(db.Integer, db.ForeignKey('warehouse.id'))  # Warehouse
 
 这两处是当前系统里**唯一**允许口径切换的地方，改动前必须理解其条件：
 
-**(a) 单仓库短路**（`app/app.py:5833`，`get_warehouse_stock_quantities` 内）
+**(a) 单仓库短路**（`app/app.py:5819`，`get_warehouse_stock_quantities` 内）
 
 ```python
 if Warehouse.query.count() == 1:
@@ -355,7 +355,7 @@ if Warehouse.query.count() == 1:
 > ⚠️ **这是定时炸弹**：一旦系统新增第二个仓库，所有历史 NULL-location 流水的归属语义**瞬间改变**。
 > 新增仓库前必须先在测试库验证该分支退出后的库存数值是否连续。
 
-**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:6003`）
+**(b) 全不可归属回退**（`_material_stock_unattributed`，`app/app.py:6025`）
 
 仅当"该物料**全部**流水都无法归属"时，才允许回退全局 `material.stock` 口径；
 只要存在**任意一条**可归属流水，就必须保持仓库级严格校验。
@@ -493,8 +493,8 @@ return 1 if (summary["mismatch_ledger_vs_location"]        # ①≠②
 ```
 
 > 注：用 CLI 跑真库时不易复现，因为未强禁用数据库初始化时，app 启动的 `backfill_stock_txn_warehouse_id`
-> （`app/app.py:31170`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
-> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:31170`，符合 §3.2）——
+> （`app/app.py:31192`）会把**能唯一确定**归属的 NULL 行填上，从而被仓级判据兜住。
+> 但**歧义行与无法解析行有意保留 NULL**（同一函数 `app/app.py:31192`，符合 §3.2）——
 > 这些行永远落在双重盲区里。
 
 ### 为什么这是缺陷而不是有意设计

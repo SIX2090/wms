@@ -5785,12 +5785,7 @@ def resolve_request_warehouse(params, *, allow_default=True):
     return None, '请选择仓库'
 
 def get_warehouse_stock_quantities(warehouse):
-    """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。"""
-    return get_warehouse_stock_quantities_for_materials(warehouse)
-
-
-def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
-    """按仓库及可选物料范围汇总库存 {material_id: quantity}，绝不回退全局 Material.stock。
+    """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。
 
     INV-AUDIT-001 / INV-AUDIT-002 修复：优先按 warehouse_id 汇总，
     兼容旧数据（warehouse_id 为 NULL 但 location == 仓库名的历史行）。
@@ -5799,15 +5794,9 @@ def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
         * 兼容 OR location == 仓库名/编码 AND warehouse_id IS NULL
     - 库位管理关闭：按 StockTransaction.location == 仓库名/编码 的流水净额汇总。
     - 仓库无任何记录时返回空 dict（调用方对缺失物料按 0 处理）。
-    - 可选 material_ids 仅聚合指定物料，避免单据详情页触发全仓库物料扫描。
     """
     if not warehouse:
         return {}
-    scoped_ids = None
-    if material_ids is not None:
-        scoped_ids = sorted({int(mid) for mid in material_ids if mid is not None})
-        if not scoped_ids:
-            return {}
     aliases = warehouse_aliases(warehouse)
     warehouse_key = (warehouse.name or '').strip() if (warehouse.name or '').strip() in aliases else ''
     warehouse_code = (warehouse.code or '').strip() if (warehouse.code or '').strip() in aliases else ''
@@ -5818,13 +5807,10 @@ def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
         # 优先按 warehouse_id 精确汇总；OR 兼容旧数据：warehouse_id 为 NULL
         # 且 location 字符串等于仓库名或编码的历史行。
         condition = bin_warehouse_condition(LocationInventory, warehouse.id, aliases)
-        q = db.session.query(
+        rows = db.session.query(
             LocationInventory.material_id,
-            func.coalesce(func.sum(LocationInventory.quantity), 0),
-        ).filter(condition)
-        if scoped_ids is not None:
-            q = q.filter(LocationInventory.material_id.in_(scoped_ids))
-        rows = q.group_by(LocationInventory.material_id).all()
+            func.coalesce(func.sum(LocationInventory.quantity), 0)
+        ).filter(condition).group_by(LocationInventory.material_id).all()
     else:
         # 库位管理关闭时仍用流水 location 字符串（仓库名/编码）汇总
         # BUG-2026-08-17-00X fallback：系统仅一个仓库时，所有库存必然属于该
@@ -5832,18 +5818,54 @@ def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
         # 无法按 location 聚合导致"有库存查不出来"。
         if Warehouse.query.count() == 1:
             # stock-truth:reason=单仓系统全局总账==唯一仓库库存（BUG-2026-08-17-00X 登记的兼容兜底，避免历史 NULL-location 流水漏算），非多仓掩护场景
-            mq = Material.query
-            if scoped_ids is not None:
-                mq = mq.filter(Material.id.in_(scoped_ids))
-            return {m.id: float(m.stock or 0) for m in mq.all()}
+            return {m.id: float(m.stock or 0) for m in Material.query.all()}
         # BUG-2026-08-18-003：历史数据 location 可能写的是仓库编号（如 WH001）
         # 而不是仓库名，需要同时匹配编号和名称。
         # BUG-2026-08-27-004：与台账/月报同口径——库位名流水经 _warehouse_location_filter_values
         # 纳入匹配；空 location 历史流水按来源单据仓库归属补入，否则多仓库下月报期末
         # 与库存查询均漏掉历史流水（台账有数、月报/库存查询无数）。
-        return _warehouse_ledger_quantities(warehouse, material_ids=scoped_ids)
+        return _warehouse_ledger_quantities(warehouse)
 
     return {material_id: float(quantity or 0) for material_id, quantity in rows}
+
+
+def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
+    """按仓库及指定物料集合汇总库存 {material_id: quantity}，绝不回退全局 Material.stock。
+
+    单据详情页仅需当前明细涉及的物料库存，传入 material_ids 避免扫描整仓物料；
+    material_ids 为 None 时等价于 get_warehouse_stock_quantities(warehouse)。
+    """
+    if not warehouse:
+        return {}
+    if material_ids is None:
+        return get_warehouse_stock_quantities(warehouse)
+    scoped_ids = sorted({int(mid) for mid in material_ids if mid is not None})
+    if not scoped_ids:
+        return {}
+    aliases = warehouse_aliases(warehouse)
+    warehouse_key = (warehouse.name or '').strip() if (warehouse.name or '').strip() in aliases else ''
+    warehouse_code = (warehouse.code or '').strip() if (warehouse.code or '').strip() in aliases else ''
+    if not warehouse_key and not warehouse_code and warehouse.id is None:
+        return {}
+
+    if location_management_enabled():
+        condition = bin_warehouse_condition(LocationInventory, warehouse.id, aliases)
+        rows = db.session.query(
+            LocationInventory.material_id,
+            func.coalesce(func.sum(LocationInventory.quantity), 0),
+        ).filter(
+            condition,
+            LocationInventory.material_id.in_(scoped_ids),
+        ).group_by(LocationInventory.material_id).all()
+        return {material_id: float(quantity or 0) for material_id, quantity in rows}
+
+    if Warehouse.query.count() == 1:
+        # stock-truth:reason=单仓系统全局总账==唯一仓库库存（与 get_warehouse_stock_quantities 保持同一单仓兜底口径）
+        return {
+            m.id: float(m.stock or 0)
+            for m in Material.query.filter(Material.id.in_(scoped_ids)).all()
+        }
+    return _warehouse_ledger_quantities(warehouse, material_ids=scoped_ids)
 
 
 def get_all_warehouses_stock_quantities():

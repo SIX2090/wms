@@ -26,6 +26,12 @@ def check_purchase_over_receive_for_order(order):
         should_block_purchase_over_receive,
     )
 
+    has_po_source = any(
+        getattr(item, 'source_purchase_order_item_id', None) and getattr(item, 'source_purchase_order_item', None)
+        for item in (order.items or [])
+    )
+    if not has_po_source:
+        return True, None
     if not should_block_purchase_over_receive():
         return True, None
 

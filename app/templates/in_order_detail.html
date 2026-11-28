@@ -636,7 +636,7 @@
                         </div>
                         {% set init_bt = order.business_type or '采购入库' %}
                         {% set init_uses_customer = init_bt in ['产品入库', '销售退货入库', '其他入库'] %}
-                        <div class="col-md-6" id="editSupplierField"{% if init_uses_customer %} hidden{% endif %}>
+                        <div class="col-md-6" id="editPartyField"{% if init_uses_customer %} hidden{% endif %}>
                             <label class="form-label fw-medium">供应商</label>
                             <select class="form-select" name="supplier_id"{% if init_uses_customer %} disabled{% endif %}>
                                 <option value="">请选择供应商</option>
@@ -785,7 +785,6 @@ MAT003,20{% if price_dimension_enabled %},10.00{% endif %}"></textarea>
         </div>
     </div>
 </div>
-{% endif %}
 
 <div class="anomaly-modal-overlay" id="anomalyModal">
     <div class="anomaly-modal">
@@ -803,6 +802,7 @@ MAT003,20{% if price_dimension_enabled %},10.00{% endif %}"></textarea>
         </div>
     </div>
 </div>
+{% endif %}
 {{ ui.operation_log_card(operation_logs) }}
 {% endblock %}
 
@@ -1017,16 +1017,16 @@ function bindMaterialQuickInput(input) {
 
 document.addEventListener('DOMContentLoaded', function() {
     const headerBusinessType = document.querySelector('#editHeaderForm [name="business_type"]');
-    const editSupplierField = document.getElementById('editSupplierField');
+    const editPartyField = document.getElementById('editPartyField');
     const editCustomerField = document.getElementById('editCustomerField');
     const editCustomerLabel = document.getElementById('editCustomerLabel');
     function syncEditHeaderParty() {
         if (!headerBusinessType) return;
         const bt = headerBusinessType.value || '采购入库';
         const usesCustomer = ['产品入库', '销售退货入库', '其他入库'].includes(bt);
-        if (editSupplierField) {
-            editSupplierField.hidden = usesCustomer;
-            const supSel = editSupplierField.querySelector('select');
+        if (editPartyField) {
+            editPartyField.hidden = usesCustomer;
+            const supSel = editPartyField.querySelector('select');
             if (supSel) supSel.disabled = usesCustomer;
         }
         if (editCustomerField) {

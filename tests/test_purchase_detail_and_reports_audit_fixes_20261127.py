@@ -286,7 +286,7 @@ def test_p1_d3_d4_d5_r6_r7_templates_and_excel_table_runtime():
     """Templates (detail/print/purchase_report/report_view) + ExcelTable Node-VM runtime behavior."""
     in_html = IN_DETAIL_HTML.read_text(encoding="utf-8")
     assert 'id="detailHeaderTotalAmount"' in in_html
-    assert 'id="editSupplierField"' in in_html and 'id="editCustomerField"' in in_html
+    assert 'id="editPartyField"' in in_html and 'id="editCustomerField"' in in_html
     assert "function syncEditHeaderParty()" in in_html
     assert "saveHeader._busy" in in_html
     assert "resize-handle" not in in_html and "let isResizing" not in in_html
