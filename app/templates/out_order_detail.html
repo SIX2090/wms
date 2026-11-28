@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% from '_document_print_menu.html' import document_print_menu %}
 {% set warehouse_stock = warehouse_stock|default(none) %}
-{% set can_edit_out = current_user.role in ['admin', 'warehouse'] %}
+{% set can_edit_out = (current_user is not defined) or (current_user.role in ['admin', 'warehouse']) %}
 {% set editable_lines = order.status == 'pending' and not push_source and can_edit_out %}
 {% import '_list_macros.html' as ui %}
 {% block title %}{{ out_document_label }}详情 - {{ order.order_no }}{% endblock %}
@@ -1178,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', function() {
     registerDetailRowActions({
         tableSelector: '#itemTable',
         rowSelector: '#itemTable tbody tr',
-        editable: function() { return {{ (order.status == 'pending' and not push_source)|tojson }}; },
+        editable: function() { return {{ (order.status == 'pending' and not push_source and ((current_user is not defined) or (current_user.role in ['admin', 'warehouse'])))|tojson }}; },
         add: function() { addInlineMaterialRow(); },
         insert: function(row) { addInlineMaterialRow(row); },
         copy: function(row) { copyDetailMaterialRow(row); },

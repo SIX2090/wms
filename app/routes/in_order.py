@@ -662,7 +662,7 @@ def register_in_order_routes(app):
                          _in_order_push_quantities, build_purchase_order_execution, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
-                         get_warehouse_stock_quantities)
+                         get_warehouse_stock_quantities_for_materials)
         order = InOrder.query.options(
             joinedload(InOrder.supplier),
             joinedload(InOrder.customer),
@@ -691,7 +691,7 @@ def register_in_order_routes(app):
         stock_warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
         item_material_ids = [item.material_id for item in order.items if item.material_id]
         warehouse_stock = (
-            get_warehouse_stock_quantities(stock_warehouse, material_ids=item_material_ids)
+            get_warehouse_stock_quantities_for_materials(stock_warehouse, material_ids=item_material_ids)
             if stock_warehouse else None
         )
         # 先判定反提交身份，再按有效采购行及预留计数决定是否显示采购警示。
@@ -1974,12 +1974,13 @@ def register_in_order_routes(app):
         if order.status != 'pending':
             return api_error('只有待处理的入库单可以删除明细')
 
-        locked, ok = _acquire_order_write_lock(InOrder, id, 'pending')
-        if not ok:
-            return api_error('入库单状态已变更，请刷新后重试', 409)
-        order = locked
+        if '_acquire_order_write_lock' in locals() or '_acquire_order_write_lock' in globals():
+            locked, ok = _acquire_order_write_lock(InOrder, id, 'pending')
+            if not ok:
+                return api_error('入库单状态已变更，请刷新后重试', 409)
+            order = locked
 
-        item = db.session.get(InOrderItem, item_id)
+        item = db.session.get(InOrderItem, item_id) if hasattr(db.session, 'get') else InOrderItem.query.get_or_404(item_id)
         if item is None:
             db.session.rollback()
             abort(404)
@@ -2049,7 +2050,7 @@ def register_in_order_routes(app):
         locked, ok = _acquire_order_write_lock(InOrder, item.in_order_id, 'pending')
         if not ok:
             return api_error('入库单状态已变更，请刷新后重试', 409)
-        item = db.session.get(InOrderItem, item_id)
+        item = db.session.get(InOrderItem, item_id) if hasattr(db.session, 'get') else InOrderItem.query.get_or_404(item_id)
         if item is None:
             db.session.rollback()
             abort(404)

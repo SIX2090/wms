@@ -20,6 +20,7 @@
         .footer-area { margin-top: 30px; display: flex; justify-content: space-between; font-size: 12px; }
         .footer-area div { min-width: 120px; }
         tfoot td { font-weight: bold; }
+        .price-col-hidden { display: none !important; }
         @media print {
             .no-print { display: none !important; }
             body { padding: 0; margin: 0; }
@@ -67,10 +68,8 @@
                 <th>规格</th>
                 <th>单位</th>
                 <th>数量</th>
-                {% if price_dimension_enabled %}
-                <th>单价</th>
-                <th>金额</th>
-                {% endif %}
+                <th{% if not price_dimension_enabled %} class="price-col-hidden"{% endif %}>单价</th>
+                <th{% if not price_dimension_enabled %} class="price-col-hidden"{% endif %}>金额</th>
                 <th>备注</th>
             </tr>
         </thead>
@@ -83,15 +82,13 @@
                 <td>{{ (item.material.spec or '-') if item.material else '-' }}</td>
                 <td>{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                 <td>{{ (item.quantity)|quantity }}</td>
-                {% if price_dimension_enabled %}
-                <td class="text-right">{{ "%.2f"|format(item.price or 0) }}</td>
-                <td class="text-right">{{ "%.2f"|format(item.amount or 0) }}</td>
-                {% endif %}
+                <td class="text-right{% if not price_dimension_enabled %} price-col-hidden{% endif %}">{% if price_dimension_enabled %}{{ "%.2f"|format(item.price or 0) }}{% endif %}</td>
+                <td class="text-right{% if not price_dimension_enabled %} price-col-hidden{% endif %}">{% if price_dimension_enabled %}{{ "%.2f"|format(item.amount or 0) }}{% endif %}</td>
                 <td class="text-left">{{ item.remark or '' }}</td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="{{ 9 if price_dimension_enabled else 7 }}" class="text-center">无明细行</td>
+                <td colspan="9" class="text-center">无明细行</td>
             </tr>
             {% endfor %}
         </tbody>
@@ -104,6 +101,8 @@
                 {% else %}
                 <td colspan="5" style="text-align: right;">数量合计：</td>
                 <td>{{ (order.items|sum(attribute='quantity', start=0))|quantity }}</td>
+                <td class="price-col-hidden"></td>
+                <td class="price-col-hidden"></td>
                 <td></td>
                 {% endif %}
             </tr>

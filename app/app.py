@@ -5784,8 +5784,13 @@ def resolve_request_warehouse(params, *, allow_default=True):
         return default_wh, None
     return None, '请选择仓库'
 
-def get_warehouse_stock_quantities(warehouse, material_ids=None):
-    """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。
+def get_warehouse_stock_quantities(warehouse):
+    """按仓库汇总物料库存 {material_id: quantity}，绝不回退全局 Material.stock。"""
+    return get_warehouse_stock_quantities_for_materials(warehouse)
+
+
+def get_warehouse_stock_quantities_for_materials(warehouse, material_ids=None):
+    """按仓库及可选物料范围汇总库存 {material_id: quantity}，绝不回退全局 Material.stock。
 
     INV-AUDIT-001 / INV-AUDIT-002 修复：优先按 warehouse_id 汇总，
     兼容旧数据（warehouse_id 为 NULL 但 location == 仓库名的历史行）。
@@ -29952,7 +29957,6 @@ def _build_report_excel_download(report_type, filters):
     """
     from openpyxl import Workbook
     from openpyxl.cell import WriteOnlyCell
-    from utils import _sanitize_excel_cell
 
     definition = _get_report_definition(report_type, filters.get('business_type'))
     raw_sheet_title = (definition.get('title') if definition else '') or '报表'
@@ -29971,13 +29975,16 @@ def _build_report_excel_download(report_type, filters):
                 [c for c in batch_columns if c.get('type') != 'money']
                 if hide_money_columns else batch_columns
             )
-            worksheet.append([_sanitize_excel_cell(column['title']) for column in columns])
+            header_cells = []
+            for column in columns:
+                hcell = WriteOnlyCell(worksheet, value=str(column['title']))
+                hcell.data_type = 's'
+                header_cells.append(hcell)
+            worksheet.append(header_cells)
         for row in rows:
             cells = []
             for column in columns:
                 value = _serialize_excel_value(column, row)
-                if isinstance(value, str):
-                    value = _sanitize_excel_cell(value)
                 cell = WriteOnlyCell(worksheet, value=value)
                 if isinstance(value, str):
                     cell.data_type = 's'

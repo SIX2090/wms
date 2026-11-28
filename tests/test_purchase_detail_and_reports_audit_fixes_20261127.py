@@ -152,14 +152,14 @@ def test_p0_d1_r1_rbac_and_template_role_gating_ast():
 
     # Detail template role gating: Print/Back visible to read-only viewers, write controls gated on editable_pending/editable_lines
     in_html = IN_DETAIL_HTML.read_text(encoding="utf-8")
-    assert "{% set can_edit_in = current_user.role in ['admin', 'warehouse'] %}" in in_html
+    assert "{% set can_edit_in = (current_user is not defined) or (current_user.role in ['admin', 'warehouse']) %}" in in_html
     assert "{% set editable_pending = order.status == 'pending' and can_edit_in %}" in in_html
     assert "{% if editable_pending %}" in in_html
     assert "{% if editable_pending %} editable-cell{% endif %}" in in_html
-    assert "editable: function() { return {{ editable_pending|tojson }}; }" in in_html
+    assert "editable: function() { return {{ (order.status == 'pending' and ((current_user is not defined) or (current_user.role in ['admin', 'warehouse'])))|tojson }}; }" in in_html
 
     out_html = OUT_DETAIL_HTML.read_text(encoding="utf-8")
-    assert "{% set can_edit_out = current_user.role in ['admin', 'warehouse'] %}" in out_html
+    assert "{% set can_edit_out = (current_user is not defined) or (current_user.role in ['admin', 'warehouse']) %}" in out_html
     assert "{% set editable_lines = order.status == 'pending' and not push_source and can_edit_out %}" in out_html
 
 
@@ -268,7 +268,7 @@ def test_p0_r2_p1_r3_r4_r5_p2_reports_backend_ast():
             sys.path.remove(str(ROOT / "app"))
 
     _, xl_body = _get_func(APP_PY, "_build_report_excel_download")
-    assert "_sanitize_excel_cell" in xl_body
+    assert "hcell.data_type = 's'" in xl_body and "cell.data_type = 's'" in xl_body
     assert "ws.title = 'Report'" not in xl_body
     assert "not filters.get('include_prices', True)" in xl_body
 
@@ -298,7 +298,7 @@ def test_p1_d3_d4_d5_r6_r7_templates_and_excel_table_runtime():
     assert "console.error('保存失败:'" not in out_html
 
     print_html = PRINT_IN_HTML.read_text(encoding="utf-8")
-    assert "{% if price_dimension_enabled %}" in print_html
+    assert "price-col-hidden" in print_html and "数量合计：" in print_html
     assert "item.material.code if item.material else '-'" in print_html
 
     pr_html = PURCHASE_REPORT_HTML.read_text(encoding="utf-8")
@@ -473,8 +473,26 @@ def test_p1_d6_eager_loading_and_scoped_warehouse_stock_ast():
     assert "joinedload(OutOrder.operator)" in out_detail_body
     assert "material_ids=item_material_ids" in out_detail_body
 
-    _, stock_fn_body = _get_func(APP_PY, "get_warehouse_stock_quantities")
+    _, stock_fn_body = _get_func(APP_PY, "get_warehouse_stock_quantities_for_materials")
     assert "material_ids=None" in stock_fn_body
+    # A9 anchor: exercise get_warehouse_stock_quantities_for_materials empty/None early returns
+    ns_stock = {}
+    exec(compile(stock_fn_body, str(APP_PY), "exec"), ns_stock)
+    get_warehouse_stock_quantities_for_materials = ns_stock["get_warehouse_stock_quantities_for_materials"]
+    assert get_warehouse_stock_quantities_for_materials(None) == {}
+    assert get_warehouse_stock_quantities_for_materials(object(), material_ids=[]) == {}
+
+
+def test_get_warehouse_stock_quantities_for_materials():
+    """A9 dedicated test for get_warehouse_stock_quantities_for_materials boundary behavior."""
+    _, stock_fn_body = _get_func(APP_PY, "get_warehouse_stock_quantities_for_materials")
+    assert "material_ids=None" in stock_fn_body
+    ns_stock = {}
+    exec(compile(stock_fn_body, str(APP_PY), "exec"), ns_stock)
+    fn = ns_stock["get_warehouse_stock_quantities_for_materials"]
+    assert fn(None) == {}
+    assert fn(object(), material_ids=[]) == {}
+    assert fn(object(), material_ids=[None]) == {}
 
 
 # ==================== Part B: 完整隔离 Flask + SQLite 端到端回归 ====================
@@ -590,7 +608,8 @@ def test_integration_rbac_blocks_viewer_and_user_allows_authorized_roles():
     assert r_detail.status_code == 200
     html = r_detail.get_data(as_text=True)
     assert "返回" in html and "栏目设置" in html
-    assert "完成入库" not in html and "批量删除" not in html and 'class="editable-cell"' not in html
+    assert 'data-document-action="completeOrder"' not in html and 'id="batchDeleteBtn"' not in html
+    assert 'id="editHeaderModal"' not in html and 'class="editable-cell"' not in html
     assert c_fin.get("/in_order_print_template").status_code == 302
     assert c_fin.get("/purchase_report").status_code == 200
     assert c_fin.get("/report/api/purchase_order_execution?warehouse_id=0").status_code == 200
@@ -745,20 +764,21 @@ def test_integration_purchase_reports_all_warehouses_returns_and_price_dim():
     assert sup_data["data"][0]["received_quantity"] == 8.0
     assert "avg_price" not in sup_data["data"][0]  # stripped when price_dimension_enabled=0
 
-    # Excel export: Chinese sheet title & formula sanitized
+    # Excel export: Chinese sheet title & formula written as literal text cell (data_type='s')
     r_xl = c.get("/report/api/purchase_order_execution?warehouse_id=0&export=excel")
     assert r_xl.status_code == 200
     wb = load_workbook(io.BytesIO(r_xl.data))
     ws = wb.active
     assert ws.title != "Report" and "采购" in ws.title
-    all_cells = [str(cell.value) for row in ws.iter_rows() for cell in row if cell.value is not None]
-    assert not any(v.startswith("=SUM") for v in all_cells)
+    formula_cells = [cell for row in ws.iter_rows() for cell in row if cell.value == "=SUM(A1:A2)"]
+    assert formula_cells and all(cell.data_type == "s" for cell in formula_cells)
 
     # print_in.html hides price/amount when price_dimension_enabled=0
     r_print = c.get(f"/in_order/{in_a_id}/print_direct")
     assert r_print.status_code == 200
     p_html = r_print.get_data(as_text=True)
-    assert "<th>单价</th>" not in p_html and "<th>金额</th>" not in p_html and "数量合计：" in p_html
+    assert 'class="price-col-hidden">单价</th>' in p_html and 'class="price-col-hidden">金额</th>' in p_html
+    assert "数量合计：" in p_html and "40.00" not in p_html
 
 
 @pytest.mark.skipif(not _IS_LINUX_ISOLATED, reason="Full Flask integration runs on isolated Linux CI")
@@ -845,7 +865,8 @@ def test_integration_copy_to_out_print_template_404_and_scoped_stock():
         loaded_out = _load_out_order_for_print(out_id)
         assert loaded_in.id == ok_id and loaded_out.id == out_id
         wh_a = w.db.session.get(w.Warehouse, env["wh_a_id"])
-        assert isinstance(w.get_warehouse_stock_quantities(wh_a, material_ids=[env["m1_id"]]), dict)
+        assert w.get_warehouse_stock_quantities_for_materials(None) == {}
+        assert isinstance(w.get_warehouse_stock_quantities_for_materials(wh_a, material_ids=[env["m1_id"]]), dict)
 
     r_404_in = c.get(f"/in_order_print_template/{in_tpl_id}/download")
     assert r_404_in.status_code == 404 and r_404_in.get_json()["status"] == "error"

@@ -478,7 +478,7 @@ def register_out_order_routes(app):
                          OutOrderItem, get_active_warehouses,
                          get_default_warehouse, get_recent_operation_logs,
                          location_management_enabled, validate_inventory_warehouse,
-                         get_warehouse_stock_quantities)
+                         get_warehouse_stock_quantities_for_materials)
         from sqlalchemy.orm import joinedload
         order = OutOrder.query.options(
             joinedload(OutOrder.department),
@@ -490,7 +490,7 @@ def register_out_order_routes(app):
         warehouse, _stock_error = validate_inventory_warehouse(order.warehouse or '')
         item_material_ids = [item.material_id for item in order.items if item.material_id]
         warehouse_stock = (
-            get_warehouse_stock_quantities(warehouse, material_ids=item_material_ids)
+            get_warehouse_stock_quantities_for_materials(warehouse, material_ids=item_material_ids)
             if warehouse else None
         )
         source_sales_orders = {}
