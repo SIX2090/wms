@@ -18,7 +18,7 @@ from ai.policies import AI_CAPABILITY_BUSINESS_ENDPOINTS, effective_ai_capabilit
 
 
 EXPECTED_RESTRICTED_ROLES = {
-    'out_order_draft': frozenset({'warehouse'}),
+    'out_order_draft': frozenset({'warehouse', 'production'}),
     'sales_out_draft': frozenset({'warehouse'}),
     # 新增（AI-SALES-F01-FIX-02）：拆分 sales_out_draft
     'after_sale_out_draft': frozenset({'warehouse'}),
@@ -70,6 +70,8 @@ def main() -> int:
         effective_roles = effective_ai_capability_roles(capability, route_roles)
         if route_roles is not None and not effective_roles.issubset(route_roles):
             failures.append(f'{capability}: effective AI roles exceed business route roles')
+        if capability == 'out_order_draft' and effective_roles != frozenset({'warehouse'}):
+            failures.append('out_order_draft: only warehouse may create outbound drafts through AI')
 
     with app.test_request_context('/_verify/ai-business-permissions'):
         production = wms_app.User(
