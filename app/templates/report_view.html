@@ -9,6 +9,8 @@
             <h2 class="mb-1"><i class="bi bi-graph-up"></i> <span id="reportHeading">{{ title }}</span></h2>
             {% if report_type == 'in_detail' %}
             <div class="text-muted">按入库单日期查询，默认显示已完成单据。物料、供应商和客户可输入关键词，也可选中档案精确查询。</div>
+            {% elif report_type == 'out_detail' %}
+            <div class="text-muted">按出库单日期查询，默认显示已完成领料单；可切换业务类型查看其他出库、销售出库或采购退货出库。</div>
             {% elif report_type == 'inventory_turnover' %}
             <div class="text-muted">按完整自然月统计。平均库存取期初、期末数量的平均值。周转率＝本期发出量÷平均库存，实际周转天数＝期间天数÷周转率。发出量含调拨出、调整减少等库存减少。差异为实际天数减标准天数，正数表示慢于标准。平均库存非正时周转率留空，无发出或平均库存非正时实际天数留空。{% if price_dimension_enabled %}期末库存金额按物料当前参考价估算。{% endif %}</div>
             {% elif report_type == 'subcontract' %}
@@ -127,7 +129,7 @@
                     <option value="">请选择仓库</option>
                     {% endif %}
                     {% for w in warehouses %}
-                    <option value="{{ w.id }}" {% if not is_purchase_order_report and default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}{% if (report_type == 'in_detail' or is_purchase_order_report) and w.status != 'active' %}（已停用）{% endif %}</option>
+                    <option value="{{ w.id }}" {% if not is_purchase_order_report and default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}{% if (report_type in ('in_detail', 'out_detail') or is_purchase_order_report) and w.status != 'active' %}（已停用）{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -181,7 +183,7 @@
             </div>
             {% endif %}
 
-            {% if report_type == 'in_detail' %}
+            {% if report_type in ('in_detail', 'out_detail') %}
             <div class="col-md-3">
                 <label for="contract_no" class="form-label">合同编号</label>
                 <input id="contract_no" name="contract_no" type="text" class="form-control" placeholder="输入合同编号关键字">
@@ -196,8 +198,8 @@
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
                 {# 统一走全局 quick-select（data-ks）：键盘导航 + 拼音/首字母匹配，大数据量远程搜索 #}
-                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code"{% if report_type == 'in_detail' %} data-ks-id="#detail_material_id"{% endif %}>
-                {% if report_type == 'in_detail' %}<input type="hidden" id="detail_material_id" name="material_id">{% endif %}
+                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code"{% if report_type in ('in_detail', 'out_detail') %} data-ks-id="#detail_material_id"{% endif %}>
+                {% if report_type in ('in_detail', 'out_detail') %}<input type="hidden" id="detail_material_id" name="material_id">{% endif %}
                 {% if report_type == 'ledger' %}<div class="form-text">库存台账需按单一物料查询，请先选择物料。</div>{% endif %}
             </div>
             {% endif %}
@@ -594,7 +596,7 @@ printBtn.addEventListener('click', async () => {
         let truncated = false;
         const printContext = captureReportPrintContext();
         const params = printContext.params;
-        if (['in_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary', 'purchase_price_analysis'].includes(reportType)) params.set('web_print', '1');
+        if (['in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary', 'purchase_price_analysis'].includes(reportType)) params.set('web_print', '1');
         do {
             params.set('page', String(page));
             params.set('page_size', '500');
@@ -1135,7 +1137,7 @@ function resetReportFilters() {
     const warehouse = filterForm.querySelector('#warehouse_id');
     const selectedWarehouse = warehouse ? warehouse.value : '';
     filterForm.reset();
-    if (reportType === 'in_detail') filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
+    if (reportType === 'in_detail' || reportType === 'out_detail') filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
         filterForm.querySelector(input.dataset.ksId).value = '';
     });
     ['start_date', 'end_date'].forEach(id => setReportDate(document.getElementById(id), ''));
@@ -1235,7 +1237,7 @@ if (reportType === 'ledger') {
     }
 }
 
-if (reportType === 'in_detail') {
+if (reportType === 'in_detail' || reportType === 'out_detail') {
     filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
         input.addEventListener('input', () => {
             filterForm.querySelector(input.dataset.ksId).value = '';

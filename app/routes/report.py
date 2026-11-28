@@ -265,7 +265,7 @@ def register_report_routes(app):
                 params.pop('report_type', None)
                 return redirect(url_for('report_view', report_type=report_type, **params))
         warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
-                      if (report_type == 'in_detail' or report_type in _PURCHASE_ONLY_REPORTS)
+                      if (report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ONLY_REPORTS)
                       else get_active_warehouses())
         category_rows = []
         if report_type in ('inventory', 'inventory_turnover'):
@@ -592,7 +592,11 @@ def register_report_routes(app):
                         else (order.customer.name if order.customer else '')
                     )
                 else:
-                    partner = order.department.name if order.department else (order.customer or '')
+                    partner = (
+                        (order.customer or '')
+                        if order.business_type in ('销售出库', '采购退货出库', '其他出库')
+                        else (order.department.name if order.department else (order.customer or ''))
+                    )
                 ws.append([_sanitize_excel_cell(v) for v in [
                     order.order_no,
                     order.date.strftime('%Y-%m-%d') if order.date else '',

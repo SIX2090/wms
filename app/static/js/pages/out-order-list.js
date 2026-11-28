@@ -43,7 +43,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         listThead.addEventListener('dragend', function(e) {
             var th = e.target.closest('th');
-            if (th) { th.style.opacity = ''; th.dataset.dragMoved = '1'; }
+            if (th) {
+                th.style.opacity = '';
+                th.dataset.dragMoved = '1';
+                setTimeout(function() { if (th) th.dataset.dragMoved = ''; }, 0);
+            }
             listDragTh = null;
             listDragIndex = -1;
         });
@@ -79,23 +83,15 @@ document.addEventListener('DOMContentLoaded', function() {
             var rect = th.getBoundingClientRect();
             if (e.clientX >= rect.left + rect.width / 2) toIndex++;
             if (fromIndex === toIndex || fromIndex === toIndex - 1) return;
-            // 移动表头
-            if (toIndex > fromIndex) {
-                listThead.insertBefore(listDragTh, listThead.children[toIndex + 1] || null);
-            } else {
-                listThead.insertBefore(listDragTh, listThead.children[toIndex]);
-            }
+            // 移动表头（toIndex 已表示插入位置前的目标索引）
+            listThead.insertBefore(listDragTh, listThead.children[toIndex] || null);
             // 移动表体
             var rows = listTable.querySelectorAll('tbody tr');
             rows.forEach(function(row) {
                 var cells = Array.from(row.children);
                 var cell = cells[fromIndex];
                 if (!cell) return;
-                if (toIndex > fromIndex) {
-                    row.insertBefore(cell, cells[toIndex + 1] || null);
-                } else {
-                    row.insertBefore(cell, cells[toIndex]);
-                }
+                row.insertBefore(cell, cells[toIndex] || null);
             });
         });
 
@@ -127,6 +123,7 @@ function outOrderBusinessLabel() {
 }
 
 function batchOutOrderAction(url, emptyMessage, confirmMessage) {
+    if (batchOutOrderAction._busy) return;
     var ids = selectedOrderIds('outOrderTable');
     if (!ids.length) {
         showToast(emptyMessage, 'warning');
@@ -137,17 +134,22 @@ function batchOutOrderAction(url, emptyMessage, confirmMessage) {
         return;
     }
     showConfirm(confirmMessage, {title: '批量处理' + outOrderBusinessLabel()}).then(function(confirmed) {
-        if (!confirmed) return;
+        if (!confirmed || batchOutOrderAction._busy) return;
+        batchOutOrderAction._busy = true;
         WMS.api.postRaw(url, {ids: ids})
         .then(function(data) {
             if (data.status === 'success') {
                 showToast(data.msg || '操作成功', 'success');
                 setTimeout(function(){ location.reload(); }, 650);
             } else {
+                batchOutOrderAction._busy = false;
                 showToast(data.msg || '操作失败', 'danger', 5000);
             }
         })
-        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
+        .catch(function(error) {
+            batchOutOrderAction._busy = false;
+            showToast('操作失败：' + error.message, 'danger', 5000);
+        });
     });
 }
 
@@ -170,18 +172,38 @@ async function reviewIssueRevert(button, id) {
 }
 
 function singleOutOrderAction(url, confirmMessage, options) {
+    if (singleOutOrderAction._busy) return Promise.resolve();
     return showConfirm(confirmMessage, options || {title: '处理' + outOrderBusinessLabel()}).then(function(confirmed) {
-        if (!confirmed) return;
-        return WMS.api.postRaw(url)
-        .then(function(data) {
-            if (data.status === 'success') {
-                showToast(data.msg || '操作成功', 'success');
-                setTimeout(function(){ location.reload(); }, 650);
-            } else {
-                showToast(data.msg || '操作失败', 'danger', 5000);
-            }
-        })
-        .catch(function(error) { showToast('操作失败：' + error.message, 'danger', 5000); });
+        if (!confirmed || singleOutOrderAction._busy) return;
+        singleOutOrderAction._busy = true;
+        var submitUrl = function(targetUrl) {
+            return WMS.api.postRaw(targetUrl)
+            .then(function(data) {
+                if (data && data.status === 'success') {
+                    showToast(data.msg || '操作成功', 'success');
+                    setTimeout(function(){ location.reload(); }, 650);
+                } else if (data && data.status === 'warning' && Array.isArray(data.anomalies) && targetUrl.indexOf('force=true') === -1) {
+                    var details = data.anomalies.map(function(a) { return (a && a.msg) ? a.msg : String(a || ''); }).filter(Boolean).join('\n');
+                    var warnPrompt = (data.msg || '检测到异常提醒') + (details ? '\n' + details : '') + '\n\n确认仍要继续提交？';
+                    return showConfirm(warnPrompt, {title: '异常检测提醒', okText: '确认提交'}).then(function(forceOk) {
+                        if (!forceOk) {
+                            singleOutOrderAction._busy = false;
+                            return;
+                        }
+                        var sep = targetUrl.indexOf('?') >= 0 ? '&' : '?';
+                        return submitUrl(targetUrl + sep + 'force=true');
+                    });
+                } else {
+                    singleOutOrderAction._busy = false;
+                    showToast((data && data.msg) || '操作失败', 'danger', 5000);
+                }
+            })
+            .catch(function(error) {
+                singleOutOrderAction._busy = false;
+                showToast('操作失败：' + error.message, 'danger', 5000);
+            });
+        };
+        return submitUrl(url);
     });
 }
 

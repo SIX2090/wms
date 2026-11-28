@@ -3,6 +3,8 @@
 {% set warehouse_stock = warehouse_stock|default(none) %}
 {% set can_edit_out = (current_user is not defined) or (current_user.role in ['admin', 'warehouse']) %}
 {% set editable_lines = order.status == 'pending' and not push_source and can_edit_out %}
+{% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
+{% set is_issue = out_document_label == '领料单' %}
 {% import '_list_macros.html' as ui %}
 {% block title %}{{ out_document_label }}详情 - {{ order.order_no }}{% endblock %}
 
@@ -119,8 +121,6 @@
 </style>
 {% endblock %}
 
-{% set out_document_label = {'销售出库':'销售出库单', '其他出库':'其他出库单', '采购退货出库':'采购退货单'}.get(order.business_type, '领料单') %}
-{% set is_issue = out_document_label == '领料单' %}
 {% block content %}
 {% set box_numbers = box_numbers|default({}) %}
 {% if order.business_type == '其他出库' %}{% set nav_mode = 'out' %}{% set nav_id = order.id %}{% include '_other_order_navigation.html' %}{% endif %}
@@ -147,8 +147,8 @@
                 </div>
                 <div class="order-meta">
                     <span><i class="bi bi-calendar3"></i> {{ order.date }}</span>
-                    <span><i class="bi bi-building"></i> {{ order.customer or (order.department.name if order.department else '-') }}</span>
-                    <span><i class="bi bi-tag"></i> {{ order.business_type or '-' }}</span>
+                    <span><i class="bi bi-building"></i> {{ (order.customer or '-') if order.business_type in ['销售出库', '其他出库', '采购退货出库'] else (order.department.name if order.department else (order.customer or '-')) }}</span>
+                    <span><i class="bi bi-tag"></i> {{ order.business_type or '领料单' }}</span>
                     <span><i class="bi bi-person"></i> {{ order.operator.username if order.operator else '-' }}</span>
                     {% if order.picker %}<span><i class="bi bi-person-check"></i> 领料人：{{ order.picker }}</span>{% endif %}
                 </div>
@@ -231,6 +231,9 @@
                 </button>
                 {% endif %}
                 {% endif %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" id="columnSettingsBtn" data-field-settings-table="itemTable" title="显示/隐藏及调整明细字段">
+                    <i class="bi bi-layout-three-columns"></i> 栏目设置
+                </button>
                 {% set back_base = '/out_order' if is_issue else ('/other_out_order' if order.business_type == '其他出库' else ('/out_order?business_type=' ~ (order.business_type|urlencode))) %}
                 <a href="{{ back_base }}{% if request.args.get('embedded') == '1' %}{{ '&' if '?' in back_base else '?' }}embedded=1{% endif %}" class="btn btn-sm btn-outline-secondary">
                     <i class="bi bi-arrow-left"></i> 返回
@@ -256,7 +259,7 @@
                 </div>
                 <div class="info-item">
                     <span class="info-label">{{ '客户/领用单位' if order.business_type == '其他出库' else ('客户名称' if order.business_type == '销售出库' else ('退货供应商' if order.business_type == '采购退货出库' else '领料部门')) }}</span>
-                    <span class="info-value">{{ order.customer or (order.department.name if order.department else '-') }}</span>
+                    <span class="info-value">{{ (order.customer or '-') if order.business_type in ['销售出库', '其他出库', '采购退货出库'] else (order.department.name if order.department else (order.customer or '-')) }}</span>
                 </div>
                 {% if order.business_type == '采购退货出库' %}
                 <div class="info-item">
@@ -270,7 +273,15 @@
                 {% endif %}
                 <div class="info-item">
                     <span class="info-label">业务类型</span>
-                    <span class="info-value">{{ order.business_type or '-' }}</span>
+                    <span class="info-value">{{ order.business_type or '领料单' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">用途</span>
+                    <span class="info-value">{{ order.purpose or '-' }}</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">{{ '退货人' if order.business_type == '采购退货出库' else ('经办人' if order.business_type == '销售出库' else '领料人') }}</span>
+                    <span class="info-value">{{ order.picker or '-' }}</span>
                 </div>
                 <div class="info-item">
                     <span class="info-label">仓库</span>
@@ -340,51 +351,6 @@
             <button class="toolbar-btn" id="batchDeleteBtn">
                 <i class="bi bi-trash"></i> 批量删除
             </button>
-            <div style="position:relative;display:inline-block;">
-                <button class="toolbar-btn" onclick="toggleColumnSettings()">
-                    <i class="bi bi-gear"></i> 列设置
-                </button>
-                <div class="column-settings-panel" id="columnSettingsPanel">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colCode')" id="chkCode">
-                        <label class="form-check-label" for="chkCode">物料编码</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colBrand')" id="chkBrand">
-                        <label class="form-check-label" for="chkBrand">品牌</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colName')" id="chkName">
-                        <label class="form-check-label" for="chkName">物料名称</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colSpec')" id="chkSpec">
-                        <label class="form-check-label" for="chkSpec">规格</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colUnit')" id="chkUnit">
-                        <label class="form-check-label" for="chkUnit">单位</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colStock')" id="chkStock">
-                        <label class="form-check-label" for="chkStock">当前库存</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colQty')" id="chkQty">
-                        <label class="form-check-label" for="chkQty">数量</label>
-                    </div>
-                    {% if price_dimension_enabled %}
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colPrice')" id="chkPrice">
-                        <label class="form-check-label" for="chkPrice">单价</label>
-                    </div>
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" checked onchange="toggleColumn('colAmount')" id="chkAmount">
-                        <label class="form-check-label" for="chkAmount">金额</label>
-                    </div>
-                    {% endif %}
-                </div>
-            </div>
         </div>
     </div>
     {% endif %}
@@ -401,23 +367,23 @@
             <table class="table order-table mb-0" id="itemTable" data-business-type="{{ order.business_type or '领料单' }}" data-detail-sort{% if box_numbers %} data-field-settings-key="product_sales_out_detail_v1"{% endif %}>
                 <thead>
                     <tr>
-                        <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="row_no" data-default-label="序">序<div class="resize-handle"></div></th>
+                        <th width="50" class="text-center resizable-th" data-col="seq" data-column-key="row_no" data-default-label="序">序</th>
                         {% if editable_lines %}
                         <th width="40" data-col="chk" data-column-key="selection" data-default-label="选择"><input type="checkbox" id="selectAll"></th>
                         {% endif %}
                         {% if box_numbers %}<th data-column-key="box_no" data-default-label="箱体编号">箱体编号</th>{% endif %}
-                        <th class="resizable-th" data-col="colCode" data-column-key="material_code" data-default-label="物料编码">物料编码<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colBrand" data-column-key="brand" data-default-label="品牌">品牌<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colName" data-column-key="material_name" data-default-label="物料名称">物料名称<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colSpec" data-column-key="spec" data-default-label="规格">规格<div class="resize-handle"></div></th>
+                        <th class="resizable-th" data-col="colCode" data-column-key="material_code" data-default-label="物料编码">物料编码</th>
+                        <th class="resizable-th" data-col="colBrand" data-column-key="brand" data-default-label="品牌">品牌</th>
+                        <th class="resizable-th" data-col="colName" data-column-key="material_name" data-default-label="物料名称">物料名称</th>
+                        <th class="resizable-th" data-col="colSpec" data-column-key="spec" data-default-label="规格">规格</th>
                         <th data-column-key="contract_no" data-default-label="合同编号">合同编号</th>
                         <th data-column-key="project_name" data-default-label="工程名称">工程名称</th>
-                        <th class="text-center resizable-th" data-col="colUnit" data-column-key="unit" data-default-label="单位">单位<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colStock" data-column-key="stock" data-default-label="当前库存">当前库存<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th" data-col="colQty" data-column-key="quantity" data-default-label="数量">数量<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colPrice" data-column-key="price" data-default-label="单价">单价<div class="resize-handle"></div></th>
-                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colAmount" data-column-key="amount" data-default-label="金额">金额<div class="resize-handle"></div></th>
-                        <th class="resizable-th" data-col="colRemark" data-column-key="remark" data-default-label="备注">备注<div class="resize-handle"></div></th>
+                        <th class="text-center resizable-th" data-col="colUnit" data-column-key="unit" data-default-label="单位">单位</th>
+                        <th class="text-end resizable-th" data-col="colStock" data-column-key="stock" data-default-label="当前库存">当前库存</th>
+                        <th class="text-end resizable-th" data-col="colQty" data-column-key="quantity" data-default-label="数量">数量</th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colPrice" data-column-key="price" data-default-label="单价">单价</th>
+                        <th class="text-end resizable-th{% if not price_dimension_enabled %} d-none{% endif %}" data-col="colAmount" data-column-key="amount" data-default-label="金额">金额</th>
+                        <th class="resizable-th" data-col="colRemark" data-column-key="remark" data-default-label="备注">备注</th>
                         <th class="text-center" width="80" data-col="label" data-column-key="label" data-default-label="标签">标签</th>
                         {% if editable_lines %}
                         <th class="text-center" width="120" data-col="action" data-column-key="actions" data-default-label="操作">操作</th>
@@ -669,7 +635,7 @@ MAT003,20,10.00"></textarea>
                                 <option value="{{ warehouse.id }}" {% if order.warehouse == warehouse.name or (not order.warehouse and default_warehouse and default_warehouse.id == warehouse.id) %}selected{% endif %}>{{ warehouse.name }}</option>
                                 {% endfor %}
                                 {% if order.warehouse and order.warehouse not in warehouses|map(attribute='name')|list %}
-                                <option value="{{ order.warehouse }}" selected>{{ order.warehouse }}</option>
+                                <option value="" selected disabled>{{ order.warehouse }}（已停用，请重选）</option>
                                 {% endif %}
                             </select>
                         </div>
@@ -734,7 +700,7 @@ MAT003,20,10.00"></textarea>
 <script>
 // 从父窗口获取全局函数（iframe环境兼容）
 var _showConfirm = window.showConfirm || (window.parent && window.parent.showConfirm) || function(msg) { return window.confirm(msg) ? Promise.resolve(true) : Promise.resolve(false); };
-var _showToast = window.showToast || (window.parent && window.parent.showToast) || function(msg) { alert(msg); };
+var _showToast = window.showToast || (window.parent && window.parent.showToast) || function() {};
 
 
 
@@ -1243,134 +1209,22 @@ function toggleColumn(colClass) {
     });
 }
 
-// ==================== 列拖动排序 ====================
-(function() {
-    var dragTh = null;
-    var dragIndex = -1;
-    var table = document.getElementById('itemTable');
-    if (!table) return;
-    var thead = table.querySelector('thead tr');
-    if (!thead) return;
-
-    thead.addEventListener('dragstart', function(e) {
-        var th = e.target.closest('th');
-        if (!th) return;
-        dragTh = th;
-        dragIndex = Array.from(thead.children).indexOf(th);
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', dragIndex);
-        setTimeout(function() { th.style.opacity = '0.4'; }, 0);
-    });
-
-    thead.addEventListener('dragend', function(e) {
-        var th = e.target.closest('th');
-        if (th) th.style.opacity = '';
-        dragTh = null;
-        dragIndex = -1;
-    });
-
-    thead.addEventListener('dragover', function(e) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        var th = e.target.closest('th');
-        if (!th || th === dragTh) return;
-        var rect = th.getBoundingClientRect();
-        var mid = rect.left + rect.width / 2;
-        if (e.clientX < mid) {
-            th.style.borderLeft = '2px solid #4F46E5';
-            th.style.borderRight = '';
-        } else {
-            th.style.borderLeft = '';
-            th.style.borderRight = '2px solid #4F46E5';
-        }
-    });
-
-    thead.addEventListener('dragleave', function(e) {
-        var th = e.target.closest('th');
-        if (th) { th.style.borderLeft = ''; th.style.borderRight = ''; }
-    });
-
-    thead.addEventListener('drop', function(e) {
-        e.preventDefault();
-        var th = e.target.closest('th');
-        if (!th || !dragTh || th === dragTh) return;
-        th.style.borderLeft = ''; th.style.borderRight = '';
-        var fromIndex = dragIndex;
-        var toIndex = Array.from(thead.children).indexOf(th);
-        var rect = th.getBoundingClientRect();
-        if (e.clientX >= rect.left + rect.width / 2) toIndex++;
-        if (fromIndex === toIndex || fromIndex === toIndex - 1) return;
-        // 移动表头（向右拖动时需 toIndex+1，因为移除元素后后续索引前移）
-        if (toIndex > fromIndex) {
-            thead.insertBefore(dragTh, thead.children[toIndex + 1] || null);
-        } else {
-            thead.insertBefore(dragTh, thead.children[toIndex]);
-        }
-        // 移动表体每一行对应列
-        var rows = table.querySelectorAll('tbody tr');
-        rows.forEach(function(row) {
-            var cells = Array.from(row.children);
-            var cell = cells[fromIndex];
-            if (!cell) return;
-            if (toIndex > fromIndex) {
-                row.insertBefore(cell, cells[toIndex + 1] || null);
-            } else {
-                row.insertBefore(cell, cells[toIndex]);
+// ==================== 列宽与列序统一由 setupDynamicDetailColumnControls 管理 ====================
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.setupDynamicDetailColumnControls) {
+        window.setupDynamicDetailColumnControls({
+            tableSelector: '#itemTable',
+            orderKey: 'out_order_detail_col_order_v1',
+            widthKey: 'out_order_detail_col_widths_v1',
+            lockedColumns: ['row_no', 'selection', 'label', 'actions'],
+            minWidths: {
+                row_no: 50, selection: 40, box_no: 140, material_code: 100, brand: 80,
+                material_name: 120, spec: 80, contract_no: 100, project_name: 100,
+                unit: 60, stock: 80, quantity: 80, price: 80, amount: 90,
+                remark: 100, label: 60, actions: 80
             }
         });
-        // 移动表脚
-        table.querySelectorAll('tfoot tr').forEach(function(row) {
-            var cells = Array.from(row.children);
-            var cell = cells[fromIndex];
-            if (!cell) return;
-            if (toIndex > fromIndex) {
-                row.insertBefore(cell, cells[toIndex + 1] || null);
-            } else {
-                row.insertBefore(cell, cells[toIndex]);
-            }
-        });
-    });
-
-    // 给所有 th 添加 draggable
-    Array.from(thead.children).forEach(function(th) {
-        th.draggable = true;
-        th.style.cursor = 'grab';
-    });
-})();
-
-// ==================== 列宽调整 ====================
-let isResizing = false;
-let currentTh = null;
-let startX = 0;
-let startWidth = 0;
-
-document.querySelectorAll('.resizable-th .resize-handle').forEach(handle => {
-    handle.addEventListener('mousedown', function(e) {
-        isResizing = true;
-        currentTh = this.parentElement;
-        startX = e.pageX;
-        startWidth = currentTh.offsetWidth;
-        this.classList.add('resizing');
-        e.preventDefault();
-        e.stopPropagation();
-    });
-});
-
-document.addEventListener('mousemove', function(e) {
-    if (!isResizing || !currentTh) return;
-    const newWidth = startWidth + (e.pageX - startX);
-    if (newWidth > 30) {
-        currentTh.style.width = newWidth + 'px';
-        currentTh.style.minWidth = newWidth + 'px';
     }
-});
-
-document.addEventListener('mouseup', function() {
-    if (isResizing && currentTh) {
-        currentTh.querySelector('.resize-handle').classList.remove('resizing');
-    }
-    isResizing = false;
-    currentTh = null;
 });
 
 // ==================== 行内编辑（已被ExcelTable替代，保留用于兼容性）====================
@@ -1547,6 +1401,7 @@ function copyOrder(id) {
 
 // ==================== 保存单据头 ====================
 function saveHeader() {
+    if (saveHeader._busy) return;
     var form = document.getElementById('editHeaderForm');
     if (!form) return;
     // BUG-2026-10-05-001：FormData.entries() 返回 Iterator（无 length），
@@ -1557,16 +1412,19 @@ function saveHeader() {
         _showToast('请选择出库日期', 'warning');
         return;
     }
+    saveHeader._busy = true;
     WMS.api.postRaw('/out_order/{{ order.id }}/update', data)
     .then(function(res) {
         if (res.status === 'success') {
             _showToast(res.msg || '保存成功', 'success');
             setTimeout(function() { location.reload(); }, 500);
         } else {
+            saveHeader._busy = false;
             _showToast(res.msg || '保存失败', 'danger');
         }
     })
     .catch(function(err) {
+        saveHeader._busy = false;
         _showToast('保存失败：' + err.message, 'danger');
     });
 }

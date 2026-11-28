@@ -69,14 +69,22 @@
         document.addEventListener('DOMContentLoaded', function () {
             var sel = document.getElementById('templateSelect');
             fetch('/out_order_print_templates.json')
-                .then(function (r) { return r.json(); })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('模板列表加载失败');
+                    return r.json();
+                })
                 .then(function (res) {
                     if (res.status === 'success' && res.templates) {
                         res.templates.forEach(function (t) {
                             var opt = document.createElement('option');
                             opt.value = t.id;
-                            opt.textContent = t.name + (t.is_default ? '（默认）' : '');
-                            if (t.is_default) { opt.selected = true; }
+                            var missingFile = t.has_file === false;
+                            opt.textContent = t.name + (t.is_default ? '（默认）' : '') + (missingFile ? '（模板文件缺失）' : '');
+                            if (missingFile) {
+                                opt.disabled = true;
+                            } else if (t.is_default) {
+                                opt.selected = true;
+                            }
                             sel.appendChild(opt);
                         });
                     }
@@ -90,6 +98,8 @@
         <div class="doc-title">{{ print_title }}</div>
         <div class="doc-header">
             <span>{{ {'销售出库': '客户', '采购退货出库': '供应商', '其他出库': '客户/领用单位'}.get(order.business_type, '领料部门') }}：{{ (order.customer or '') if order.business_type in ['销售出库', '采购退货出库', '其他出库'] else (order.department.name if order.department else (order.customer or '')) }}</span>
+            <span>单据编号：{{ order.order_no or '' }}</span>
+            <span>仓库：{{ order.warehouse or '' }}</span>
             <span>日期：{{ order.date.strftime('%Y-%m-%d') if order.date else '' }}</span>
         </div>
         <table class="doc-table">

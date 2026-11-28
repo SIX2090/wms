@@ -122,6 +122,7 @@ def _out_order_stock_error(order):
                for item in items.values()):
             return _PUSH_EDIT_MESSAGE
     requirements = {}
+    material_labels = {}
     for item in order.items:
         if not item.material_id or item.material is None:
             return '出库明细物料不存在，请修正后重新提交'
@@ -129,12 +130,14 @@ def _out_order_stock_error(order):
         if quantity <= 0:
             return f'物料 {item.material.code} 出库数量必须是有限正数'
         requirements[item.material_id] = requirements.get(item.material_id, 0) + quantity
+        material_labels[item.material_id] = f'{item.material.code}({item.material.name})'
     if not allow_negative_stock():
         stock = get_warehouse_stock_quantities(warehouse)
         for material_id, quantity in requirements.items():
             available = stock.get(material_id, 0)
             if not is_stock_sufficient(available, quantity):
-                return f'出库仓库 {warehouse.name} 库存不足：物料 {material_id} 需要 {quantity:.2f}，可用 {available:.2f}'
+                label = material_labels.get(material_id, str(material_id))
+                return f'出库仓库 {warehouse.name} 库存不足：物料 {label} 需要 {quantity:.2f}，可用 {available:.2f}'
     return None
 
 
@@ -203,16 +206,16 @@ def _build_out_order_excel(order, box_numbers=None, show_price=None):
             date_str = str(order.date)
     contract_no = getattr(order, 'contract_no', None) or ''
 
-    ws.merge_cells('A2:E2')
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=5 + offset)
     party_label = _out_order_party_label(business_type)
     party = (getattr(order, 'customer', None) or '') if business_type in ('销售出库', '采购退货出库', '其他出库') else department
     ws['A2'] = _sanitize_excel_cell(f'{party_label}：{party}')
-    ws.merge_cells(start_row=2, start_column=6, end_row=2, end_column=last_column)
-    ws['F2'] = _sanitize_excel_cell(f'日期：{date_str}')
+    ws.merge_cells(start_row=2, start_column=6 + offset, end_row=2, end_column=last_column)
+    date_cell = ws.cell(row=2, column=6 + offset, value=_sanitize_excel_cell(f'日期：{date_str}'))
     ws['A2'].font = body_font
     ws['A2'].alignment = left_align
-    ws['F2'].font = body_font
-    ws['F2'].alignment = left_align
+    date_cell.font = body_font
+    date_cell.alignment = left_align
 
     headers = (['箱体编号'] if box_numbers else []) + ['物料编码', '品牌', '物料名称', '规格', '单位', '数量', '单价', '金额', '合同编号']
     for col, text in enumerate(headers, start=1):
@@ -715,7 +718,6 @@ def register_out_order_routes(app):
                              # 原本 page_title="新增销售单"会让用户误以为是新建销售订单，改为"新增销售出库单"
                              page_title=('编辑' if order else '新增') + _out_order_title(entry_type),
                              party_label='客户/领用单位' if is_other_out else ('客户名称' if is_sale_order else ('退货供应商' if is_purchase_return else '领料部门')),
-                             party_required=not is_other_out,
                              return_list_url='/other_out_order' if is_other_out else '/out_order',
                              return_add_url='/other_out_order/add' if is_other_out else ('/out_order/add?type=purchase_return' if is_purchase_return else '/out_order/add'),
                              prefill={
@@ -758,14 +760,14 @@ def register_out_order_routes(app):
     @web_document_idempotent
     def add_out_order():
         from datetime import date
-        from app import (InOrder, InOrderItem, Material,
+        from app import (Contract, Department, InOrder, InOrderItem, Material,
                          OutOrder, OutOrderItem, SalesOrder, api_error,
                          generate_order_no, get_default_warehouse, is_future_date,
                          location_management_enabled, log_operation,
                          parse_date_value, parse_float_value,
                          purchase_return_requires_order,
-                         recalculate_order_total, round_to_2_decimals,
-                         validate_inventory_warehouse,
+                         recalculate_order_total, resolve_item_contract,
+                         round_to_2_decimals, validate_inventory_warehouse,
                          validate_purchase_return_quantity,
                          validate_sales_warehouse)
         from flask_login import current_user
@@ -852,12 +854,31 @@ def register_out_order_routes(app):
             if location_management_enabled() and not location:
                 return jsonify({'status': 'error', 'msg': '请选择库位'}), 400
 
-            # 转换department_id
+            # 转换并校验非领料单 department_id
             if department_id and business_type != '领料单':
+                raw_dept = str(department_id).strip()
+                if not (raw_dept.isascii() and raw_dept.isdecimal() and len(raw_dept) <= 18):
+                    return api_error('部门参数无效，请重新选择')
+                dept_obj = db.session.get(Department, int(raw_dept))
+                if not dept_obj or dept_obj.status not in ('active', '启用'):
+                    return api_error('所选部门不存在或已停用，请重新选择')
+                department_id = dept_obj.id
+
+            # 安全解析并校验表头 contract_id
+            resolved_contract_id = None
+            if contract_id not in (None, '', 'None', 'null'):
                 try:
-                    department_id = int(department_id) if department_id else None
+                    cid_int = int(contract_id)
                 except (TypeError, ValueError):
-                    department_id = None
+                    return api_error('合同ID格式不正确')
+                contract_obj = db.session.get(Contract, cid_int)
+                if not contract_obj:
+                    return api_error('所选合同档案不存在，请重新选择')
+                resolved_contract_id = contract_obj.id
+                if not contract_no:
+                    contract_no = contract_obj.contract_no or ''
+                if not project_name:
+                    project_name = contract_obj.project_name or ''
 
             # P1-7 采购退货出库：退货供应商必填；解析来源采购入库单（支持 id 或单号）。
             is_purchase_return = business_type == '采购退货出库'
@@ -958,7 +979,7 @@ def register_out_order_routes(app):
             if has_purpose and not linked_sales_outbound:
                 order.purpose = purpose or None
             order.remark = remark
-            order.contract_id = int(contract_id) if contract_id else None
+            order.contract_id = resolved_contract_id
             order.contract_no = contract_no or None
             order.project_name = project_name or None
 
@@ -1083,6 +1104,12 @@ def register_out_order_routes(app):
                         return api_error('合同ID格式不正确')
                 else:
                     line_cid = None
+                item_cid, item_cno, item_pname = resolve_item_contract(
+                    order,
+                    user_contract_no=submitted_item.get('contract_no'),
+                    user_project_name=submitted_item.get('project_name'),
+                    user_contract_id=line_cid,
+                )
                 db.session.add(OutOrderItem(
                     out_order_id=order.id,
                     material_id=material.id,
@@ -1090,9 +1117,9 @@ def register_out_order_routes(app):
                     price=price,
                     amount=round_money_product(quantity, price),
                     remark=(submitted_item.get('remark') or '').strip() or None,
-                    contract_id=line_cid,
-                    contract_no=(submitted_item.get('contract_no') or '').strip() or None,
-                    project_name=(submitted_item.get('project_name') or '').strip() or None,
+                    contract_id=item_cid,
+                    contract_no=item_cno,
+                    project_name=item_pname,
                     source_sales_order_item_id=preserved_source_id,
                     source_in_order_item_id=source_in_order_item_id,
                 ))
@@ -1148,7 +1175,7 @@ def register_out_order_routes(app):
     @login_required
     def add_out_order_item(id):
         from app import (_acquire_order_write_lock, Material, OutOrder, OutOrderItem, api_error,
-                         parse_float_value, recalculate_order_total,
+                         log_operation, parse_float_value, recalculate_order_total,
                          resolve_item_contract, round_to_2_decimals)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
@@ -1239,6 +1266,7 @@ def register_out_order_routes(app):
                 db.session.rollback()
                 app.logger.error(f'数据库操作失败: {e}')
                 return jsonify({'status': 'error', 'msg': '操作失败'}), 500
+            log_operation('添加出库明细', f'出库单 {order.order_no} 添加物料 {material.code} × {quantity}', 'out_order', id)
             return jsonify({'status': 'success', 'msg': '明细添加成功', 'item_id': item.id})
         except Exception as e:
             db.session.rollback()
@@ -1251,7 +1279,7 @@ def register_out_order_routes(app):
     @login_required
     def delete_out_order_item(id, item_id):
         from app import (_acquire_order_write_lock, OutOrder, OutOrderItem, api_error,
-                         recalculate_order_total)
+                         log_operation, recalculate_order_total)
         order = OutOrder.query.get_or_404(id)
         if order.status != 'pending':
             return api_error('只有待处理的领料单可以删除明细')
@@ -1272,9 +1300,11 @@ def register_out_order_routes(app):
             return api_error('明细不属于当前领料单')
 
         try:
+            del_code = item.material.code if item.material else str(item.material_id)
             db.session.delete(item)
             recalculate_order_total(order)
             db.session.commit()
+            log_operation('删除出库明细', f'出库单 {order.order_no} 删除物料 {del_code}', 'out_order', id)
             return jsonify({'status': 'success', 'msg': '删除成功'})
         except Exception as e:
             db.session.rollback()
@@ -1286,7 +1316,7 @@ def register_out_order_routes(app):
     @login_required
     def update_out_order_item():
         from app import (_acquire_order_write_lock, InOrderItem, Material, OutOrder, OutOrderItem, api_error,
-                         recalculate_order_total, round_to_2_decimals,
+                         log_operation, recalculate_order_total, round_to_2_decimals,
                          sales_outbound_remaining_check, validate_purchase_return_quantity)
         item_id = request.form.get('id', type=int)
         if not item_id:
@@ -1383,6 +1413,7 @@ def register_out_order_routes(app):
                     return fail(remaining_msg)
             recalculate_order_total(order)
             db.session.commit()
+            log_operation('编辑出库明细', f'出库单 {order.order_no} 明细#{item_id} 数量={quantity}', 'out_order', order.id)
             return jsonify({'status': 'success', 'msg': '保存成功'})
         except Exception as e:
             db.session.rollback()
@@ -1734,6 +1765,10 @@ def register_out_order_routes(app):
         msg = f'批量删除完成，共删除 {deleted_count} 张领料单'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'
+        if deleted_count == 0:
+            if not orders:
+                return jsonify({'status': 'error', 'msg': '未找到符合条件的领料单', 'deleted': 0, 'skipped': skipped}), 400
+            return jsonify({'status': 'error', 'msg': msg, 'deleted': 0, 'skipped': skipped}), 400
         return jsonify({
             'status': 'success',
             'msg': msg,
@@ -1880,9 +1915,14 @@ def register_out_order_routes(app):
                 )
                 db.session.commit()
                 completed += 1
-            except Exception as e:
+                log_operation(f'批量完成{order.business_type or "领料单"}', f'出库单：{order.order_no}', 'out_order', order_id)
+            except ValueError as e:
                 db.session.rollback()
-                skipped.append(f'{order.order_no}(错误: {e})')
+                skipped.append(f'{order.order_no}({e})')
+            except Exception:
+                db.session.rollback()
+                app.logger.exception('批量完成出库单失败: %s', order.order_no)
+                skipped.append(f'{order.order_no}(处理失败，请稍后重试)')
         msg = f'批量审核完成，共审核 {completed} 张领料单'
         if skipped:
             msg += f'，跳过 {len(skipped)} 张：{", ".join(skipped[:10])}'

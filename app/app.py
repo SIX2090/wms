@@ -11380,25 +11380,38 @@ def _ai_analyze_out_order_anomalies(order_id):
     if not order:
         return {'order': None, 'anomalies': [], 'summary': '未找到该出库单。'}
 
-    # 计算近30天每个物料的日均出库量
-    cutoff = datetime.now() - timedelta(days=30)
-    avg_rows = db.session.query(
-        StockTransaction.material_id,
-        func.coalesce(func.sum(func.abs(StockTransaction.quantity)), 0),
-    ).filter(
-        StockTransaction.transaction_type == 'out',
-        StockTransaction.created_at >= cutoff,
-    ).group_by(StockTransaction.material_id).all()
-    avg_daily = {mid: float(qty or 0) / 30.0 for mid, qty in avg_rows}
-
     # PC-P1-15：按单据所属仓库读取实时仓库库存（A11/R2），不再用全局 Material.stock
     from services.warehouse_identity import resolve_warehouse_text
     wh_obj = resolve_warehouse_text(order.warehouse) if (order.warehouse or '').strip() else None
+    item_material_ids = list({item.material_id for item in order.items if item.material_id})
     wh_stock_map = (
-        get_warehouse_stock_quantities(wh_obj)
+        get_warehouse_stock_quantities_for_materials(wh_obj, material_ids=item_material_ids)
         if wh_obj is not None else get_all_warehouses_stock_quantities()
     )
 
+    # 计算近30天本单物料在该仓库的日均净出库量（扣减反提交冲回，避免全库扫描与跨仓失真）
+    cutoff = datetime.now() - timedelta(days=30)
+    avg_daily = {}
+    if item_material_ids:
+        net_out_expr = case(
+            (StockTransaction.transaction_type == 'out', func.abs(StockTransaction.quantity)),
+            (StockTransaction.transaction_type == 'revert_out', -func.abs(StockTransaction.quantity)),
+            else_=0,
+        )
+        avg_query = db.session.query(
+            StockTransaction.material_id,
+            func.coalesce(func.sum(net_out_expr), 0),
+        ).filter(
+            StockTransaction.transaction_type.in_(('out', 'revert_out')),
+            StockTransaction.material_id.in_(item_material_ids),
+            StockTransaction.created_at >= cutoff,
+        )
+        if wh_obj is not None:
+            avg_query = avg_query.filter(StockTransaction.warehouse_id == wh_obj.id)
+        avg_rows = avg_query.group_by(StockTransaction.material_id).all()
+        avg_daily = {mid: max(0.0, float(qty or 0)) / 30.0 for mid, qty in avg_rows}
+
+    is_completed = order.status == 'completed'
     anomalies = []
     for item in order.items:
         m = item.material
@@ -11411,8 +11424,8 @@ def _ai_analyze_out_order_anomalies(order_id):
         std_price = float(m.price or 0)
         avg_out = avg_daily.get(m.id, 0.0)
 
-        # 1. 出库数量超过当前库存（潜在缺库）
-        if item_qty > current_stock and current_stock >= 0:
+        # 1. 出库数量超过当前库存（仅未完成草稿检查；同时覆盖当前库存为负的场景）
+        if not is_completed and item_qty > current_stock:
             anomalies.append({
                 'material_code': m.code,
                 'material_name': m.name,
@@ -11433,11 +11446,12 @@ def _ai_analyze_out_order_anomalies(order_id):
 
         # 3. 物料已处于低库存状态
         if min_stock > 0 and current_stock <= min_stock:
+            low_stock_suffix = '，请关注补货' if is_completed else '，继续出库将加剧短缺'
             anomalies.append({
                 'material_code': m.code,
                 'material_name': m.name,
                 'anomaly_type': '低库存物料',
-                'description': f'当前库存 {current_stock:.2f} 已低于最低库存 {min_stock:.2f}，继续出库将加剧短缺',
+                'description': f'当前库存 {current_stock:.2f} 已低于最低库存 {min_stock:.2f}{low_stock_suffix}',
                 'severity': 'warning',
             })
 
@@ -11466,7 +11480,8 @@ def _ai_analyze_out_order_anomalies(order_id):
             parts.append(f'{warning_count} 项警告（数量偏大或低库存）')
         if info_count:
             parts.append(f'{info_count} 项提示（单价偏差）')
-        summary = f'出库单 {order.order_no} 共 {len(order.items)} 项物料，AI发现 {"，".join(parts)}。建议核实后再提交。'
+        action_hint = '建议复核该已完成单据。' if is_completed else '建议核实后再提交。'
+        summary = f'出库单 {order.order_no} 共 {len(order.items)} 项物料，AI发现 {"，".join(parts)}。{action_hint}'
 
     return {
         'order': {
@@ -29699,7 +29714,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
             raise ReportFilterError(f'{label}参数无效，请重新选择{label}')
         return value
 
-    material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'ledger')
+    material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'out_detail', 'ledger')
                    else _parse_positive_int(request.args.get('material_id'), 0))
     inbound_detail = report_type == 'in_detail'
     include_prices = (
@@ -29708,7 +29723,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
             'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary',
         ) or price_dimension_enabled()
     )
-    print_snapshot = (inbound_detail or report_type in _PURCHASE_ORDER_REPORT_TYPES) and request.args.get('web_print') == '1'
+    print_snapshot = (report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ORDER_REPORT_TYPES) and request.args.get('web_print') == '1'
     sort_field = (request.args.get('sort_field') or '').strip()
     if not include_prices and sort_field in ('amount', 'price', 'received_amount', 'remaining_amount', 'avg_price'):
         sort_field = ''
@@ -30107,7 +30122,12 @@ def _out_detail_columns():
         {'field': 'order_no', 'title': '出库单号', 'link_field': 'order_url'},
         # BUG-2026-09-22-013：补业务类型列，与入库明细报表（'业务类型'）对齐
         {'field': 'business_type', 'title': '业务类型'},
+        {'field': 'contract_no', 'title': '合同编号'},
+        {'field': 'project_name', 'title': '工程名称'},
         {'field': 'customer', 'title': '客户/部门'},
+        {'field': 'picker', 'title': '领料人'},
+        {'field': 'warehouse', 'title': '仓库'},
+        {'field': 'location', 'title': '库位'},
         {'field': 'material_code', 'title': '物料编码'},
         {'field': 'material_name', 'title': '物料名称'},
         {'field': 'spec', 'title': '规格型号'},
@@ -30716,7 +30736,12 @@ def _out_detail_row(item):
         # 用户无法分辨某行是领料、其他出库还是采购退货，也无法核对筛选是否生效。
         # 空类型按领料口径展示（与 out_order_list「空类型按领料计」一致）。
         'business_type': order.business_type or '领料单',
+        'contract_no': item.contract_no or order.contract_no or '',
+        'project_name': item.project_name or order.project_name or '',
         'customer': customer_text,
+        'picker': order.picker or '',
+        'warehouse': order.warehouse or '',
+        'location': order.location or '',
         'material_code': material.code or '',
         'material_name': material.name or '',
         'spec': material.spec or '',
@@ -30801,10 +30826,15 @@ def _filtered_out_detail_query(filters):
     customer_keyword = (filters.get('customer') or '').strip()
     if customer_keyword:
         query = query.filter(_out_detail_party_expression().icontains(customer_keyword, autoescape=True))
+    if filters.get('material_id'):
+        query = query.filter(OutOrderItem.material_id == filters['material_id'])
     material_clause = _material_filter_clause(filters.get('material_code'))
     if material_clause is not None:
         query = query.filter(material_clause)
-    return query
+    return _apply_header_or_item_contract_filters(
+        query, OutOrder, OutOrderItem, 'out_order_id',
+        contract_no_filter=filters.get('contract_no'),
+        project_name_filter=filters.get('project_name'), item_level=True)
 
 
 def _collect_out_detail_rows(filters):
@@ -32260,9 +32290,14 @@ _IN_DETAIL_SORT_MAP = {
 _OUT_DETAIL_SORT_MAP = {
     'date': OutOrder.date,
     'order_no': OutOrder.order_no,
-    # BUG-2026-09-22-013：业务类型列可排序，与 _IN_DETAIL_SORT_MAP 对齐
-    'business_type': OutOrder.business_type,
+    # BUG-2026-09-22-013：业务类型列可排序，与 _IN_DETAIL_SORT_MAP 对齐（空值归一化为领料单）
+    'business_type': func.coalesce(func.nullif(OutOrder.business_type, ''), '领料单'),
+    'contract_no': func.coalesce(func.nullif(OutOrderItem.contract_no, ''), OutOrder.contract_no, ''),
+    'project_name': func.coalesce(func.nullif(OutOrderItem.project_name, ''), OutOrder.project_name, ''),
     'customer': _out_detail_party_expression(),
+    'picker': OutOrder.picker,
+    'warehouse': OutOrder.warehouse,
+    'location': OutOrder.location,
     'material_code': Material.code,
     'material_name': Material.name,
     'spec': Material.spec,

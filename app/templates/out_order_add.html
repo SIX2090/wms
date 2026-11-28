@@ -755,14 +755,7 @@ function handleMaterialCodeInput(row) {
     showDropdown(row);
 }
 
-function addNewRow() {
-    const tbody = document.getElementById('materialTableBody');
-    if (!tbody) {
-        console.error('materialTableBody not found');
-        return;
-    }
-    const row = tbody.insertRow();
-    const rowIndex = tbody.rows.length;
+function _initOutOrderRow(row, rowIndex) {
     row.innerHTML = `
         <td data-column-key="row_no" class="row-num">${rowIndex}</td>
         <td data-column-key="material_code">
@@ -815,7 +808,6 @@ function addNewRow() {
     });
     row.querySelector('.material-qty').addEventListener('blur', function() {
         WMS.normalizeDecimalInput(this);
-        // 失去焦点时格式化
         if (this.value) {
             this.value = parseFloat(this.value).toFixed(2);
             calcAmount(row);
@@ -838,12 +830,18 @@ function addNewRow() {
     });
     row.querySelector('.material-price').addEventListener('blur', function() {
         WMS.normalizeDecimalInput(this, '单价');
-        // 失去焦点时格式化
         if (this.value) {
             this.value = parseFloat(this.value).toFixed(2);
             calcAmount(row);
         }
     });
+}
+
+function addNewRow() {
+    const tbody = document.getElementById('materialTableBody');
+    if (!tbody) return;
+    const row = tbody.insertRow();
+    _initOutOrderRow(row, tbody.rows.length);
 
     if (window.outOrderColumnController) {
         window.outOrderColumnController.applyOrder();
@@ -1049,60 +1047,7 @@ function insertRowBefore(btn) {
     const tbody = document.getElementById('materialTableBody');
     const currentRow = btn.closest('tr');
     const newRow = tbody.insertRow(currentRow.rowIndex - 1);
-    const rowIndex = currentRow.rowIndex;
-    newRow.innerHTML = `
-        <td data-column-key="row_no" class="row-num">${rowIndex}</td>
-        <td data-column-key="material_code">
-            <div class="material-input">
-                <input type="text" class="form-control material-code" placeholder="">
-                <div class="material-dropdown" style="display:none;"></div>
-            </div>
-        </td>
-        <td data-column-key="brand"><input type="text" class="form-control material-brand" readonly></td>
-        <td data-column-key="material_name"><input type="text" class="form-control material-name" readonly></td>
-        <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
-        <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
-        <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
-        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
-        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
-        <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
-        <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
-        <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
-        <td data-column-key="remark"><input type="text" class="form-control material-remark" maxlength="500"></td>
-        <td data-column-key="actions" class="action-col">
-            <button type="button" class="btn btn-sm btn-outline-primary me-1" onclick="insertRowBefore(this)" title="插入行"><i class="bi bi-plus-circle"></i></button>
-            <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteRow(this)" title="删除行"><i class="bi bi-trash"></i></button>
-        </td>
-    `;
-
-    newRow.querySelector('.material-code').addEventListener('input', function() {
-        handleMaterialCodeInput(newRow);
-    });
-    newRow.querySelector('.material-code').addEventListener('keydown', function(event) {
-        handleKeydown(event, newRow);
-    });
-    newRow.querySelector('.material-qty').addEventListener('input', function() {
-        calcAmount(newRow);
-    });
-    newRow.querySelector('.material-qty').addEventListener('blur', function() {
-        WMS.normalizeDecimalInput(this);
-        // 失去焦点时格式化
-        if (this.value) {
-            this.value = parseFloat(this.value).toFixed(2);
-            calcAmount(newRow.closest('tr'));
-        }
-    });
-    newRow.querySelector('.material-price').addEventListener('input', function() {
-        calcAmount(newRow);
-    });
-    newRow.querySelector('.material-price').addEventListener('blur', function() {
-        WMS.normalizeDecimalInput(this, '单价');
-        // 失去焦点时格式化
-        if (this.value) {
-            this.value = parseFloat(this.value).toFixed(2);
-            calcAmount(newRow.closest('tr'));
-        }
-    });
+    _initOutOrderRow(newRow, currentRow.rowIndex);
 
     renumberRows();
     if (window.outOrderColumnController) {
@@ -1268,7 +1213,8 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             WMS.normalizeDecimalInput(row.querySelector('.material-price'), '单价');
         }
         const qty = parseFloat(row.querySelector('.material-qty').value);
-        const price = parseFloat(row.querySelector('.material-price').value);
+        const rawPriceStr = (row.querySelector('.material-price').value || '').trim();
+        const price = rawPriceStr === '' ? 0 : parseFloat(rawPriceStr);
         
         if (!code) {
             if (outboundRowHasDetails(row)) {
@@ -1285,6 +1231,15 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
             row.querySelector('.material-qty').style.borderColor = '#ff4d4f';
         } else {
             row.querySelector('.material-qty').style.borderColor = '';
+        }
+
+        if (rawPriceStr !== '' && (!Number.isFinite(price) || price < 0)) {
+            row.querySelector('.material-price').style.borderColor = '#ff4d4f';
+            showToast('第 ' + (index + 1) + ' 行单价不能为负数或非数字', 'danger');
+            row.querySelector('.material-price').focus();
+            return;
+        } else {
+            row.querySelector('.material-price').style.borderColor = '';
         }
         
         // 数量异常大检查（超过10000）
@@ -1418,7 +1373,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const row = findEmptyRow() || addNewRow();
         row.dataset.salesSourceId = item.source_sales_order_item_id || '';
         row.querySelector('.material-code').value = item.material_code;
-        handleMaterialCodeInput(row);
+        const matchedMaterial = findMaterialByCode(item.material_code);
+        if (matchedMaterial) {
+            fillMaterialFields(row, matchedMaterial);
+        }
         row.querySelector('.material-qty').value = item.quantity;
         row.querySelector('.material-price').value = item.price;
         row.querySelector('.line-contract-no').value = item.contract_no;
@@ -1431,6 +1389,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         calcAmount(row);
     });
+    const btSelect = document.querySelector('select[name="business_type"]');
+    const currentOrderId = (document.querySelector('[name="order_id"]')?.value || '').trim();
+    if (btSelect && !currentOrderId) {
+        btSelect.addEventListener('change', function() {
+            const targetMap = {
+                '领料单': '/out_order/add',
+                '其他出库': '/other_out_order/add',
+                '采购退货出库': '/out_order/add?type=purchase_return',
+                '销售出库': '/out_order/add?type=sale'
+            };
+            const targetUrl = targetMap[this.value];
+            if (!targetUrl) return;
+            const resolved = typeof preserveEmbeddedUrl === 'function' ? preserveEmbeddedUrl(targetUrl) : targetUrl;
+            const currentFull = window.location.pathname + window.location.search;
+            if (resolved !== currentFull) {
+                window.location.href = resolved;
+            }
+        });
+    }
     if (!isSaleOrder && !isOtherOut && !isPurchaseReturn) {
         ensureIssueEntryRow();
     } else if (!editItems.length) {
@@ -1508,8 +1485,6 @@ function notifyMaterialRefresh(message, type, silent) {
     if (silent) return;
     if (window.showToast) {
         window.showToast(message, type || 'success', 2500);
-    } else {
-        console.log(message);
     }
 }
 
@@ -1811,8 +1786,6 @@ async function parsePastedData() {
             if (!material) { reject(entry.line, entry.idx, '物料不存在或已停用：' + entry.code); return; }
             const row = findEmptyRow() || addNewRow();
             fillMaterialFields(row, material, { forcePrice: true });
-            row.dataset.sourcePurchaseOrderItemId = '';
-            row.dataset.sourcePurchaseOrderNo = '';
             const sourceInput = row.querySelector('.line-source-in-item-id');
             if (sourceInput) sourceInput.value = '';
             row.querySelector('.material-qty').value = String(Number(entry.qty.toFixed(2)));

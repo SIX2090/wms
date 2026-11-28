@@ -262,9 +262,10 @@ def test_p0_6_price_dimension_enabled_across_reports_prints_detail_ai():
     assert ws_on.cell(row=4, column=8).value == 62.5
     wb_on.close()
 
-    # Detail page guards chkPrice/chkAmount, toggleColumn, and #addModal price input
+    # Detail page removes legacy price checkboxes, guards toggleColumn, and hides #addModal price input
     detail_html = OUT_DETAIL_HTML.read_text(encoding="utf-8")
-    assert "{% if price_dimension_enabled %}\n                    <div class=\"form-check\">\n                        <input class=\"form-check-input\" type=\"checkbox\" checked onchange=\"toggleColumn('colPrice')\"" in detail_html
+    assert 'id="chkPrice"' not in detail_html and 'id="chkAmount"' not in detail_html
+    assert 'id="columnSettingsBtn"' in detail_html
     assert "(colClass === 'colPrice' || colClass === 'colAmount')" in detail_html
     assert '<input type="hidden" id="price" value="">' in detail_html
 
