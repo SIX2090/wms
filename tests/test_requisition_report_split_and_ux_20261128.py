@@ -430,8 +430,8 @@ def test_a4_out_order_list_picker_column_and_price_toggle():
     for role, price_on, expected_cols in [
         ("admin", True, 18),
         ("finance", True, 17),
-        ("admin", False, 16),
-        ("finance", False, 15),
+        ("admin", False, 18),
+        ("finance", False, 17),
     ]:
         html = env.get_template("out_order.html").render(
             current_user=SimpleNamespace(is_authenticated=True, role=role, username="u", id=1, get_id=lambda: "1"),
@@ -445,8 +445,11 @@ def test_a4_out_order_list_picker_column_and_price_toggle():
         assert int(empty_td["colspan"]) == expected_cols
         col_keys = [th.get("data-column-key") for th in ths]
         assert "picker" in col_keys
-        assert ("price" in col_keys) is price_on
-        assert ("amount" in col_keys) is price_on
+        assert "price" in col_keys and "amount" in col_keys
+        price_th = soup.select_one('#outOrderTable thead th[data-column-key="price"]')
+        amount_th = soup.select_one('#outOrderTable thead th[data-column-key="amount"]')
+        assert ("d-none" in (price_th.get("class") or [])) is (not price_on)
+        assert ("d-none" in (amount_th.get("class") or [])) is (not price_on)
         assert soup.select_one('input[name="picker"]').get("value") == "张三"
         export_link = soup.select_one('a[href^="/out_order/export"]')
         assert "picker=%E5%BC%A0%E4%B8%89" in export_link["href"]

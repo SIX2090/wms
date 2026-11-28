@@ -139,10 +139,8 @@
                     <th data-column-key="spec">规格</th>
                     <th data-column-key="unit">单位</th>
                     <th data-column-key="quantity">数量</th>
-                    {% if show_price_cols %}
-                    <th data-column-key="price">单价</th>
-                    <th data-column-key="amount" data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
-                    {% endif %}
+                    <th data-column-key="price"{% if not show_price_cols %} class="d-none"{% endif %}>单价</th>
+                    <th data-column-key="amount" data-sortable="total_amount" class="sortable-header{% if not show_price_cols %} d-none{% endif %}">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="business_type" data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="contract_no">合同编号</th>
                     <th data-column-key="project_name">工程名称</th>
@@ -166,10 +164,8 @@
                     <td data-column-key="spec">{{ item.material.spec if item.material else '-' }}</td>
                     <td data-column-key="unit">{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                     <td data-column-key="quantity">{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
-                    {% if show_price_cols %}
-                    <td data-column-key="price">{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
-                    <td data-column-key="amount">{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
-                    {% endif %}
+                    <td data-column-key="price"{% if not show_price_cols %} class="d-none"{% endif %}>{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
+                    <td data-column-key="amount"{% if not show_price_cols %} class="d-none"{% endif %}>{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
                     <td data-column-key="business_type">{{ item.out_order.business_type or '领料单' }}</td>
                     <td data-column-key="contract_no">{{ item.contract_no or item.out_order.contract_no or '-' }}</td>
                     <td data-column-key="project_name">{{ item.project_name or item.out_order.project_name or '-' }}</td>
@@ -197,7 +193,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="{{ 15 + (1 if can_batch_out else 0) + (2 if show_price_cols else 0) }}" class="text-center text-muted">暂无{{ business_label }}明细</td></tr>
+                <tr><td colspan="{{ 18 if can_batch_out else 17 }}" class="text-center text-muted">暂无{{ business_label }}明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>

@@ -132,7 +132,7 @@ def test_p1_3_out_order_list_template_and_js_runtime():
     """P1-3: out_order.html balanced grid/clear/role-checkbox/party/type; out-order-list.js drag-drop & warning->force VM."""
     html = OUT_LIST_HTML.read_text(encoding="utf-8")
     assert "{% set can_batch_out = current_user.role in ['admin', 'warehouse'] %}" in html
-    assert 'colspan="{{ 15 + (1 if can_batch_out else 0) + (2 if show_price_cols else 0) }}"' in html
+    assert 'colspan="{{ 18 if can_batch_out else 17 }}"' in html
     assert "{{ list_base_path }}" in html
     assert "('warehouse_id', filters.warehouse_id)" in html
     assert 'width="150" class="text-nowrap"' in html
