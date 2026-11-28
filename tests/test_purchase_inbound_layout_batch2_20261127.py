@@ -2,8 +2,8 @@
 """BUG-2026-11-27-005 回归测试：采购入库第二批页面布局重构、工具栏去噪、自动草稿及详情页交互修复。
 
 覆盖：
-- P1-UI-1：app.js insertGlobalActionBar/createDocumentNavigationGroup 在 /add 新增页隐藏
-  无效/危险按钮（打印/打印设置/导入/导出/导入导出模板/首张~末张），保留新增/保存/查找单据及无打印模板模块的栏目设置
+- P1-UI-1（2026-11-28 BUG-2026-11-28-003 按用户要求纠偏）：/add 新增单据页不再擅自隐藏顶部工具栏
+  （保留打印/打印设置/导入/导出/导入导出模板与首张/上一张/下一张/末张单据翻页按钮，仅保持既有无记录隐藏 delete 规则）
 - P1-UI-2/3/4/5：30→6 初始空行（in_order_add/out_order_add）、吸底栏同显行数+数量+金额并避让通知铃铛、
   只读格透明底不击穿斑马纹、flatpickr 可编辑日期白底区分、孤立单标签隐藏、表头紧凑与操作提示折叠、行模板去重
 - P1-UI-6/7 & P1-BIZ-6：自动草稿改绑 #addForm、脏状态触发、按业务类型/单号分键、完整保存/恢复
@@ -51,8 +51,8 @@ def _extract_js_function(source: str, signature_prefix: str) -> str:
     raise AssertionError(f"Unclosed JS function: {signature_prefix}")
 
 
-def test_p1_ui_1_global_actionbar_hides_invalid_buttons_on_add_form_node_vm():
-    """P1-UI-1: /add forms hide invalid print/export/import/template/print-settings and prev/next nav."""
+def test_p1_ui_1_global_actionbar_preserves_buttons_and_nav_on_add_form_node_vm():
+    """BUG-2026-11-28-003: /add forms preserve print/settings/import/export/template and full first/prev/next/last nav."""
     script = r"""
 const fs = require('node:fs');
 const assert = require('node:assert/strict');
@@ -81,7 +81,7 @@ function makeEl() {
   };
 }
 
-function runScenario({ pathname, orderId, printTemplateUrl }) {
+function runScenario({ pathname, orderId, printTemplateUrl, moduleKey }) {
   let bar = null;
   const content = { firstChild: null, insertBefore(el) { bar = el; } };
   global.window = { location: { pathname } };
@@ -101,8 +101,8 @@ function runScenario({ pathname, orderId, printTemplateUrl }) {
   global.isFormPage = () => true;
   global.getCurrentRecordId = () => (orderId ? Number(orderId) : null);
   global.getWmsActionModule = () => ({
-    key: 'in_order', listUrl: '/in_order', addUrl: '/in_order/add',
-    deleteUrl: '/in_order/batch_delete', navigator: true, printTemplateUrl,
+    key: moduleKey || 'out_order', listUrl: '/' + (moduleKey || 'out_order'), addUrl: '/' + (moduleKey || 'out_order') + '/add',
+    deleteUrl: '/' + (moduleKey || 'out_order') + '/batch_delete', navigator: true, printTemplateUrl,
   });
   global.saveCurrentPage = () => {};
 
@@ -116,19 +116,18 @@ function runScenario({ pathname, orderId, printTemplateUrl }) {
   return { actionKeys, navLabels };
 }
 
-// 1. Unsaved /in_order/add: hides print, import, export, template, print-settings, delete, and first/prev/next/last
-const addIn = runScenario({ pathname: '/in_order/add', orderId: '', printTemplateUrl: '/in_order_print_template' });
-assert.deepEqual(addIn.actionKeys, ['add', 'save']);
-assert.deepEqual(addIn.navLabels, ['查找单据']);
+// 1. /out_order/add preserves settings, print, import, export, template and all 5 navigation buttons (only delete omitted on /add)
+const addOut = runScenario({ pathname: '/out_order/add', orderId: '', printTemplateUrl: '/out_order_print_template', moduleKey: 'out_order' });
+assert.deepEqual(addOut.actionKeys, ['add', 'save', 'settings', 'print', 'import', 'export', 'template']);
+assert.deepEqual(addOut.navLabels, ['查找单据', '首张', '上一张', '下一张', '末张']);
 
-// 2. /check/add (no printTemplateUrl): keeps settings (栏目设置), hides print/import/export/template
-const addCheck = runScenario({ pathname: '/check/add', orderId: '', printTemplateUrl: undefined });
-assert.ok(addCheck.actionKeys.includes('settings'));
-assert.ok(!addCheck.actionKeys.includes('print'));
-assert.ok(!addCheck.actionKeys.includes('export'));
+// 2. /in_order/add preserves the exact same full toolbar and navigation group
+const addIn = runScenario({ pathname: '/in_order/add', orderId: '', printTemplateUrl: '/in_order_print_template', moduleKey: 'in_order' });
+assert.deepEqual(addIn.actionKeys, ['add', 'save', 'settings', 'print', 'import', 'export', 'template']);
+assert.deepEqual(addIn.navLabels, ['查找单据', '首张', '上一张', '下一张', '末张']);
 
-// 3. Saved detail /in_order/12: keeps full navigation group
-const detail = runScenario({ pathname: '/in_order/12', orderId: '12', printTemplateUrl: '/in_order_print_template' });
+// 3. Saved detail /in_order/12 keeps full navigation group
+const detail = runScenario({ pathname: '/in_order/12', orderId: '12', printTemplateUrl: '/in_order_print_template', moduleKey: 'in_order' });
 assert.deepEqual(detail.navLabels, ['查找单据', '首张', '上一张', '下一张', '末张']);
 """
     proc = subprocess.run([_node(), "-e", script, str(APP_JS)], capture_output=True, text=True, encoding="utf-8", timeout=20)

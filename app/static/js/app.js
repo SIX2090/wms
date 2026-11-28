@@ -2923,20 +2923,13 @@ function createDocumentNavigationGroup(module, isListPage) {
     group.className = 'cb-doc-nav';
     group.setAttribute('aria-label', '单据导航');
 
-    var hasRecordId = (typeof getCurrentRecordId === 'function' && !!getCurrentRecordId()) ||
-        !!(document.querySelector('[name="order_id"]') && document.querySelector('[name="order_id"]').value);
-    var isUnsavedAdd = /\/add\/?$/.test(window.location.pathname) && !hasRecordId;
     var items = [
-        { icon: 'bi-search-heart', label: '查找单据', title: '查找单据', action: function() { showDocumentSearchModal(module); } }
+        { icon: 'bi-search-heart', label: '查找单据', title: '查找单据', action: function() { showDocumentSearchModal(module); } },
+        { icon: 'bi-chevron-bar-left', label: '首张', title: '首张', action: function() { navigateDocument(module, 'first'); } },
+        { icon: 'bi-chevron-left', label: '上一张', title: '上一张', action: function() { navigateDocument(module, 'prev'); } },
+        { icon: 'bi-chevron-right', label: '下一张', title: '下一张', action: function() { navigateDocument(module, 'next'); } },
+        { icon: 'bi-chevron-bar-right', label: '末张', title: '末张', action: function() { navigateDocument(module, 'last'); } }
     ];
-    if (!isUnsavedAdd) {
-        items.push(
-            { icon: 'bi-chevron-bar-left', label: '首张', title: '首张', action: function() { navigateDocument(module, 'first'); } },
-            { icon: 'bi-chevron-left', label: '上一张', title: '上一张', action: function() { navigateDocument(module, 'prev'); } },
-            { icon: 'bi-chevron-right', label: '下一张', title: '下一张', action: function() { navigateDocument(module, 'next'); } },
-            { icon: 'bi-chevron-bar-right', label: '末张', title: '末张', action: function() { navigateDocument(module, 'last'); } }
-        );
-    }
 
     items.forEach(function(item) {
         var btn = document.createElement('button');
@@ -3755,19 +3748,11 @@ function insertGlobalActionBar() {
         buttons = trimWmsActionbarDividers(buttons);
     }
     if (!isListPage) {
-        var isAddFormPath = /\/add\/?$/.test(window.location.pathname);
-        var hasSavedRecordId = typeof getCurrentRecordId === 'function' && !!getCurrentRecordId();
-        var isUnsavedAddForm = isAddFormPath && !hasSavedRecordId;
         buttons = trimWmsActionbarDividers(buttons.filter(function(item) {
             // A read-only detail is not a save target; modal forms must not be submitted.
             if (item.key === 'save' && (!isFormPage() || document.querySelector('form.readonly-mask') || pageHasOwnButton(['保存', '保存草稿'], bar))) return false;
             // New documents have no saved record for the generic delete action.
-            if (item.key === 'delete' && (isAddFormPath || document.querySelector('form[data-wms-no-delete]'))) return false;
-            // P1-UI-1：未保存的新增单据页（无已存单据 ID）隐藏无意义或会冲掉草稿的列表级按钮
-            // （打印空白表、导出历史列表、整表导入刷新页面、打印模板设置）；无 printTemplateUrl
-            // 的模块（如 /check/add）仍保留栏目设置入口。
-            if (isUnsavedAddForm && (item.key === 'print' || item.key === 'import' || item.key === 'export' || item.key === 'template')) return false;
-            if (isUnsavedAddForm && item.key === 'settings' && module.printTemplateUrl) return false;
+            if (item.key === 'delete' && (/\/add\/?$/.test(window.location.pathname) || document.querySelector('form[data-wms-no-delete]'))) return false;
             if (item.key === 'add' && /\/\d+\/?$/.test(window.location.pathname) && pageHasOwnButton(['再建一张', '新增'], bar)) return false;
             if (/\/\d+\/?$/.test(window.location.pathname) && item.key === 'export' && pageHasOwnButton(['导出Excel', '导出 Excel', '导出'], bar)) return false;
             if (/\/\d+\/?$/.test(window.location.pathname) && item.key === 'import' && pageHasOwnButton(['导入Excel', '导入 Excel', '导入明细'], bar)) return false;
