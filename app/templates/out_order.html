@@ -13,7 +13,7 @@
                 <i class="bi bi-layout-three-columns"></i> 栏目设置
             </button>
             {% if current_user.role in ['admin', 'warehouse', 'finance', 'sales', 'purchase'] %}
-            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&business_type={{ filters.business_type|urlencode }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&sort={{ sort_by }}&order={{ sort_order }}" class="btn btn-outline-primary btn-sm">
+            <a href="/out_order/export?warehouse_id={{ filters.warehouse_id }}&status={{ filters.status }}&search={{ filters.search|urlencode }}&date_start={{ filters.date_start }}&date_end={{ filters.date_end }}&business_type={{ filters.business_type|urlencode }}&picker={{ (filters.picker or '')|urlencode }}&contract_no={{ filters.contract_no|urlencode }}&project_name={{ filters.project_name|urlencode }}&sort={{ sort_by }}&order={{ sort_order }}" class="btn btn-outline-primary btn-sm">
                 <i class="bi bi-file-earmark-excel"></i> 导出
             </a>
             {% endif %}
@@ -92,7 +92,11 @@
             </div>
             <div class="col-md-3">
                 <label class="form-label small text-muted mb-1" for="outOrderFilterSearch">关键词</label>
-                <input id="outOrderFilterSearch" type="text" name="search" class="form-control form-control-sm" placeholder="单号/部门/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
+                <input id="outOrderFilterSearch" type="text" name="search" class="form-control form-control-sm" placeholder="单号/部门/领料人/物料" value="{{ filters.search }}" data-ks="material" data-ks-put="code" data-ks-submit="1">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label small text-muted mb-1" for="outOrderFilterPicker">{{ '领用人/经办人' if filters.business_type == '其他出库' else '领料人' }}</label>
+                <input id="outOrderFilterPicker" type="text" name="picker" class="form-control form-control-sm" placeholder="{{ '领用人/经办人姓名' if filters.business_type == '其他出库' else '领料人姓名' }}" value="{{ filters.picker or '' }}" data-ks="employee" data-ks-put="name" data-ks-submit="1">
             </div>
             <div class="col-md-3">
                 <label class="form-label small text-muted mb-1" for="outOrderFilterContractNo">合同编号</label>
@@ -102,9 +106,9 @@
                 <label class="form-label small text-muted mb-1" for="outOrderFilterProjectName">工程名称</label>
                 <input id="outOrderFilterProjectName" type="text" name="project_name" class="form-control form-control-sm" placeholder="工程名称" value="{{ filters.project_name or '' }}" data-ks="project" data-ks-put="label" data-ks-submit="1">
             </div>
-            <div class="col-md-6 d-flex gap-2 justify-content-end">
+            <div class="col-md-3 d-flex gap-2 justify-content-end">
                 <button type="submit" class="btn btn-primary btn-sm px-3"><i class="bi bi-search"></i> 筛选</button>
-                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.contract_no or filters.project_name %}
+                {% if filters.status or filters.search or filters.date_start or filters.date_end or filters.picker or filters.contract_no or filters.project_name %}
                 {% set _clear_pairs = [('warehouse_id', filters.warehouse_id), ('business_type', filters.business_type if list_base_path != '/other_out_order' else ''), ('embedded', '1' if request.args.get('embedded') == '1' else '')] %}
                 {% set _clear_qs = dict(_clear_pairs|selectattr('1')|list)|urlencode %}
                 <a href="{{ list_base_path }}{% if _clear_qs %}?{{ _clear_qs }}{% endif %}" class="btn btn-outline-secondary btn-sm">清除</a>
@@ -118,6 +122,7 @@
     <div class="card-body p-0">
         <div class="table-responsive-wrapper">
         {% set can_batch_out = current_user.role in ['admin', 'warehouse'] %}
+        {% set show_price_cols = price_dimension_enabled if price_dimension_enabled is defined else true %}
         <table class="table table-bordered table-hover table-sm mb-0" id="outOrderTable" data-business-label="{{ business_label }}">
             <thead>
                 <tr>
@@ -128,13 +133,16 @@
                     <th data-column-key="order_no" data-sortable="order_no" class="sortable-header">{{ {'销售出库': '销售出库单号', '其他出库': '其他出库单号', '采购退货出库': '退货出库单号'}.get(filters.business_type, '领料单号') }} {% if sort_by=='order_no' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="date" data-sortable="date" class="sortable-header">日期 {% if sort_by=='date' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="customer" data-sortable="customer" class="sortable-header">{{ {'销售出库': '客户', '其他出库': '客户/领用单位', '采购退货出库': '退货供应商'}.get(filters.business_type, '领料部门') }} {% if sort_by=='customer' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    <th data-column-key="picker" data-sortable="picker" class="sortable-header">{{ '领用人/经办人' if filters.business_type == '其他出库' else '领料人' }} {% if sort_by=='picker' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="material_code">物料编号</th>
                     <th data-column-key="material_name">物料名称</th>
                     <th data-column-key="spec">规格</th>
                     <th data-column-key="unit">单位</th>
                     <th data-column-key="quantity">数量</th>
+                    {% if show_price_cols %}
                     <th data-column-key="price">单价</th>
                     <th data-column-key="amount" data-sortable="total_amount" class="sortable-header">金额 {% if sort_by=='total_amount' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
+                    {% endif %}
                     <th data-column-key="business_type" data-sortable="business_type" class="sortable-header">业务类型 {% if sort_by=='business_type' %}<i class="bi bi-caret-{{ 'up' if sort_order=='asc' else 'down' }}-fill small"></i>{% endif %}</th>
                     <th data-column-key="contract_no">合同编号</th>
                     <th data-column-key="project_name">工程名称</th>
@@ -152,13 +160,16 @@
                     <td data-column-key="order_no"><a href="{{ url_for('out_order_detail', id=item.out_order.id) }}" target="_blank" rel="noopener">{{ item.out_order.order_no }}</a></td>
                     <td data-column-key="date">{{ item.out_order.date.strftime('%Y-%m-%d') if item.out_order.date else '-' }}</td>
                     <td data-column-key="customer">{{ (item.out_order.customer or '-') if item.out_order.business_type in ['销售出库', '其他出库', '采购退货出库'] else (item.out_order.department.name if item.out_order.department else (item.out_order.customer or '-')) }}</td>
+                    <td data-column-key="picker">{{ item.out_order.picker or '-' }}</td>
                     <td data-column-key="material_code">{{ item.material.code if item.material else '-' }}</td>
                     <td data-column-key="material_name">{{ item.material.name if item.material else '-' }}</td>
                     <td data-column-key="spec">{{ item.material.spec if item.material else '-' }}</td>
                     <td data-column-key="unit">{{ item.material.unit.name if item.material and item.material.unit else '-' }}</td>
                     <td data-column-key="quantity">{{ "%.2f"|format(item.quantity) if item.material else '-' }}</td>
+                    {% if show_price_cols %}
                     <td data-column-key="price">{% if item.material %}¥{{ "%.2f"|format(item.price) }}{% else %}-{% endif %}</td>
                     <td data-column-key="amount">{% if item.material %}¥{{ "%.2f"|format(item.amount) }}{% else %}-{% endif %}</td>
+                    {% endif %}
                     <td data-column-key="business_type">{{ item.out_order.business_type or '领料单' }}</td>
                     <td data-column-key="contract_no">{{ item.contract_no or item.out_order.contract_no or '-' }}</td>
                     <td data-column-key="project_name">{{ item.project_name or item.out_order.project_name or '-' }}</td>
@@ -186,7 +197,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="{{ 17 if can_batch_out else 16 }}" class="text-center text-muted">暂无{{ business_label }}明细</td></tr>
+                <tr><td colspan="{{ 15 + (1 if can_batch_out else 0) + (2 if show_price_cols else 0) }}" class="text-center text-muted">暂无{{ business_label }}明细</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -222,6 +233,7 @@
             'page': 1, 'sort': sort_by, 'order': sort_order, 'per_page': per_page,
             'status': filters.status, 'search': filters.search,
             'date_start': filters.date_start, 'date_end': filters.date_end,
+            'picker': filters.picker,
             'contract_no': filters.contract_no, 'project_name': filters.project_name,
             'warehouse_id': filters.warehouse_id, 'business_type': filters.business_type,
             'embedded': request.args.get('embedded')

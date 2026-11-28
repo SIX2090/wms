@@ -83,6 +83,8 @@ def _out_order_detail_ordering(sort_by, sort_order):
         department = db.select(Department.name).where(
             Department.id == OutOrder.department_id).correlate(OutOrder).scalar_subquery()
         column = db.func.coalesce(db.func.nullif(OutOrder.customer, ''), department, '')
+    elif sort_by == 'picker':
+        column = db.func.coalesce(OutOrder.picker, '')
     else:
         column = getattr(OutOrder, sort_by)
     return column.asc() if sort_order == 'asc' else column.desc(), OutOrder.id.desc(), OutOrderItem.id.asc()
@@ -411,7 +413,7 @@ def register_out_order_routes(app):
         if per_page not in [10, 20, 50, 100, 200]:
             per_page = 20
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
-        allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
+        allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'picker', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
         # 按单据左连接明细展示，待完成但没有明细的单据也能查到。
@@ -428,6 +430,9 @@ def register_out_order_routes(app):
         elif warehouse_error:
             query = query.filter(db.false())
         query = _apply_out_order_search(query, search)
+        picker_filter = (request.args.get('picker') or '').strip()
+        if picker_filter:
+            query = query.filter(OutOrder.picker.like(f'%{picker_filter}%'))
         contract_no_filter = (request.args.get('contract_no') or '').strip()
         project_name_filter = (request.args.get('project_name') or '').strip()
         # BUG-2026-09-18-012：列表/导出均按明细行展开（一个单据有几条明细就渲染几行），
@@ -478,6 +483,7 @@ def register_out_order_routes(app):
             'date_start': date_start.strftime('%Y-%m-%d') if date_start else '',
             'date_end': date_end.strftime('%Y-%m-%d') if date_end else '',
             'business_type': explicit_bt,
+            'picker': picker_filter,
             'contract_no': contract_no_filter,
             'project_name': project_name_filter,
             'warehouse_id': warehouse.id if warehouse else '',
@@ -2117,7 +2123,7 @@ def register_out_order_routes(app):
         wb = Workbook()
         ws = wb.active
         status_filter, search, date_start, date_end, sort_by, sort_order = _get_order_list_filters(('pending', 'completed'))
-        allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
+        allowed_sorts = {'order_no', 'date', 'department_id', 'customer', 'picker', 'business_type', 'purpose', 'status', 'created_at', 'total_amount'}
         if sort_by not in allowed_sorts:
             sort_by = 'created_at'
         # BUG-2026-09-18-012：导出改为与列表**同构的明细级查询**
@@ -2133,6 +2139,9 @@ def register_out_order_routes(app):
         )
         query = _apply_status_date_filters(query, OutOrder, status_filter, date_start, date_end)
         query = _apply_out_order_search(query, search)
+        picker_filter = (request.args.get('picker') or '').strip()
+        if picker_filter:
+            query = query.filter(OutOrder.picker.like(f'%{picker_filter}%'))
         # AI-WMS-FILTER-002：导出必须与列表页筛选口径一致
         # （口径已由 BUG-2026-09-18-012 统一为「明细级」）
         contract_no_filter = (request.args.get('contract_no') or '').strip()

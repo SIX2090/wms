@@ -542,11 +542,12 @@
                             <a class="flyout-link" href="/report/dashboard"><i class="bi bi-bar-chart-line"></i> 数据仪表盘</a>
                             <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-card-list"></i> 全部入库明细报表</a>
                             <a class="flyout-link" href="/report/view/in_detail?business_type={{ '其他入库'|urlencode }}"><i class="bi bi-card-list"></i> 其他入库明细报表</a>
-                            <a class="flyout-link" href="/report/view/out_detail?business_type={{ '其他出库'|urlencode }}"><i class="bi bi-card-list"></i> 其他出库明细报表</a>
+                            <a class="flyout-link" href="/report/view/other_out_detail"><i class="bi bi-card-list"></i> 其他出库明细报表</a>
                             <a class="flyout-link" href="/report/view/inventory"><i class="bi bi-box-seam"></i> 库存报表</a>
                             <a class="flyout-link" href="/report/view/inventory_analysis"><i class="bi bi-hourglass-split"></i> 呆滞料分析报表</a>
                             <a class="flyout-link" href="/report/view/inventory_turnover"><i class="bi bi-arrow-repeat"></i> 库存周转率报表</a>
-                            <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                            <a class="flyout-link" href="/report/view/requisition_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                            <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 全部出库明细报表</a>
                             <a class="flyout-link" href="/report/view/summary"><i class="bi bi-clipboard-data"></i> 出入库汇总报表</a>
                             <a class="flyout-link" href="/report/view/check"><i class="bi bi-clipboard-check"></i> 盘点报表</a>
                             <a class="flyout-link" href="/report/view/ledger"><i class="bi bi-journal-text"></i> 库存台账</a>
@@ -615,7 +616,9 @@
                     <a class="flyout-link" href="/report/dashboard"><i class="bi bi-speedometer2"></i> 数据仪表盘</a>
                     <div class="flyout-divider"></div>
                     <a class="flyout-link" href="/report/view/in_detail"><i class="bi bi-box-arrow-in-down"></i> 入库明细报表</a>
-                    <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                    <a class="flyout-link" href="/report/view/requisition_detail"><i class="bi bi-box-arrow-up"></i> 领料明细报表</a>
+                    <a class="flyout-link" href="/report/view/other_out_detail"><i class="bi bi-card-list"></i> 其他出库明细报表</a>
+                    <a class="flyout-link" href="/report/view/out_detail"><i class="bi bi-box-arrow-up"></i> 全部出库明细报表</a>
                     <a class="flyout-link" href="/report/view/inventory"><i class="bi bi-box-seam"></i> 库存报表</a>
                     <a class="flyout-link" href="/report/view/summary"><i class="bi bi-clipboard-data"></i> 出入库汇总报表</a>
                     <a class="flyout-link" href="/report/view/ledger"><i class="bi bi-journal-text"></i> 库存台账</a>
@@ -789,8 +792,13 @@
                 </a>
             </li>
             <li class="nav-item">
-                <a class="nav-link" href="/report/view/out_detail">
+                <a class="nav-link" href="/report/view/requisition_detail">
                     <i class="bi bi-box-arrow-up"></i> 领料明细报表
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link" href="/report/view/other_out_detail">
+                    <i class="bi bi-card-list"></i> 其他出库明细报表
                 </a>
             </li>
             <li class="nav-item">

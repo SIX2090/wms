@@ -9,6 +9,10 @@
             <h2 class="mb-1"><i class="bi bi-graph-up"></i> <span id="reportHeading">{{ title }}</span></h2>
             {% if report_type == 'in_detail' %}
             <div class="text-muted">按入库单日期查询，默认显示已完成单据。物料、供应商和客户可输入关键词，也可选中档案精确查询。</div>
+            {% elif report_type == 'requisition_detail' %}
+            <div class="text-muted">按领料单日期查询，仅统计领料单（不含其他出库、销售出库和采购退货）；默认显示已完成单据，可按领料部门、领料人、工程和合同筛选，点击领料单号可直达单据详情。</div>
+            {% elif report_type == 'other_out_detail' %}
+            <div class="text-muted">按出库日期查询，仅统计其他出库单；默认显示已完成单据，可按客户/领用单位、领用人、工程和合同筛选，点击单号可直达单据详情。</div>
             {% elif report_type == 'out_detail' %}
             <div class="text-muted">按出库单日期查询，默认显示已完成领料单；可切换业务类型查看其他出库、销售出库或采购退货出库。</div>
             {% elif report_type == 'inventory_turnover' %}
@@ -118,8 +122,9 @@
             </div>
             {% endif %}
 
-            {# BUG-2026-08-02-014：报表仓库必填下拉框；采购订单类 4 表支持显式全部仓库（含未入库在途订单） #}
+            {# BUG-2026-08-02-014：报表仓库必填下拉框；采购订单类 4 表与出库/领料明细表支持显式全部仓库 #}
             {% set is_purchase_order_report = report_type in ('purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary', 'purchase_price_analysis') %}
+            {% set supports_all_warehouses = report_type in ('out_detail', 'requisition_detail', 'other_out_detail') %}
             <div class="col-md-3">
                 <label for="warehouse_id" class="form-label">{{ '入库仓库范围' if is_purchase_order_report else '仓库' }} <span class="text-danger">*</span></label>
                 <select id="warehouse_id" name="warehouse_id" class="form-select" required>
@@ -127,9 +132,12 @@
                     <option value="0" selected>全部仓库（含未入库在途订单）</option>
                     {% else %}
                     <option value="">请选择仓库</option>
+                    {% if supports_all_warehouses %}
+                    <option value="0">全部仓库</option>
+                    {% endif %}
                     {% endif %}
                     {% for w in warehouses %}
-                    <option value="{{ w.id }}" {% if not is_purchase_order_report and default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}{% if (report_type in ('in_detail', 'out_detail') or is_purchase_order_report) and w.status != 'active' %}（已停用）{% endif %}</option>
+                    <option value="{{ w.id }}" {% if not is_purchase_order_report and default_warehouse and default_warehouse.id == w.id %}selected{% endif %}>{{ w.code }} - {{ w.name }}{% if (report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') or is_purchase_order_report) and w.status != 'active' %}（已停用）{% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -183,14 +191,14 @@
             </div>
             {% endif %}
 
-            {% if report_type in ('in_detail', 'out_detail') %}
+            {% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') %}
             <div class="col-md-3">
                 <label for="contract_no" class="form-label">合同编号</label>
-                <input id="contract_no" name="contract_no" type="text" class="form-control" placeholder="输入合同编号关键字">
+                <input id="contract_no" name="contract_no" type="text" class="form-control" placeholder="输入合同编号关键字" autocomplete="off" data-ks="contract_no" data-ks-put="code">
             </div>
             <div class="col-md-3">
                 <label for="project_name" class="form-label">工程名称</label>
-                <input id="project_name" name="project_name" type="text" class="form-control" placeholder="输入工程名称关键字">
+                <input id="project_name" name="project_name" type="text" class="form-control" placeholder="输入工程名称关键字" autocomplete="off" data-ks="project" data-ks-put="label">
             </div>
             {% endif %}
 
@@ -198,8 +206,8 @@
             <div class="col-md-3">
                 <label for="material_code" class="form-label">物料搜索{% if report_type == 'ledger' %} <span class="text-danger">*</span>{% endif %}</label>
                 {# 统一走全局 quick-select（data-ks）：键盘导航 + 拼音/首字母匹配，大数据量远程搜索 #}
-                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code"{% if report_type in ('in_detail', 'out_detail') %} data-ks-id="#detail_material_id"{% endif %}>
-                {% if report_type in ('in_detail', 'out_detail') %}<input type="hidden" id="detail_material_id" name="material_id">{% endif %}
+                <input id="material_code" name="material_code" type="text" class="form-control" placeholder="{{ '输入完整编码，或搜索后选择物料' if report_type == 'ledger' else '编码 / 名称 / 规格 / 拼音' }}"{% if report_type == 'ledger' %} required{% endif %} autocomplete="off" data-ks="material" data-ks-put="code"{% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') %} data-ks-id="#detail_material_id"{% endif %}>
+                {% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') %}<input type="hidden" id="detail_material_id" name="material_id">{% endif %}
                 {% if report_type == 'ledger' %}<div class="form-text">库存台账需按单一物料查询，请先选择物料。</div>{% endif %}
             </div>
             {% endif %}
@@ -212,12 +220,31 @@
             </div>
             {% endif %}
 
+            {% if filters_config.get('department') %}
+            <div class="col-md-3">
+                <label for="department_id" class="form-label">领料部门</label>
+                <select id="department_id" name="department_id" class="form-select">
+                    <option value="">全部部门</option>
+                    {% for dept in departments|default([]) %}
+                    <option value="{{ dept.id }}">{{ dept.name }}{% if dept.status not in ('active', '启用') %}（已停用）{% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
             {% if filters_config.customer %}
             <div class="col-md-3">
-                <label for="customer" class="form-label">{{ '客户' if report_type == 'in_detail' else '客户 / 部门' }}</label>
+                <label for="customer" class="form-label">{{ '客户' if report_type == 'in_detail' else ('客户 / 领用单位' if report_type == 'other_out_detail' else '客户 / 部门') }}</label>
                 {# 选中回填名称（后端按名称文本模糊匹配）；也允许直接手输部门名 #}
-                <input id="customer" name="customer" type="text" class="form-control" placeholder="{{ '客户编码或名称' if report_type == 'in_detail' else '客户名称或领用部门' }}" autocomplete="off" data-ks="customer" data-ks-put="name"{% if report_type == 'in_detail' %} data-ks-id="#detail_customer_id"{% endif %}>
+                <input id="customer" name="customer" type="text" class="form-control" placeholder="{{ '客户编码或名称' if report_type == 'in_detail' else ('客户名称或领用单位' if report_type == 'other_out_detail' else '客户名称或领用部门') }}" autocomplete="off" data-ks="customer" data-ks-put="name"{% if report_type == 'in_detail' %} data-ks-id="#detail_customer_id"{% endif %}>
                 {% if report_type == 'in_detail' %}<input type="hidden" id="detail_customer_id" name="customer_id">{% endif %}
+            </div>
+            {% endif %}
+
+            {% if filters_config.get('picker') %}
+            <div class="col-md-3">
+                <label for="picker" class="form-label">{{ '领用人 / 经办人' if report_type == 'other_out_detail' else '领料人' }}</label>
+                <input id="picker" name="picker" type="text" class="form-control" placeholder="{{ '输入领用人或经办人姓名' if report_type == 'other_out_detail' else '输入领料人姓名搜索' }}" autocomplete="off" data-ks="employee" data-ks-put="name">
             </div>
             {% endif %}
 
@@ -225,7 +252,7 @@
             <div class="col-md-3">
                 <label for="status" class="form-label">状态</label>
                 <select id="status" name="status" class="form-select">
-                    {% if report_type in ('in_detail', 'out_detail', 'summary') %}
+                    {% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'summary') %}
                     <option value="completed" selected>已完成</option>
                     <option value="pending">待处理</option>
                     <option value="all">全部（含草稿）</option>
@@ -328,7 +355,7 @@
             </div>
         </div>
     </div>
-    <div class="col-md-4" id="reportAmountCard"{% if report_type in ('in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not price_dimension_enabled %} hidden{% endif %}>
+    <div class="col-md-4" id="reportAmountCard"{% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not price_dimension_enabled %} hidden{% endif %}>
         <div class="card border-0 shadow-sm summary-card">
             <div class="card-body">
                 <div class="summary-label">{{ summary_labels.amount }}</div>
@@ -347,7 +374,7 @@
         {# BUG-2026-09-07-003：查询结果超上限被截断时显式提示，不再静默失真 #}
         <div class="alert alert-warning d-none mb-0 rounded-0 border-0 border-bottom py-2 px-3 small" id="truncationAlert" role="alert"></div>
         <div class="table-responsive">
-            <table class="table table-hover align-middle mb-0{% if report_type == 'warehouse_monthly' %} monthly-stock-table{% elif report_type in ('in_detail', 'out_detail') %} detail-report-table{% endif %}" id="reportTable">
+            <table class="table table-hover align-middle mb-0{% if report_type == 'warehouse_monthly' %} monthly-stock-table{% elif report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') %} detail-report-table{% endif %}" id="reportTable">
                 <thead class="table-dark">
                     <tr id="tableHeaderRow"></tr>
                 </thead>
@@ -387,7 +414,7 @@
 {% endblock %}
 
 {% block extra_js %}
-{% if report_type in ('material_movement', 'warehouse_monthly', 'in_detail', 'out_detail', 'inventory') %}
+{% if report_type in ('material_movement', 'warehouse_monthly', 'in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'inventory') %}
 <script src="{{ url_for('static', filename='js/material-movement-report.js') }}?v={{ STATIC_VERSION }}"></script>
 {% endif %}
 {% if report_type in ('warehouse_monthly', 'inventory_turnover') %}
@@ -596,7 +623,7 @@ printBtn.addEventListener('click', async () => {
         let truncated = false;
         const printContext = captureReportPrintContext();
         const params = printContext.params;
-        if (['in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary', 'purchase_price_analysis'].includes(reportType)) params.set('web_print', '1');
+        if (['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary', 'purchase_price_analysis'].includes(reportType)) params.set('web_print', '1');
         do {
             params.set('page', String(page));
             params.set('page_size', '500');
@@ -1071,7 +1098,7 @@ async function loadData() {
         if (!response.ok || result.status !== 'success') {
             throw new Error(result.msg || '报表查询失败');
         }
-        if (reportType === 'in_detail' || reportType === 'out_detail') {
+        if (['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'].includes(reportType)) {
             const lastPage = result.total_pages || 1;
             if (currentPage > lastPage) {
                 currentPage = lastPage;
@@ -1137,7 +1164,7 @@ function resetReportFilters() {
     const warehouse = filterForm.querySelector('#warehouse_id');
     const selectedWarehouse = warehouse ? warehouse.value : '';
     filterForm.reset();
-    if (reportType === 'in_detail' || reportType === 'out_detail') filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
+    if (['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'].includes(reportType)) filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
         filterForm.querySelector(input.dataset.ksId).value = '';
     });
     ['start_date', 'end_date'].forEach(id => setReportDate(document.getElementById(id), ''));
@@ -1237,7 +1264,7 @@ if (reportType === 'ledger') {
     }
 }
 
-if (reportType === 'in_detail' || reportType === 'out_detail') {
+if (['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'].includes(reportType)) {
     filterForm.querySelectorAll('input[data-ks-id]').forEach(input => {
         input.addEventListener('input', () => {
             filterForm.querySelector(input.dataset.ksId).value = '';

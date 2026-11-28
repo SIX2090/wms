@@ -935,7 +935,7 @@ def _dynamic_report_template(report_type, template):
         return template.excel_template_path in {
             f'/static/uploads/print_templates/builtin_{target}_{variant}.xlsx'
             for variant in ('price', 'quantity')}
-    if report_type in ('in_detail', 'out_detail'):
+    if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'):
         prefix = f'/static/uploads/print_templates/builtin_{target}_'
         return template.excel_template_path in {prefix + suffix + '.xlsx' for suffix in
                                                 ('default', 'detail_v2_price', 'detail_v2_quantity')}
@@ -985,7 +985,7 @@ def _report_builtin_abspath(static_folder, report_type, title, columns):
     if report_type == 'inventory_turnover':
         variant = 'price' if any(col['field'] == 'inventory_amount' for col in columns) else 'quantity'
         filename = f'builtin_{target}_{variant}.xlsx'
-    elif report_type in ('in_detail', 'out_detail'):
+    elif report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'):
         variant = 'price' if any(col['field'] == 'price' for col in columns) else 'quantity'
         filename = f'builtin_{target}_detail_v2_{variant}.xlsx'
     elif report_type in ('check', 'summary', 'requisition', 'subcontract'):
@@ -1050,7 +1050,7 @@ def render_report_excel_print(report_type, title, columns, rows,
         total_amount=sum(float(row.get('amount') or 0) for row in rows)
         if any(col['field'] == 'amount' for col in columns) else '')
     wb = load_workbook(path)
-    if using_builtin and report_type in ('in_detail', 'out_detail') and title:
+    if using_builtin and report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') and title:
         wb.active['A1'] = title
         if isinstance(wb.active['A1'].value, str):
             wb.active['A1'].data_type = 's'
@@ -1060,7 +1060,7 @@ def render_report_excel_print(report_type, title, columns, rows,
             cell.value = column['title']
             if isinstance(cell.value, str):
                 cell.data_type = 's'
-    total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail') else None
+    total_qty = _report_print_quantity(rows) if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') else None
     for ws in wb.worksheets:
         _Filler(order, list(rows or []),
                 date_str or datetime.now().strftime('%Y-%m-%d'), item_fields=item_fields,

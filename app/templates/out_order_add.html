@@ -592,6 +592,26 @@ textarea.form-control {
                     </div>
                 </div>
                 {% endif %}
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label" for="headerContractNo">合同编号</label>
+                        <input type="text" class="form-control" id="headerContractNo" name="contract_no" maxlength="50"
+                               value="{{ prefill.contract_no if prefill and prefill.contract_no else '' }}"
+                               placeholder="整单合同编号（选填，可自动带入明细）" autocomplete="off"
+                               data-ks="contract" data-ks-put="code" data-ks-id="#headerContractId">
+                        <input type="hidden" id="headerContractId" name="contract_id"
+                               value="{{ prefill.contract_id if prefill and prefill.contract_id else '' }}">
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="mb-2">
+                        <label class="form-label" for="headerProjectName">工程名称</label>
+                        <input type="text" class="form-control" id="headerProjectName" name="project_name" maxlength="200"
+                               value="{{ prefill.project_name if prefill and prefill.project_name else '' }}"
+                               placeholder="整单工程名称（选填，可自动带入明细）" autocomplete="off"
+                               data-ks="project" data-ks-put="label">
+                    </div>
+                </div>
                 <div class="col-md-12">
                     <div class="mb-2">
                         <label class="form-label">备注</label>
@@ -636,8 +656,8 @@ textarea.form-control {
                             <th data-column-key="spec" style="width: 100px;">规格<span class="col-resize"></span></th>
                             <th data-column-key="unit" style="width: 70px;">单位<span class="col-resize"></span></th>
                             <th data-column-key="quantity" style="width: 100px;">数量<span class="col-resize"></span></th>
-                            <th data-column-key="price" style="width: 100px;">单价<span class="col-resize"></span></th>
-                            <th data-column-key="amount" style="width: 100px;" class="amount-col">金额<span class="col-resize"></span></th>
+                            <th data-column-key="price" style="width: 100px;"{% if price_dimension_enabled is defined and not price_dimension_enabled %} class="d-none"{% endif %}>单价<span class="col-resize"></span></th>
+                            <th data-column-key="amount" style="width: 100px;" class="amount-col{% if price_dimension_enabled is defined and not price_dimension_enabled %} d-none{% endif %}">金额<span class="col-resize"></span></th>
                             <th data-column-key="stock" style="width: 90px;">当前库存<span class="col-resize"></span></th>
                             <th data-column-key="contract_no" style="width: 140px;">合同编号<span class="col-resize"></span></th>
                             <th data-column-key="project_name" style="width: 180px;">工程名称<span class="col-resize"></span></th>
@@ -648,7 +668,7 @@ textarea.form-control {
                     <tbody id="materialTableBody">
                     </tbody>
                     <tfoot>
-                        <tr class="total-row" data-total-row="true">
+                        <tr class="total-row{% if price_dimension_enabled is defined and not price_dimension_enabled %} d-none{% endif %}" data-total-row="true">
                             <td data-column-key="row_no"></td>
                             <td data-column-key="material_code"></td>
                             <td data-column-key="brand"></td>
@@ -693,6 +713,7 @@ const isPurchaseReturn = {{ is_purchase_return|default(false)|tojson }};
 const purchaseReturnRequiresOrder = {{ purchase_return_requires_order|default(true)|tojson }};
 const returnAddUrl = {{ (return_add_url or '/out_order/add')|tojson }};
 const prefill = {{ (prefill or {})|tojson }};
+const priceDimensionEnabled = {{ (price_dimension_enabled if price_dimension_enabled is defined else true)|tojson }};
 let activeDropdown = null;
 let activeIndex = -1;
 
@@ -727,7 +748,66 @@ function fillMaterialFields(row, material, options = {}) {
         const price = parseFloat(material.price);
         priceInput.value = Number.isFinite(price) ? price.toFixed(2) : '0.00';
     }
+    if (typeof applyHeaderContractToRow === 'function') applyHeaderContractToRow(row);
     ensureIssueEntryRow();
+}
+
+function applyHeaderContractToRow(row) {
+    if (!row) return;
+    const codeVal = (row.querySelector('.material-code')?.value || '').trim();
+    if (!codeVal) return;
+    const headerContractNo = (document.getElementById('headerContractNo')?.value || '').trim();
+    const headerProjectName = (document.getElementById('headerProjectName')?.value || '').trim();
+    const lineContract = row.querySelector('.line-contract-no');
+    const lineProject = row.querySelector('.line-project-name');
+    if (lineContract && headerContractNo && (!lineContract.value.trim() || lineContract.dataset.headerSynced === '1')) {
+        lineContract.value = headerContractNo;
+        lineContract.dataset.headerSynced = '1';
+    }
+    if (lineProject && headerProjectName && (!lineProject.value.trim() || lineProject.dataset.headerSynced === '1')) {
+        lineProject.value = headerProjectName;
+        lineProject.dataset.headerSynced = '1';
+    }
+}
+
+function syncHeaderContractToMaterialRows() {
+    document.querySelectorAll('#materialTableBody tr').forEach(applyHeaderContractToRow);
+}
+
+function setupHeaderContractSync() {
+    const contractInput = document.getElementById('headerContractNo');
+    const contractIdInput = document.getElementById('headerContractId');
+    const projectInput = document.getElementById('headerProjectName');
+    if (!contractInput || !projectInput) return;
+
+    contractInput.addEventListener('input', function() {
+        if (contractIdInput) contractIdInput.value = '';
+    });
+    projectInput.addEventListener('input', function() {
+        delete projectInput.dataset.autoContractProject;
+    });
+    contractInput.addEventListener('change', function() {
+        const code = contractInput.value.trim();
+        const cid = contractIdInput ? contractIdInput.value.trim() : '';
+        syncHeaderContractToMaterialRows();
+        if (!code || !window.WMS || !window.WMS.api || !window.WMS.api.getRaw) return;
+        window.WMS.api.getRaw('/api/options/contract?kw=' + encodeURIComponent(code))
+            .then(function(res) {
+                const list = res && Array.isArray(res.data) ? res.data : [];
+                const matched = list.find(function(item) {
+                    return (cid && String(item.id || '') === cid) || String(item.code || '').trim() === code;
+                });
+                if (matched && matched.name && (!projectInput.value.trim() || projectInput.dataset.autoContractProject === '1')) {
+                    projectInput.value = matched.name;
+                    projectInput.dataset.autoContractProject = '1';
+                    syncHeaderContractToMaterialRows();
+                }
+            })
+            .catch(function() {});
+    });
+    contractInput.addEventListener('blur', syncHeaderContractToMaterialRows);
+    projectInput.addEventListener('change', syncHeaderContractToMaterialRows);
+    projectInput.addEventListener('blur', syncHeaderContractToMaterialRows);
 }
 
 function ensureIssueEntryRow() {
@@ -756,6 +836,9 @@ function handleMaterialCodeInput(row) {
 }
 
 function _initOutOrderRow(row, rowIndex) {
+    const showPrice = typeof priceDimensionEnabled === 'undefined' ? true : !!priceDimensionEnabled;
+    const priceCellClass = showPrice ? '' : ' class="d-none"';
+    const amountCellClass = showPrice ? 'amount-col' : 'amount-col d-none';
     row.innerHTML = `
         <td data-column-key="row_no" class="row-num">${rowIndex}</td>
         <td data-column-key="material_code">
@@ -769,8 +852,8 @@ function _initOutOrderRow(row, rowIndex) {
         <td data-column-key="spec"><input type="text" class="form-control material-spec" readonly></td>
         <td data-column-key="unit"><input type="text" class="form-control material-unit" readonly></td>
         <td data-column-key="quantity"><input type="number" class="form-control material-qty" min="0" step="0.01"></td>
-        <td data-column-key="price"><input type="number" class="form-control material-price" min="0" step="0.01"></td>
-        <td data-column-key="amount" class="amount-col"><input type="text" class="form-control material-amount" readonly></td>
+        <td data-column-key="price"${priceCellClass}><input type="number" class="form-control material-price" min="0" step="0.01"></td>
+        <td data-column-key="amount" class="${amountCellClass}"><input type="text" class="form-control material-amount" readonly></td>
         <td data-column-key="stock" class="num-col"><input type="text" class="form-control material-stock" readonly></td>
         <td data-column-key="contract_no"><input type="text" class="form-control line-contract-no" maxlength="50"></td>
         <td data-column-key="project_name"><input type="text" class="form-control line-project-name" maxlength="200"></td>
@@ -796,14 +879,30 @@ function _initOutOrderRow(row, rowIndex) {
     row.querySelector('.material-code').addEventListener('keydown', function(event) {
         handleKeydown(event, row);
     });
+    row.querySelector('.line-contract-no').addEventListener('input', function() {
+        delete this.dataset.headerSynced;
+    });
+    row.querySelector('.line-project-name').addEventListener('input', function() {
+        delete this.dataset.headerSynced;
+    });
     row.querySelector('.material-qty').addEventListener('input', function() {
         calcAmount(row);
     });
     row.querySelector('.material-qty').addEventListener('keydown', function(event) {
         if (event.key === 'Enter') {
             event.preventDefault();
-            row.querySelector('.material-price').focus();
-            row.querySelector('.material-price').select();
+            if (showPrice) {
+                row.querySelector('.material-price').focus();
+                row.querySelector('.material-price').select();
+            } else {
+                let nextRow = row.nextElementSibling;
+                if (!nextRow) {
+                    addNewRow();
+                    nextRow = document.querySelector('#materialTableBody tr:last-child');
+                }
+                nextRow.querySelector('.material-code').focus();
+                nextRow.querySelector('.material-code').select();
+            }
         }
     });
     row.querySelector('.material-qty').addEventListener('blur', function() {
@@ -1297,6 +1396,9 @@ function submitForm(saveAndNew = false, completeAfterSave = false) {
         warehouse_id: document.querySelector('[name="warehouse_id"]').value,
         location: locationValue,
         ...(purposeInput ? { purpose: purposeInput.value.trim() } : {}),
+        contract_id: document.getElementById('headerContractId')?.value || '',
+        contract_no: (document.getElementById('headerContractNo')?.value || '').trim(),
+        project_name: (document.getElementById('headerProjectName')?.value || '').trim(),
         remark: document.querySelector('[name="remark"]').value,
         items: items
     };
@@ -1450,6 +1552,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     setupCustomerSearch();
     setupSourceInOrderSearch();
+    setupHeaderContractSync();
 
     // ==================== 监听基础资料更新广播 ====================
     try {
@@ -1896,7 +1999,7 @@ function batchUpdateField() {
             <div style="margin-bottom:14px;">
                 <label style="display:block;font-size:13px;color:#333;margin-bottom:6px;">修改字段</label>
                 <select id="batchUpdateField" class="form-control">
-                    <option value="price">单价</option>
+                    ${typeof priceDimensionEnabled === 'undefined' || priceDimensionEnabled ? '<option value="price">单价</option>' : ''}
                     <option value="quantity">数量</option>
                     <option value="warehouse">仓库（整单）</option>
                 </select>

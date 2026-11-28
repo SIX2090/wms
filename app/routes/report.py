@@ -38,6 +38,11 @@ _PURCHASE_ONLY_REPORTS = frozenset({
     'material_purchase_summary',
     'purchase_price_analysis',
 })
+_OUT_DETAIL_REPORTS = frozenset({
+    'out_detail',
+    'requisition_detail',
+    'other_out_detail',
+})
 _PURCHASE_REPORT_ALLOWED_ROLES = frozenset({'admin', 'warehouse', 'finance', 'purchase'})
 
 
@@ -265,8 +270,12 @@ def register_report_routes(app):
                 params.pop('report_type', None)
                 return redirect(url_for('report_view', report_type=report_type, **params))
         warehouses = (Warehouse.query.order_by(Warehouse.code, Warehouse.id).all()
-                      if (report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ONLY_REPORTS)
+                      if (report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORTS or report_type in _PURCHASE_ONLY_REPORTS)
                       else get_active_warehouses())
+        departments = []
+        if report_type in _OUT_DETAIL_REPORTS:
+            from app import Department
+            departments = Department.query.order_by(Department.code, Department.id).all()
         category_rows = []
         if report_type in ('inventory', 'inventory_turnover'):
             from app import MaterialCategory, build_category_tree_rows
@@ -289,6 +298,7 @@ def register_report_routes(app):
             null_warehouse_txn_count=null_warehouse_txn_count,
             category_rows=category_rows,
             warehouses=warehouses,
+            departments=departments,
             default_warehouse=get_default_warehouse(),
             summary_labels=definition['summary_labels'],
             summary_types=definition['summary_types'],
@@ -402,10 +412,10 @@ def register_report_routes(app):
             return api_error('报表数据生成失败，请检查查询条件', 400)
         if truncated:
             return api_error('当前结果超出完整打印范围，请缩小筛选范围后打印，避免遗漏数据', 400)
-        if report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ONLY_REPORTS:
+        if report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORTS or report_type in _PURCHASE_ONLY_REPORTS:
             from services.report_print_preview import visible_report_data
             columns, all_rows = visible_report_data(columns, all_rows, price_dimension_enabled())
-            if report_type in ('in_detail', 'out_detail', 'purchase_order_execution'):
+            if report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORTS or report_type == 'purchase_order_execution':
                 all_rows = [dict(row, status=_serialize_excel_value({'field': 'status', 'type': 'status'}, row))
                             for row in all_rows]
         try:
@@ -463,7 +473,7 @@ def register_report_routes(app):
                                for column in columns if column.get('type') == 'status'})
                     for row in rows]
             scope = [
-                '仓库：全部仓库（公司口径，含未入库订单）'
+                ('仓库：全部仓库（公司口径，含未入库订单）' if report_type in _PURCHASE_ONLY_REPORTS else '仓库：全部仓库')
                 if filters.get('all_warehouses')
                 else f"仓库：{filters['warehouse']}（{filters['warehouse_code']}）"
             ]

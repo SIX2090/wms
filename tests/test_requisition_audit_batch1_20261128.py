@@ -194,13 +194,13 @@ def test_p0_6_price_dimension_enabled_across_reports_prints_detail_ai():
     assert "visible_report_data(columns, rows, include_prices=False)" in paged_body
     assert "summary.pop('amount', None)" in paged_body
     _, payload_body = _get_func(APP_PY, "_build_report_payload")
-    assert "'in_detail', 'out_detail'" in payload_body
+    assert "report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORT_TYPES" in payload_body
     _, ai_body = _get_func(APP_PY, "_ai_analyze_out_order_anomalies")
     assert "if price_dimension_enabled() and std_price > 0" in ai_body
 
     rv_html = REPORT_VIEW_HTML.read_text(encoding="utf-8")
-    assert "report_type in ('in_detail', 'out_detail'" in rv_html
-    assert "if (reportType === 'in_detail' || reportType === 'out_detail')" in rv_html
+    assert "report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'" in rv_html
+    assert "['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'].includes(reportType)" in rv_html
 
     # Jinja render check: print_out.html
     env = jinja2.Environment(

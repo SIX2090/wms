@@ -88,6 +88,11 @@ def test_finance_and_viewer_keep_report_queries_without_form_or_admin_access():
 
 def test_other_business_types_have_explicit_report_queries():
     links = shell('admin').links
-    for path, business_type in [('/report/view/in_detail', '其他入库'), ('/report/view/out_detail', '其他出库')]:
-        assert any(urlsplit(link).path == path and parse_qs(urlsplit(link).query).get('business_type') == [business_type]
-                   for link in links)
+    assert any(
+        urlsplit(link).path == '/report/view/in_detail'
+        and parse_qs(urlsplit(link).query).get('business_type') == ['其他入库']
+        for link in links
+    )
+    paths = {urlsplit(link).path for link in links}
+    assert '/report/view/requisition_detail' in paths
+    assert '/report/view/other_out_detail' in paths

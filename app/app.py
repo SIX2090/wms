@@ -25460,6 +25460,7 @@ def _apply_out_order_search(query, search):
     conditions = [
         OutOrder.order_no.like(search_like),
         OutOrder.customer.like(search_like),
+        OutOrder.picker.like(search_like),
         OutOrder.purpose.like(search_like),
         OutOrder.business_type.like(search_like),
         Department.name.like(search_like),
@@ -29069,6 +29070,56 @@ REPORT_DEFINITIONS = {
             'material': True,
             'supplier': False,
             'customer': True,
+            'picker': True,
+            'status': True,
+        },
+    },
+    'requisition_detail': {
+        'title': '领料明细报表',
+        'description': '按领料单查看领料部门、领料人、工程合同与领料明细。',
+        'icon': 'bi-box-arrow-up',
+        'accent': 'info',
+        'summary_labels': {
+            'count': '领料行数',
+            'quantity': '领料数量',
+            'amount': '领料金额',
+        },
+        'summary_types': {
+            'count': 'number',
+            'quantity': 'number',
+            'amount': 'money',
+        },
+        'filters': {
+            'date': True,
+            'material': True,
+            'supplier': False,
+            'customer': False,
+            'department': True,
+            'picker': True,
+            'status': True,
+        },
+    },
+    'other_out_detail': {
+        'title': '其他出库明细报表',
+        'description': '按其他出库单查看领用单位、领用人、用途与出库明细。',
+        'icon': 'bi-card-list',
+        'accent': 'info',
+        'summary_labels': {
+            'count': '记录数',
+            'quantity': '出库数量',
+            'amount': '出库金额',
+        },
+        'summary_types': {
+            'count': 'number',
+            'quantity': 'number',
+            'amount': 'money',
+        },
+        'filters': {
+            'date': True,
+            'material': True,
+            'supplier': False,
+            'customer': True,
+            'picker': True,
             'status': True,
         },
     },
@@ -29310,6 +29361,8 @@ REPORT_TYPE_ORDER = [
     'inventory_analysis',
     'inventory_turnover',
     'in_detail',
+    'requisition_detail',
+    'other_out_detail',
     'out_detail',
     'summary',
     'check',
@@ -29670,13 +29723,20 @@ _PURCHASE_ORDER_REPORT_TYPES = frozenset({
 })
 
 
+_OUT_DETAIL_REPORT_TYPES = frozenset({
+    'out_detail',
+    'requisition_detail',
+    'other_out_detail',
+})
+
+
 def _build_report_filters(require_existing_warehouse=True, report_type=None):
-    if report_type in ('in_detail', 'out_detail', 'ledger', 'inventory_turnover') or report_type in _PURCHASE_ORDER_REPORT_TYPES:
+    if report_type in ('in_detail', 'ledger', 'inventory_turnover') or report_type in _OUT_DETAIL_REPORT_TYPES or report_type in _PURCHASE_ORDER_REPORT_TYPES:
         _begin_report_read()
     raw_warehouse = (request.args.get('warehouse_id') or '').strip()
-    if report_type in ('in_detail', 'out_detail', 'ledger') and not raw_warehouse:
+    if (report_type in ('in_detail', 'ledger') or report_type in _OUT_DETAIL_REPORT_TYPES) and not raw_warehouse:
         raise ReportFilterError('请选择仓库')
-    all_warehouses = bool(report_type in _PURCHASE_ORDER_REPORT_TYPES and raw_warehouse == '0')
+    all_warehouses = bool((report_type in _PURCHASE_ORDER_REPORT_TYPES or report_type in _OUT_DETAIL_REPORT_TYPES) and raw_warehouse == '0')
     warehouse_id = 0 if all_warehouses else _parse_positive_int(raw_warehouse, 0)
     if raw_warehouse and not all_warehouses and (not raw_warehouse.isdecimal() or not 0 < warehouse_id <= 2**63 - 1):
         raise ReportFilterError('仓库参数无效，请重新选择仓库')
@@ -29685,7 +29745,7 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     if start_date and end_date and start_date > end_date:
         raise ReportFilterError('结束日期不能早于开始日期')
     status = (request.args.get('status') or '').strip()
-    if report_type in ('in_detail', 'out_detail', 'summary'):
+    if report_type in ('in_detail', 'summary') or report_type in _OUT_DETAIL_REPORT_TYPES:
         if status not in ('', 'all', 'pending', 'completed'):
             raise ReportFilterError('单据状态无效，请重新选择状态')
         status = '' if status == 'all' else (status or 'completed')
@@ -29714,16 +29774,17 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
             raise ReportFilterError(f'{label}参数无效，请重新选择{label}')
         return value
 
-    material_id = (selection_id('material_id', '物料') if report_type in ('in_detail', 'out_detail', 'ledger')
+    material_id = (selection_id('material_id', '物料') if (report_type in ('in_detail', 'ledger') or report_type in _OUT_DETAIL_REPORT_TYPES)
                    else _parse_positive_int(request.args.get('material_id'), 0))
+    department_id = selection_id('department_id', '领料部门') if report_type in _OUT_DETAIL_REPORT_TYPES else 0
     inbound_detail = report_type == 'in_detail'
     include_prices = (
         report_type not in (
-            'in_detail', 'out_detail', 'inventory_turnover',
+            'in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'inventory_turnover',
             'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary',
         ) or price_dimension_enabled()
     )
-    print_snapshot = (report_type in ('in_detail', 'out_detail') or report_type in _PURCHASE_ORDER_REPORT_TYPES) and request.args.get('web_print') == '1'
+    print_snapshot = (report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORT_TYPES or report_type in _PURCHASE_ORDER_REPORT_TYPES) and request.args.get('web_print') == '1'
     sort_field = (request.args.get('sort_field') or '').strip()
     if not include_prices and sort_field in ('amount', 'price', 'received_amount', 'remaining_amount', 'avg_price'):
         sort_field = ''
@@ -29737,6 +29798,10 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
     # 出库值，合并白名单不会让两者串味（各自 WHERE 仍按类型等值过滤）。
     if raw_business_type not in REPORT_BUSINESS_TYPE_WHITELIST:
         raw_business_type = ''
+    if report_type == 'requisition_detail':
+        raw_business_type = ''
+    elif report_type == 'other_out_detail':
+        raw_business_type = '其他出库'
     return {
         **(turnover_filters(request.args) if report_type == 'inventory_turnover' else {}),
         **({'category_id': parse_report_category(request.args)} if report_type == 'inventory' else {}),
@@ -29753,6 +29818,8 @@ def _build_report_filters(require_existing_warehouse=True, report_type=None):
         'project_name': (request.args.get('project_name') or '').strip(),
         'material_code': (request.args.get('material_code') or '').strip(),
         'material_id': material_id,
+        'department_id': department_id,
+        'picker': (request.args.get('picker') or '').strip(),
         'supplier_id': (selection_id('supplier_id', '供应商') if inbound_detail else
                         _parse_positive_int(request.args.get('supplier_id'), 0)),
         'customer_id': selection_id('customer_id', '客户') if inbound_detail else 0,
@@ -30116,7 +30183,53 @@ def _in_detail_columns():
         {'field': 'item_remark', 'title': '明细备注'},
     ]
 
-def _out_detail_columns():
+def _out_detail_columns(report_type='out_detail'):
+    if report_type == 'requisition_detail':
+        return [
+            {'field': 'date', 'title': '日期'},
+            {'field': 'order_no', 'title': '领料单号', 'link_field': 'order_url'},
+            {'field': 'customer', 'title': '领料部门'},
+            {'field': 'picker', 'title': '领料人'},
+            {'field': 'purpose', 'title': '用途'},
+            {'field': 'contract_no', 'title': '合同编号'},
+            {'field': 'project_name', 'title': '工程名称'},
+            {'field': 'warehouse', 'title': '仓库'},
+            {'field': 'location', 'title': '库位'},
+            {'field': 'material_code', 'title': '物料编码'},
+            {'field': 'material_name', 'title': '物料名称'},
+            {'field': 'spec', 'title': '规格型号'},
+            {'field': 'unit', 'title': '单位'},
+            {'field': 'quantity', 'title': '数量'},
+            {'field': 'price', 'title': '单价', 'type': 'money'},
+            {'field': 'amount', 'title': '金额', 'type': 'money'},
+            {'field': 'status', 'title': '状态', 'type': 'status'},
+            {'field': 'operator', 'title': '操作人'},
+            {'field': 'remark', 'title': '单据备注'},
+            {'field': 'item_remark', 'title': '明细备注'},
+        ]
+    if report_type == 'other_out_detail':
+        return [
+            {'field': 'date', 'title': '日期'},
+            {'field': 'order_no', 'title': '其他出库单号', 'link_field': 'order_url'},
+            {'field': 'customer', 'title': '客户/领用单位'},
+            {'field': 'picker', 'title': '领用人/经办人'},
+            {'field': 'purpose', 'title': '用途'},
+            {'field': 'contract_no', 'title': '合同编号'},
+            {'field': 'project_name', 'title': '工程名称'},
+            {'field': 'warehouse', 'title': '仓库'},
+            {'field': 'location', 'title': '库位'},
+            {'field': 'material_code', 'title': '物料编码'},
+            {'field': 'material_name', 'title': '物料名称'},
+            {'field': 'spec', 'title': '规格型号'},
+            {'field': 'unit', 'title': '单位'},
+            {'field': 'quantity', 'title': '数量'},
+            {'field': 'price', 'title': '单价', 'type': 'money'},
+            {'field': 'amount', 'title': '金额', 'type': 'money'},
+            {'field': 'status', 'title': '状态', 'type': 'status'},
+            {'field': 'operator', 'title': '操作人'},
+            {'field': 'remark', 'title': '单据备注'},
+            {'field': 'item_remark', 'title': '明细备注'},
+        ]
     return [
         {'field': 'date', 'title': '日期'},
         {'field': 'order_no', 'title': '出库单号', 'link_field': 'order_url'},
@@ -30823,6 +30936,11 @@ def _filtered_out_detail_query(filters):
     # 客户/部门筛选：部门名、单据上的客户文本、用途任一命中即保留。
     # 此前只匹配部门名（无部门时回退用途），完全不查 OutOrder.customer，
     # 导致按客户名称筛选永远无结果。
+    if filters.get('department_id'):
+        query = query.filter(OutOrder.department_id == filters['department_id'])
+    picker_keyword = (filters.get('picker') or '').strip()
+    if picker_keyword:
+        query = query.filter(OutOrder.picker.icontains(picker_keyword, autoescape=True))
     customer_keyword = (filters.get('customer') or '').strip()
     if customer_keyword:
         query = query.filter(_out_detail_party_expression().icontains(customer_keyword, autoescape=True))
@@ -30838,8 +30956,8 @@ def _filtered_out_detail_query(filters):
 
 
 def _collect_out_detail_rows(filters):
-    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # BUG-2026-08-02-014：AGENTS.md 报表仓库必填，无仓库不返回数据（显式全部仓库除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         return []
     query = _filtered_out_detail_query(filters).options(
         joinedload(OutOrderItem.out_order).joinedload(OutOrder.department),
@@ -32029,9 +32147,15 @@ def _build_in_detail_report(filters):
     columns, rows, summary, _ = _sql_paged_in_detail_report(dict(filters, export='excel'))
     return columns, rows, summary
 
-def _build_out_detail_report(filters):
-    columns, rows, summary, _ = _sql_paged_out_detail_report(dict(filters, export='excel'))
+def _build_out_detail_report(filters, report_type='out_detail'):
+    columns, rows, summary, _ = _sql_paged_out_detail_report(dict(filters, export='excel'), report_type=report_type)
     return columns, rows, summary
+
+def _build_requisition_detail_report(filters):
+    return _build_out_detail_report(filters, report_type='requisition_detail')
+
+def _build_other_out_detail_report(filters):
+    return _build_out_detail_report(filters, report_type='other_out_detail')
 
 def _build_summary_report(filters):
     columns, rows, summary, _ = _sql_paged_summary_report(dict(filters, export='excel'))
@@ -32244,6 +32368,8 @@ REPORT_BUILDERS = {
     'inventory_analysis': _build_inventory_analysis_report,
     'in_detail': _build_in_detail_report,
     'out_detail': _build_out_detail_report,
+    'requisition_detail': _build_requisition_detail_report,
+    'other_out_detail': _build_other_out_detail_report,
     'summary': _build_summary_report,
     'check': _build_check_report,
     'ledger': _build_ledger_report,
@@ -32374,12 +32500,16 @@ def _sql_paged_in_detail_report(filters):
     return columns, rows, summary, total
 
 
-def _sql_paged_out_detail_report(filters):
+def _sql_paged_out_detail_report(filters, report_type='out_detail'):
     """出库明细 SQL 分页 builder：返回 (columns, rows, summary, total)。"""
-    columns = _out_detail_columns()
+    if report_type == 'requisition_detail':
+        filters = dict(filters, business_type='')
+    elif report_type == 'other_out_detail':
+        filters = dict(filters, business_type='其他出库')
+    columns = _out_detail_columns(report_type)
     include_prices = filters.get('include_prices', True)
-    # AGENTS.md 报表仓库必填，无仓库不返回数据
-    if not filters.get('warehouse_id') and not filters.get('warehouse'):
+    # AGENTS.md 报表仓库必填，无仓库不返回数据（显式全部仓库除外）
+    if not filters.get('all_warehouses') and not filters.get('warehouse_id') and not filters.get('warehouse'):
         empty_summary = {'count': 0, 'quantity': 0, 'amount': 0}
         if not include_prices:
             from services.report_print_preview import visible_report_data
@@ -33407,10 +33537,20 @@ def _sql_paged_subcontract_report(filters):
     return columns, [_to_row(row) for row in page_rows], summary, total
 
 
+def _sql_paged_requisition_detail_report(filters):
+    return _sql_paged_out_detail_report(filters, report_type='requisition_detail')
+
+
+def _sql_paged_other_out_detail_report(filters):
+    return _sql_paged_out_detail_report(filters, report_type='other_out_detail')
+
+
 SQL_PAGED_REPORT_BUILDERS = {
     'material_movement': _sql_paged_material_movement_report,
     'in_detail': _sql_paged_in_detail_report,
     'out_detail': _sql_paged_out_detail_report,
+    'requisition_detail': _sql_paged_requisition_detail_report,
+    'other_out_detail': _sql_paged_other_out_detail_report,
     'check': _sql_paged_check_report,
     'purchase_order_execution': _sql_paged_purchase_execution_report,
     'summary': _sql_paged_summary_report,
@@ -33429,7 +33569,8 @@ def _build_report_payload(report_type, filters):
     if builder is None or definition is None:
         raise ValueError('unsupported report type')
 
-    if report_type in ('in_detail', 'out_detail', 'purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary') and not filters.get('include_prices', True):
+    if (report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORT_TYPES
+            or report_type in ('purchase_order_execution', 'supplier_purchase_summary', 'material_purchase_summary')) and not filters.get('include_prices', True):
         definition = dict(definition, **{key: {k: v for k, v in definition[key].items() if k != 'amount'}
                                         for key in ('summary_labels', 'summary_types')})
 

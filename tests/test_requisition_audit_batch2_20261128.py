@@ -86,8 +86,8 @@ def test_p1_1_out_detail_report_parity_and_inout_print_partner():
     assert "OutOrderItem" not in check_query_body, "_filtered_check_query must not touch OutOrderItem"
 
     _, filters_body = _get_func(APP_PY, "_build_report_filters")
-    assert "report_type in ('in_detail', 'out_detail', 'ledger')" in filters_body
-    assert "report_type in ('in_detail', 'out_detail')" in filters_body
+    assert "report_type in ('in_detail', 'ledger') or report_type in _OUT_DETAIL_REPORT_TYPES" in filters_body
+    assert "report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORT_TYPES" in filters_body
 
     app_src = APP_PY.read_text(encoding="utf-8")
     sort_seg = app_src[app_src.index("_OUT_DETAIL_SORT_MAP = {") : app_src.index("def _sql_order_by(")]
@@ -96,7 +96,7 @@ def test_p1_1_out_detail_report_parity_and_inout_print_partner():
         assert key in sort_seg, f"_OUT_DETAIL_SORT_MAP missing {key}"
 
     _, rview_body = _get_func(REPORT_PY, "report_view")
-    assert "report_type in ('in_detail', 'out_detail')" in rview_body
+    assert "report_type == 'in_detail' or report_type in _OUT_DETAIL_REPORTS" in rview_body
 
     _, inout_body = _get_func(REPORT_PY, "report_inout_print")
     assert "if order.business_type in ('销售出库', '采购退货出库', '其他出库')" in inout_body
@@ -104,10 +104,10 @@ def test_p1_1_out_detail_report_parity_and_inout_print_partner():
     rv_html = REPORT_VIEW_HTML.read_text(encoding="utf-8")
     assert "{% elif report_type == 'out_detail' %}" in rv_html
     assert "默认显示已完成领料单" in rv_html
-    assert "{% if report_type in ('in_detail', 'out_detail') %}" in rv_html
-    assert "report_type in ('in_detail', 'out_detail') or is_purchase_order_report" in rv_html
-    assert "'in_detail', 'out_detail', 'purchase_order_execution'" in rv_html
-    assert "if (reportType === 'in_detail' || reportType === 'out_detail')" in rv_html
+    assert "{% if report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') %}" in rv_html
+    assert "report_type in ('in_detail', 'out_detail', 'requisition_detail', 'other_out_detail') or is_purchase_order_report" in rv_html
+    assert "'in_detail', 'out_detail', 'requisition_detail', 'other_out_detail', 'purchase_order_execution'" in rv_html
+    assert "['in_detail', 'out_detail', 'requisition_detail', 'other_out_detail'].includes(reportType)" in rv_html
 
 
 def test_p1_2_out_order_detail_layout_controls_and_header_guards():
@@ -132,7 +132,7 @@ def test_p1_3_out_order_list_template_and_js_runtime():
     """P1-3: out_order.html balanced grid/clear/role-checkbox/party/type; out-order-list.js drag-drop & warning->force VM."""
     html = OUT_LIST_HTML.read_text(encoding="utf-8")
     assert "{% set can_batch_out = current_user.role in ['admin', 'warehouse'] %}" in html
-    assert 'colspan="{{ 17 if can_batch_out else 16 }}"' in html
+    assert 'colspan="{{ 15 + (1 if can_batch_out else 0) + (2 if show_price_cols else 0) }}"' in html
     assert "{{ list_base_path }}" in html
     assert "('warehouse_id', filters.warehouse_id)" in html
     assert 'width="150" class="text-nowrap"' in html
