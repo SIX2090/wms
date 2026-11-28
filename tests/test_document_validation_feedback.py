@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.frontend_page_source import page_source, page_style_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -25,7 +26,7 @@ def run(page, action, scenario):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}_order_add.html')
     payload = dict(page=page, action=action, scenario=scenario, source=(ROOT / 'app/static/js/decimal-input.js').read_text(encoding='utf-8')+'\n'+function(source, 'outboundRowHasDetails' if page == 'out' else 'receiptRowHasDetails')+'\n'+function(source, action))
     program = r'''
 const assert=require('node:assert/strict'),vm=require('node:vm');const p=JSON.parse(process.argv[1]);
@@ -114,11 +115,10 @@ def test_inbound_extra_bulk_guards(scenario):
 
 @pytest.mark.parametrize('page', ['in', 'out'])
 def test_bulk_overlay_leaves_common_feedback_visible(page):
-    source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}_order_add.html')
     body = function(source, 'batchUpdateField')
     assert 'alert(' not in body
     overlay = int(re.search(r'z-index:(\d+)', body).group(1))
-    from tests.frontend_page_source import page_style_source
     base = page_style_source(ROOT / 'app/templates/base.html')
     toast = int(re.search(r'\.cb-toast-stack\s*\{[^}]*z-index:\s*(\d+)', base).group(1))
     assert 1055 < overlay < toast
@@ -129,7 +129,7 @@ def test_paste_avoids_partially_entered_lines(page, helper):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    source = (ROOT / f'app/templates/{page}_order_add.html').read_text('utf8')
+    source = page_source(ROOT / f'app/templates/{page}_order_add.html')
     script = function(source, helper) + '\n' + function(source, 'findEmptyRow') + """
 const assert = require('node:assert/strict');
 function row(fields) {

@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT=Path(__file__).resolve().parents[1]
 
@@ -13,7 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 def test_copy_previous_fills_selected_row_without_insertion(page,case):
     node=shutil.which('node')
     if not node:pytest.skip('Node.js required')
-    source=(ROOT/f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    source=page_source(ROOT/f'app/templates/{page}_order_add.html')
     helpers='function copyValuesToRow'+source.split('function copyValuesToRow',1)[1].split('function insertRowBefore',1)[0]
     if page == 'out':
         helpers = source[source.index('function ensureIssueEntryRow('):source.index('function clearMaterialFields(')] + helpers

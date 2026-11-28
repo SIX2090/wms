@@ -7,6 +7,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 PAGES = ['in_order_add', 'out_order_add', 'after_sale_out_add',
@@ -52,9 +53,7 @@ def test_actual_entry_summary_updates_without_save(page):
              'opening_stock': 'updateTotal', 'in_order_detail': 'calcInlineRowAmount',
              'out_order_detail': 'calcInlineRowAmount'}
     if page not in ['subcontract_issue', 'subcontract_receive']:
-        runtime = source
-        if page == 'opening_stock':
-            runtime = (ROOT / 'app/static/js/pages/opening-stock.js').read_text(encoding='utf-8')
+        runtime = page_source(ROOT / f'app/templates/{page}.html')
         name = funcs.get(page, 'calcTotal')
         body = re.search(r'function ' + name + r'\([^)]*\)\s*\{([\s\S]*?)\n\s*\}', runtime).group(1)
         assert f"refreshQuantityTotals('{table}')" in body

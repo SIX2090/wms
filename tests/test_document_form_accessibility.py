@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ['document_table_form', 'adjustment_add', 'purchase_order_add',
@@ -14,7 +15,7 @@ TEMPLATES = ['document_table_form', 'adjustment_add', 'purchase_order_add',
 
 @pytest.mark.parametrize('template', TEMPLATES)
 def test_form_accessibility_consumer(template):
-    source = (ROOT / 'app/templates' / (template + '.html')).read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates' / (template + '.html'))
     assert source.count("filename='js/pages/document-form-accessibility.js'") == 1
     if template in ('document_table_form', 'adjustment_add', 'in_order_add', 'out_order_add'):
         paste = source.split('function showPasteModal() {', 1)[1].split('async function parsePastedData()', 1)[0]

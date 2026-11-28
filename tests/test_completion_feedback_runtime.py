@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -126,7 +127,8 @@ const invoke=()=>p.kind==='shared'?ctx.submitForm(true):ctx.submitForm(false,tru
 def _run(kind, scenario, embedded=False, existing=False):
     binary = shutil.which('node')
     assert binary, 'Node.js required for completion-feedback runtime regression'
-    source = (ROOT / 'app/templates' / ('document_table_form.html' if kind == 'shared' else kind + '_order_add.html')).read_text(encoding='utf-8')
+    page = 'document_table_form.html' if kind == 'shared' else kind + '_order_add.html'
+    source = page_source(ROOT / 'app/templates' / page)
     names = ['submitForm'] if kind != 'shared' else ['beginDocumentAction', 'endDocumentAction', 'submitForm', 'runComplete']
     shared = (ROOT / 'app/static/js/app.js').read_text(encoding='utf-8')
     payload = dict(kind=kind, scenario=scenario, embedded=embedded, existing=existing,

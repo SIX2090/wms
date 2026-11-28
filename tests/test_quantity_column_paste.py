@@ -26,6 +26,7 @@ def test_quantity_column_runtime():
 ])
 def test_paste_script_matches_editable_document(page, context, expected):
     source = (ROOT / 'app/templates' / (page + '.html')).read_text(encoding='utf8')
-    includes = source.split('{% block extra_js %}', 1)[1].split('<script>', 1)[0]
+    includes = source.split('{% block extra_js %}', 1)[1]
+    includes = includes.split('<script type="application/json"', 1)[0].split('<script>', 1)[0]
     scripts = Template(includes).render(config={}, url_for=lambda _, filename: filename, **context)
     assert ('js/quantity-column-paste.js' in scripts) is expected

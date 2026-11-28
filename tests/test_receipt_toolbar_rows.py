@@ -5,6 +5,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -16,7 +17,7 @@ def test_row_menu_copy_preserves_all_fields_and_inserts_next_to_source(price, ca
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}_order_add.html')
     helpers = 'function copyValuesToRow' + source.split('function copyValuesToRow', 1)[1].split('function insertRowBefore', 1)[0]
     if page == 'out':
         helpers = source[source.index('function ensureIssueEntryRow('):source.index('function clearMaterialFields(')] + helpers
@@ -66,7 +67,7 @@ def test_add_button_focuses_available_row_without_unnecessary_append(page):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required')
-    source = (ROOT / f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/{page}_order_add.html')
     assert 'onclick="addRowAfterCurrent()"' in source
     function = 'function addRowAfterCurrent' + source.split('function addRowAfterCurrent', 1)[1].split('function insertRowBefore', 1)[0]
     script = r'''

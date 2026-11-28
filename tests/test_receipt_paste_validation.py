@@ -4,6 +4,7 @@ import shutil
 import subprocess
 
 import pytest
+from tests.frontend_page_source import page_source
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -75,7 +76,8 @@ def test_stocktake_paste_accepts_zero_actual_stock():
 def test_bulk_quantity_preserves_valid_decimals_and_rejects_rounding_to_zero(page,value,expected):
     node=shutil.which('node')
     if not node: pytest.skip('Node.js required')
-    source=(ROOT/f'app/templates/{page}_order_add.html').read_text(encoding='utf-8')
+    path = 'app/static/js/pages/in-order-add.js' if page == 'in' else 'app/templates/out_order_add.html'
+    source = (ROOT / path).read_text(encoding='utf-8')
     function='function applyBatchUpdate()'+source.split('function applyBatchUpdate()',1)[1].split('\n</script>',1)[0]
     script=r'''
 const fields={'.material-code':{value:'M1'},'.material-qty':{value:'3'}};
@@ -94,7 +96,7 @@ def _run_paste(page, text, fail=False, repeat=False, cancel=False, doc_type='req
     if not node:
         pytest.skip('Node.js required')
     filename={'shared':'document_table_form.html','adjustment':'adjustment_add.html'}.get(page,f'{page}_order_add.html')
-    source = (ROOT / 'app/templates'/filename).read_text(encoding='utf-8')
+    source = page_source(ROOT / 'app/templates' / filename)
     start = source.index('function parsePastedData()')
     if source[start-6:start] == 'async ':
         start -= 6

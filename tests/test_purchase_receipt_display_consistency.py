@@ -8,6 +8,7 @@ import pytest
 from openpyxl import load_workbook
 import app as wms
 from app import db
+from tests.frontend_page_source import page_html_source
 from tests.test_document_create_number_conflicts import case  # noqa: F401
 
 
@@ -97,11 +98,11 @@ def test_selection_explains_receipts_and_reservations(purchase_case, draft_statu
     if occupied:
         detail = client.get(row['drafts'][0]['url'])
         assert detail.status_code == 200 and 'IN-DISPLAY-1' in detail.get_data(as_text=True)
-    html = client.get('/in_order/add').get_data(as_text=True)
-    modal = html[html.index('function showPurchaseOrderSelectModal('):html.index('function loadPurchaseOrderSelectable(')]
+    source = page_html_source(client.get('/in_order/add').get_data(as_text=True))
+    modal = source[source.index('function showPurchaseOrderSelectModal('):source.index('function loadPurchaseOrderSelectable(')]
     for label in ('采购数量', '已入库', '未入库', '草稿占用', '可再下推'):
         assert re.search(r'<th\b[^>]*>' + label + '</th>', modal)
-    renderer = html[html.index('function renderPurchaseOrderSelectableRows('):html.index('function selectAllRowsOfOrder(')]
+    renderer = source[source.index('function renderPurchaseOrderSelectableRows('):source.index('function selectAllRowsOfOrder(')]
     assert 'item.completed_quantity' in renderer and 'item.received_quantity' not in renderer
 
 

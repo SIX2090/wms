@@ -6,6 +6,7 @@ import subprocess
 
 import pytest
 from jinja2 import Template
+from tests.frontend_page_source import page_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,7 +19,7 @@ def test_completion_navigation(page, kind, status):
     node = shutil.which('node')
     if not node:
         pytest.skip('Node.js required to execute browser completion callbacks')
-    source = (ROOT / f'app/templates/in_order_{page}.html').read_text(encoding='utf-8')
+    source = page_source(ROOT / f'app/templates/in_order_{page}.html')
     if page == 'add':
         callback = source.split('.then(completeRes => {', 1)[1].split('\n            });', 1)[0]
         action = f'const completeRes = response; {callback}'

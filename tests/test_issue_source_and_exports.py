@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from openpyxl import Workbook, load_workbook
 
 from tests.document_revision_client import document_post
+from tests.frontend_page_source import in_order_add_data
 from tests.test_auto_push_requisition import _create_purchase_in_order, _login, _reset_db, _seed
 from tests.test_requisition_location_flow_integration import accepted, save, scene, wms
 
@@ -111,7 +112,10 @@ def test_continue_entry_uses_prefilled_warehouse_stock(scene):
         html = client.get(path, query_string={'warehouse': 'U1仓B'}).get_data(as_text=True)
         page = BeautifulSoup(html, 'html.parser')
         assert int(page.select_one('[name=warehouse_id] option[selected]')['value']) == warehouse
-        materials = json.loads(re.search(r'const materials = ([^\n]+);', html).group(1))
+        if path == '/in_order/add':
+            materials = in_order_add_data(html)['materials']
+        else:
+            materials = json.loads(re.search(r'const materials = ([^\n]+);', html).group(1))
         assert next(item['stock'] for item in materials if item['code'] == 'U1-M') == expected == 80
 
 
